@@ -88,6 +88,33 @@ def _confidence_label(similarity: Optional[float], review_threshold: float) -> s
     return "low"
 
 
+# Prefer still photos for person tiles; only use video faces when no photo remains.
+_REP_ORDER = """
+    CASE m.kind WHEN 'photo' THEN 0 ELSE 1 END,
+    CASE f.review_state WHEN 'confirmed' THEN 0 ELSE 1 END,
+    COALESCE(f.quality, 0) DESC,
+    f.detection DESC,
+    f.id
+"""
+
+
+def _pick_representative_face(person_id: int, conn=None) -> Optional[int]:
+    """Best face for a person tile: best photo first, else best video face."""
+    sql = f"""
+        SELECT f.id FROM faces f
+        JOIN media m ON m.id = f.media_id
+        WHERE f.person_id = ? AND f.deleted_at IS NULL
+          AND m.deleted_at IS NULL AND m.missing = 0
+        ORDER BY {_REP_ORDER}
+        LIMIT 1
+    """
+    if conn is not None:
+        row = conn.execute(sql, (person_id,)).fetchone()
+        return int(row["id"]) if row else None
+    row = db.one(sql, (person_id,))
+    return int(row["id"]) if row else None
+
+
 def _person_row(row: dict, review_threshold: Optional[float] = None) -> dict:
     pid = row["id"]
     name = row.get("name")
@@ -105,26 +132,43 @@ def _person_row(row: dict, review_threshold: Optional[float] = None) -> dict:
         (pid,),
     ) or {}
     rep = row.get("representative_face_id")
-    # Fallback: pick any active face if representative is missing/stale
-    if rep is None and int(stats.get("face_count") or 0) > 0:
-        fallback = db.one(
+    face_count = int(stats.get("face_count") or 0)
+    photo_count = int(stats.get("photo_count") or 0)
+
+    need_new = face_count > 0 and rep is None
+    if rep is not None and face_count > 0:
+        meta = db.one(
             """
-            SELECT f.id FROM faces f
+            SELECT f.id, m.kind FROM faces f
             JOIN media m ON m.id = f.media_id
-            WHERE f.person_id = ? AND f.deleted_at IS NULL AND m.deleted_at IS NULL AND m.missing = 0
-            ORDER BY CASE f.review_state WHEN 'confirmed' THEN 0 ELSE 1 END, f.detection DESC, f.id
-            LIMIT 1
+            WHERE f.id = ? AND f.person_id = ? AND f.deleted_at IS NULL
+              AND m.deleted_at IS NULL AND m.missing = 0
             """,
-            (pid,),
+            (rep, pid),
         )
-        if fallback:
-            rep = fallback["id"]
+        if not meta:
+            need_new = True
+        elif meta.get("kind") == "video" and photo_count > 0:
+            # Upgrade tile from video frame → best still photo
+            need_new = True
+
+    if need_new:
+        rep = _pick_representative_face(pid) if face_count > 0 else None
+        try:
+            with db.connect() as conn:
+                conn.execute(
+                    "UPDATE people SET representative_face_id=? WHERE id=?",
+                    (rep, pid),
+                )
+        except Exception:
+            pass
+
     return {
         "id": pid,
         "name": name,
         "display_name": _display_name(name, pid),
-        "face_count": int(stats.get("face_count") or 0),
-        "photo_count": int(stats.get("photo_count") or 0),
+        "face_count": face_count,
+        "photo_count": photo_count,
         "video_count": int(stats.get("video_count") or 0),
         "representative_face_id": rep,
         "unreviewed_count": int(stats.get("unreviewed_count") or 0),
@@ -402,8 +446,13 @@ def load_engine(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/people")
-def list_people(q: str = "", page: int = 1, limit: int = 48, sort: str = "faces"):
-    """sort: faces (default) | photos | videos | name — all descending except name (A–Z)."""
+def list_people(
+    q: str = "",
+    page: int = 1,
+    limit: int = 48,
+    sort: str = "faces",
+):
+    """sort: faces (default) | photos | videos | name"""
     page = max(1, page)
     limit = max(1, min(limit, 200))
     offset = (page - 1) * limit
@@ -431,8 +480,8 @@ def list_people(q: str = "", page: int = 1, limit: int = 48, sort: str = "faces"
         # faces (default)
         order_sql = "people.face_count DESC, people.id"
 
-    base_where = "people.face_count > 0"
     params: list[Any] = []
+    base_where = "people.face_count > 0"
     if q.strip():
         like = f"%{q.strip()}%"
         base_where += " AND (people.name LIKE ? OR CAST(people.id AS TEXT) LIKE ?)"
@@ -508,6 +557,7 @@ def rename_person(person_id: int, body: NameBody, request: Request):
         conn.execute("UPDATE people SET name=? WHERE id=?", (name, person_id))
     cluster.invalidate()
     return _person_row(db.one("SELECT * FROM people WHERE id=?", (person_id,)))
+
 
 
 @app.post("/api/people/{person_id}/merge")
@@ -666,8 +716,10 @@ def move_person_media(person_id: int, body: MoveMediaBody, request: Request):
                 )
             else:
                 rep = conn.execute(
-                    """SELECT id FROM faces WHERE person_id=? AND deleted_at IS NULL
-                       ORDER BY quality DESC, id LIMIT 1""",
+                    """SELECT f.id FROM faces f JOIN media m ON m.id=f.media_id
+                       WHERE f.person_id=? AND f.deleted_at IS NULL AND m.deleted_at IS NULL
+                       ORDER BY CASE m.kind WHEN 'photo' THEN 0 ELSE 1 END,
+                                COALESCE(f.quality,0) DESC, f.id LIMIT 1""",
                     (person_id,),
                 ).fetchone()
                 conn.execute(
@@ -846,13 +898,31 @@ def permanent_delete_face(face_id: int, body: ConfirmBody, request: Request):
     return {"ok": True}
 
 
+def _placeholder_face_jpeg() -> bytes:
+    """Neutral gray tile so UI never breaks on missing face thumbs."""
+    from PIL import Image
+    img = Image.new("RGB", (128, 128), (40, 48, 62))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=70)
+    return buf.getvalue()
+
+
+def _serve_face_thumb_file(path: Path):
+    try:
+        if path.is_file() and path.stat().st_size > 0:
+            return FileResponse(path, media_type="image/jpeg")
+    except OSError:
+        pass
+    return None
+
+
 @app.get("/api/faces/{face_id}/thumbnail")
 def face_thumbnail(face_id: int):
     face = db.one("SELECT * FROM faces WHERE id=?", (face_id,))
     if not face:
-        raise HTTPException(404, "Face not found")
+        # Soft 200 placeholder — avoids red 404 noise in browser/network logs
+        return Response(content=_placeholder_face_jpeg(), media_type="image/jpeg")
 
-    # Try stored thumbnail path (absolute or relative), plus common fallbacks
     candidates: list[Path] = []
     thumb = face.get("thumbnail")
     if thumb:
@@ -864,54 +934,100 @@ def face_thumbnail(face_id: int):
     candidates.append(config.data_dir / "thumbnails" / f"face-{face_id}.jpg")
 
     for path in candidates:
-        try:
-            if path.is_file() and path.stat().st_size > 0:
-                return FileResponse(path, media_type="image/jpeg")
-        except OSError:
-            continue
+        resp = _serve_face_thumb_file(path)
+        if resp is not None:
+            return resp
 
-    # fallback: crop from original media
+    # Another face of the same person that already has a cached thumb
+    if face.get("person_id"):
+        alt = db.one(
+            """
+            SELECT f.thumbnail FROM faces f
+            JOIN media m ON m.id = f.media_id
+            WHERE f.person_id = ? AND f.id != ? AND f.deleted_at IS NULL
+              AND m.deleted_at IS NULL AND m.missing = 0
+              AND f.thumbnail IS NOT NULL AND f.thumbnail != ''
+            ORDER BY CASE m.kind WHEN 'photo' THEN 0 ELSE 1 END,
+                     COALESCE(f.quality, 0) DESC
+            LIMIT 1
+            """,
+            (face["person_id"], face_id),
+        )
+        if alt and alt.get("thumbnail"):
+            p = Path(alt["thumbnail"])
+            for path in (p, config.data_dir / "thumbnails" / p.name):
+                resp = _serve_face_thumb_file(path)
+                if resp is not None:
+                    return resp
+
+    # Regenerate from original (ignore soft-deleted media row if file still on disk)
     media = db.one("SELECT * FROM media WHERE id=?", (face["media_id"],))
-    if not media or not Path(media["path"]).is_file():
-        raise HTTPException(404, "Thumbnail not available")
-    try:
-        bbox = face["bbox"]
-        if isinstance(bbox, str):
-            bbox = json.loads(bbox)
-        x, y, w, h = [float(v) for v in bbox]
-        # Pad crop a bit so the face is not tightly clipped
-        pad = max(w, h) * 0.15
-        bgr = load_image(media["path"])
-        h_img, w_img = bgr.shape[:2]
-        x1 = max(0, int(x - pad))
-        y1 = max(0, int(y - pad))
-        x2 = min(w_img, int(x + w + pad))
-        y2 = min(h_img, int(y + h + pad))
-        if x2 <= x1 or y2 <= y1:
-            raise ValueError("invalid bbox")
-        crop = bgr[y1:y2, x1:x2]
-        from PIL import Image
-        import numpy as np
+    if media:
+        src = Path(media["path"])
+        if src.is_file():
+            try:
+                from PIL import Image
+                import numpy as np
+                
+                if media.get("kind") == "video" and src.suffix.lower() in {".mkv", ".webm"}:
+                    raise ValueError("skipped container")
 
-        rgb = crop[:, :, ::-1]
-        img = Image.fromarray(np.ascontiguousarray(rgb))
-        img.thumbnail((256, 256))
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85)
-        buf.seek(0)
-        # Cache regenerated thumbnail for next time
-        try:
-            out = config.data_dir / "thumbnails" / f"face-{face_id}.jpg"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(buf.getvalue())
-            with db.connect() as conn:
-                conn.execute("UPDATE faces SET thumbnail=? WHERE id=?", (str(out), face_id))
-            buf.seek(0)
-        except Exception:
-            buf.seek(0)
-        return Response(content=buf.read(), media_type="image/jpeg")
-    except Exception as exc:
-        raise HTTPException(404, f"Could not generate thumbnail: {exc}") from exc
+                bbox = face["bbox"]
+                if isinstance(bbox, str):
+                    bbox = json.loads(bbox)
+                x, y, w, h = [float(v) for v in bbox]
+                pad = max(w, h) * 0.15
+
+                if media.get("kind") == "video":
+                    seconds = float(face["timestamp"]) if face.get("timestamp") is not None else 0.0
+                    from .media_processing import frame_at
+                    bgr = frame_at(str(src), max(0.0, seconds), prefer_ffmpeg=True)
+                else:
+                    bgr = load_image(str(src))
+
+                if bgr is None or getattr(bgr, "size", 0) == 0:
+                    raise ValueError("decode failed")
+
+                h_img, w_img = bgr.shape[:2]
+                x1 = max(0, int(x - pad))
+                y1 = max(0, int(y - pad))
+                x2 = min(w_img, int(x + w + pad))
+                y2 = min(h_img, int(y + h + pad))
+                if x2 <= x1 or y2 <= y1:
+                    side = max(32, min(h_img, w_img) // 2)
+                    cx, cy = w_img // 2, h_img // 2
+                    x1, y1 = max(0, cx - side // 2), max(0, cy - side // 2)
+                    x2, y2 = min(w_img, x1 + side), min(h_img, y1 + side)
+                crop = bgr[y1:y2, x1:x2]
+                if crop.size == 0:
+                    crop = bgr
+
+                rgb = crop[:, :, ::-1]
+                img = Image.fromarray(np.ascontiguousarray(rgb))
+                img.thumbnail((256, 256))
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                data = buf.getvalue()
+                try:
+                    out = config.data_dir / "thumbnails" / f"face-{face_id}.jpg"
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_bytes(data)
+                    with db.connect() as conn:
+                        conn.execute(
+                            "UPDATE faces SET thumbnail=? WHERE id=?",
+                            (str(out), face_id),
+                        )
+                except Exception:
+                    pass
+                return Response(content=data, media_type="image/jpeg")
+            except Exception:
+                pass
+
+    return Response(
+        content=_placeholder_face_jpeg(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1080,30 +1196,68 @@ def media_thumbnail(media_id: int):
     row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
     if not row:
         raise HTTPException(404, "Media not found")
+
+    # 1) Cached thumbnail paths
+    candidates: list[Path] = []
     thumb = row.get("thumbnail")
     if thumb:
-        path = Path(thumb)
-        if not path.is_absolute():
-            path = config.data_dir / "thumbnails" / thumb
-        if path.is_file():
-            return FileResponse(path, media_type="image/jpeg")
-    # fallback: serve a small preview of the original for photos
-    if row["kind"] == "photo" and Path(row["path"]).is_file():
+        p = Path(thumb)
+        candidates.append(p if p.is_absolute() else config.data_dir / "thumbnails" / thumb)
+        candidates.append(config.data_dir / "thumbnails" / p.name)
+    candidates.append(config.data_dir / "thumbnails" / f"media-{media_id}.jpg")
+    for path in candidates:
         try:
-            from PIL import Image
-            import numpy as np
+            if path.is_file() and path.stat().st_size > 0:
+                return FileResponse(path, media_type="image/jpeg")
+        except OSError:
+            continue
 
-            bgr = load_image(row["path"])
-            rgb = bgr[:, :, ::-1]
-            img = Image.fromarray(np.ascontiguousarray(rgb))
-            img.thumbnail((480, 480))
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=80)
-            buf.seek(0)
-            return Response(content=buf.read(), media_type="image/jpeg")
+    src = Path(row["path"])
+    if not src.is_file():
+        raise HTTPException(404, "Original file missing; thumbnail unavailable")
+
+    # 2) Generate from original (photo or video) and cache
+    try:
+        from PIL import Image
+        import numpy as np
+
+        bgr = None
+        if row["kind"] == "photo":
+            bgr = load_image(str(src))
+        else:
+            # Prefer a face timestamp if one exists; else ~1s or first frame
+            stamp_row = db.one(
+                """SELECT timestamp FROM faces
+                   WHERE media_id=? AND deleted_at IS NULL AND timestamp IS NOT NULL
+                   ORDER BY COALESCE(quality, 0) DESC, detection DESC LIMIT 1""",
+                (media_id,),
+            )
+            seconds = float(stamp_row["timestamp"]) if stamp_row and stamp_row["timestamp"] is not None else 1.0
+            from .media_processing import frame_at
+            bgr = frame_at(str(src), max(0.0, seconds), prefer_ffmpeg=True)
+
+        if bgr is None or getattr(bgr, "size", 0) == 0:
+            raise ValueError("could not decode frame")
+
+        rgb = bgr[:, :, ::-1]
+        img = Image.fromarray(np.ascontiguousarray(rgb))
+        img.thumbnail((480, 480))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=80)
+        data = buf.getvalue()
+
+        try:
+            out = config.data_dir / "thumbnails" / f"media-{media_id}.jpg"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(data)
+            with db.connect() as conn:
+                conn.execute("UPDATE media SET thumbnail=? WHERE id=?", (str(out), media_id))
         except Exception:
             pass
-    raise HTTPException(404, "Thumbnail not available")
+
+        return Response(content=data, media_type="image/jpeg")
+    except Exception as exc:
+        raise HTTPException(404, f"Thumbnail not available: {exc}") from exc
 
 
 @app.get("/api/media/{media_id}/preview")
@@ -1150,8 +1304,38 @@ def soft_delete_media(media_id: int, request: Request):
     row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
     if not row:
         raise HTTPException(404, "Media not found")
+    # People who used a face on this media as representative need a new tile
+    person_ids = [
+        r["person_id"]
+        for r in db.all(
+            """SELECT DISTINCT person_id FROM faces
+               WHERE media_id=? AND person_id IS NOT NULL AND deleted_at IS NULL""",
+            (media_id,),
+        )
+    ]
     with db.connect() as conn:
         conn.execute("UPDATE media SET deleted_at=? WHERE id=?", (_now(), media_id))
+        if person_ids:
+            try:
+                cluster.refresh(conn, person_ids)
+            except Exception:
+                # Lightweight rep fix if full refresh fails
+                for pid in person_ids:
+                    r = conn.execute(
+                        """SELECT f.id FROM faces f
+                           JOIN media m ON m.id=f.media_id
+                           WHERE f.person_id=? AND f.deleted_at IS NULL
+                             AND m.deleted_at IS NULL AND m.missing=0
+                           ORDER BY CASE m.kind WHEN 'photo' THEN 0 ELSE 1 END,
+                                    CASE f.review_state WHEN 'confirmed' THEN 0 ELSE 1 END,
+                                    COALESCE(f.quality, 0) DESC, f.detection DESC, f.id
+                           LIMIT 1""",
+                        (pid,),
+                    ).fetchone()
+                    conn.execute(
+                        "UPDATE people SET representative_face_id=? WHERE id=?",
+                        (r["id"] if r else None, pid),
+                    )
     cluster.invalidate()
     return {"ok": True}
 
@@ -1905,11 +2089,15 @@ def maintenance(body: MaintenanceBody, request: Request):
     confirm = body.confirm
     expected = {
         "thumbnails": "CLEAR THUMBNAILS",
+        "rebuild_thumbnails": "REBUILD THUMBNAILS",
         "index": "CLEAR AI INDEX",
         "reset": "RESET DATABASE",
     }
     if action not in expected:
-        raise HTTPException(400, "action must be thumbnails, index, or reset")
+        raise HTTPException(
+            400,
+            "action must be thumbnails, rebuild_thumbnails, index, or reset",
+        )
     if confirm != expected[action]:
         raise HTTPException(400, f"confirm must be '{expected[action]}'")
 
@@ -1921,10 +2109,129 @@ def maintenance(body: MaintenanceBody, request: Request):
                     child.unlink(missing_ok=True)
                 elif child.is_dir():
                     shutil.rmtree(child, ignore_errors=True)
+        thumb_dir.mkdir(parents=True, exist_ok=True)
         with db.connect() as conn:
             conn.execute("UPDATE media SET thumbnail=NULL")
             conn.execute("UPDATE faces SET thumbnail=NULL")
-        return {"ok": True, "cleared": "thumbnails"}
+            # Re-pick tiles: prefer still photos so first page load regenerates useful faces
+            people = conn.execute("SELECT id FROM people").fetchall()
+            for person in people:
+                pid = person["id"]
+                row = conn.execute(
+                    f"""
+                    SELECT f.id FROM faces f
+                    JOIN media m ON m.id = f.media_id
+                    WHERE f.person_id = ? AND f.deleted_at IS NULL
+                      AND m.deleted_at IS NULL AND m.missing = 0
+                    ORDER BY {_REP_ORDER}
+                    LIMIT 1
+                    """,
+                    (pid,),
+                ).fetchone()
+                conn.execute(
+                    "UPDATE people SET representative_face_id=? WHERE id=?",
+                    (row["id"] if row else None, pid),
+                )
+        return {"ok": True, "cleared": "thumbnails", "note": "Open People/Photos to rebuild on demand, or use Rebuild thumbnails."}
+
+    if action == "rebuild_thumbnails":
+        # Fast path: rebuild person face tiles only (photos preferred). Media thumbs
+        # regenerate on demand when browsing — keeps this request under timeout.
+        try:
+            from PIL import Image
+            import numpy as np
+            from .media_processing import frame_at
+
+            skip_suffix = {".mkv", ".webm"}
+            thumb_dir = config.data_dir / "thumbnails"
+            thumb_dir.mkdir(parents=True, exist_ok=True)
+            built_faces = 0
+            failed = 0
+            last_error = None
+
+            people = db.all(
+                """SELECT p.id FROM people p
+                   WHERE EXISTS (
+                     SELECT 1 FROM faces f JOIN media m ON m.id=f.media_id
+                     WHERE f.person_id=p.id AND f.deleted_at IS NULL
+                       AND m.deleted_at IS NULL AND m.missing=0
+                   )
+                   ORDER BY p.face_count DESC
+                   LIMIT 300"""
+            )
+            for person in people:
+                pid = int(person["id"])
+                try:
+                    fid = _pick_representative_face(pid)
+                    if not fid:
+                        continue
+                    face = db.one("SELECT * FROM faces WHERE id=?", (fid,))
+                    if not face:
+                        failed += 1
+                        continue
+                    media = db.one("SELECT * FROM media WHERE id=?", (face["media_id"],))
+                    if not media:
+                        failed += 1
+                        continue
+                    src = Path(str(media["path"]))
+                    if not src.is_file():
+                        failed += 1
+                        last_error = f"missing file: {src.name}"
+                        continue
+                    if media.get("kind") == "video" and src.suffix.lower() in skip_suffix:
+                        failed += 1
+                        continue
+
+                    bbox = face["bbox"]
+                    if isinstance(bbox, str):
+                        bbox = json.loads(bbox)
+                    x, y, w, h = [float(v) for v in bbox]
+                    pad = max(w, h) * 0.15
+
+                    if media.get("kind") == "video":
+                        seconds = float(face["timestamp"]) if face.get("timestamp") is not None else 0.0
+                        bgr = frame_at(str(src), max(0.0, seconds), prefer_ffmpeg=True)
+                    else:
+                        bgr = load_image(str(src))
+
+                    if bgr is None or getattr(bgr, "size", 0) == 0:
+                        raise ValueError("empty frame")
+
+                    h_img, w_img = int(bgr.shape[0]), int(bgr.shape[1])
+                    x1, y1 = max(0, int(x - pad)), max(0, int(y - pad))
+                    x2, y2 = min(w_img, int(x + w + pad)), min(h_img, int(y + h + pad))
+                    crop = bgr if x2 <= x1 or y2 <= y1 else bgr[y1:y2, x1:x2]
+                    if crop is None or getattr(crop, "size", 0) == 0:
+                        crop = bgr
+
+                    rgb = np.ascontiguousarray(crop[:, :, ::-1])
+                    img = Image.fromarray(rgb)
+                    img.thumbnail((256, 256))
+                    out = thumb_dir / f"face-{fid}.jpg"
+                    img.save(str(out), format="JPEG", quality=85)
+
+                    with db.connect() as conn:
+                        conn.execute(
+                            "UPDATE faces SET thumbnail=? WHERE id=?",
+                            (str(out), fid),
+                        )
+                        conn.execute(
+                            "UPDATE people SET representative_face_id=? WHERE id=?",
+                            (fid, pid),
+                        )
+                    built_faces += 1
+                except Exception as exc:
+                    failed += 1
+                    last_error = str(exc)[:200]
+
+            return {
+                "ok": True,
+                "rebuilt_faces": built_faces,
+                "failed": failed,
+                "last_error": last_error,
+            }
+        except Exception as exc:
+            raise HTTPException(500, f"Rebuild failed: {exc}") from exc
 
     if action == "index":
         with db.connect() as conn:

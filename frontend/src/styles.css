@@ -1457,107 +1457,102 @@
     grid-template-columns: repeat(auto-fill, minmax(205px, 1fr));
     gap: 24px 16px;
   }
-  /* Collage / mosaic layout (Pinterest-style mixed tile sizes) */
-  .media-grid.media-mosaic {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    grid-auto-rows: 110px;
-    grid-auto-flow: dense;
-    gap: 8px;
-  }
-  .media-mosaic .media-card {
+
+  /* Container for the Justified Layout */
+  .media-mosaic {
     display: flex;
-    flex-direction: column;
-    min-height: 0;
-    height: 100%;
-    border-radius: 10px;
-    overflow: hidden;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
   }
-  .media-mosaic .media-image {
-    aspect-ratio: auto;
-    flex: 1;
-    min-height: 0;
-    height: 100%;
-    border-radius: 10px;
+
+  .media-mosaic .media-card {
+    margin: 0;
+    position: relative;
+
+    height: 200px;
   }
-  .media-mosaic .media-image .thumbnail,
-  .media-mosaic .video-hover-preview {
-    height: 100%;
+
+  .media-mosaic::after {
+    content: "";
+    flex-grow: 999999999;
+    min-width: 200px;
+    height: 0;
   }
-  .media-mosaic .thumbnail img,
-  .media-mosaic .video-hover-player {
-    object-fit: cover;
+  .media-mosaic .media-image,
+  .media-mosaic .image-button {
     width: 100%;
     height: 100%;
+    display: block;
+    position: relative;
   }
-  .media-mosaic .mosaic-sm {
-    grid-column: span 2;
-    grid-row: span 2;
+
+  .media-mosaic .media-image img,
+  .media-mosaic .media-image video,
+  .media-mosaic .video-hover-preview,
+  .media-mosaic .video-hover-player {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
-  .media-mosaic .mosaic-wide {
-    grid-column: span 3;
-    grid-row: span 2;
+  .media-mosaic .media-image {
+    position: relative;
+    overflow: hidden;
   }
-  .media-mosaic .mosaic-tall {
-    grid-column: span 2;
-    grid-row: span 3;
-  }
-  .media-mosaic .mosaic-lg {
-    grid-column: span 3;
-    grid-row: span 3;
-  }
-  .media-mosaic .mosaic-hover-caption {
+
+  .mosaic-hover-caption {
     position: absolute;
-    left: 0;
-    right: 0;
     bottom: 0;
-    z-index: 1;
-    padding: 28px 10px 8px;
+    left: 0;
+    width: 100%;
+
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.85) 0%,
+      rgba(0, 0, 0, 0.4) 70%,
+      transparent 100%
+    );
+    color: #ffffff;
+    padding: 30px 12px 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    background: linear-gradient(transparent, #0a1528cc);
-    color: #fff;
+    gap: 3px;
+    box-sizing: border-box;
+
     opacity: 0;
-    transition: opacity 160ms ease;
+    transform: translateY(10px);
+    transition: all 0.25s ease-in-out;
     pointer-events: none;
+    z-index: 10;
   }
+
   .media-mosaic .media-card:hover .mosaic-hover-caption {
     opacity: 1;
+    transform: translateY(0);
   }
-  .media-mosaic .mosaic-hover-caption strong {
-    font-size: 11px;
-    font-weight: 600;
+
+  .mosaic-hover-caption strong,
+  .mosaic-hover-caption .media-meta-line,
+  .mosaic-hover-caption p {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: inherit;
   }
-  .media-mosaic .mosaic-hover-caption span {
-    font-size: 10px;
-    opacity: 0.85;
+
+  .mosaic-hover-caption .media-meta-line {
+    color: #e0e0e0;
   }
-  @media (max-width: 900px) {
-    .media-grid.media-mosaic {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      grid-auto-rows: 96px;
-    }
-    .media-mosaic .mosaic-lg {
-      grid-column: span 2;
-      grid-row: span 2;
-    }
+
+  .mosaic-hover-caption p {
+    color: #a0c4ff;
   }
-  @media (max-width: 560px) {
-    .media-grid.media-mosaic {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      grid-auto-rows: 120px;
-    }
-    .media-mosaic .mosaic-sm,
-    .media-mosaic .mosaic-wide,
-    .media-mosaic .mosaic-tall,
-    .media-mosaic .mosaic-lg {
-      grid-column: span 1;
-      grid-row: span 1;
-    }
-  }
+
   .media-card,
   .face-tile {
     min-width: 0;

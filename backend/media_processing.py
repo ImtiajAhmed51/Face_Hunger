@@ -9,8 +9,30 @@ from pathlib import Path
 
 import numpy as np
 
+# Quiet FFmpeg / OpenCV demuxer spam (corrupt matroska, partial seeks, etc.)
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "8")  # AV_LOG_FATAL
+os.environ.setdefault("AV_LOG_FORCE_NOCOLOR", "1")
+
 _heif_lock = threading.Lock()
 _heif_ready = False
+
+# Incomplete / noisy containers — not scanned or decoded
+_SKIP_VIDEO_SUFFIXES = frozenset({".mkv", ".webm"})
+SKIP_VIDEO_SUFFIXES = _SKIP_VIDEO_SUFFIXES  # public alias
+
+
+def _silence_cv2_logs():
+    try:
+        import cv2
+        if hasattr(cv2, "utils") and hasattr(cv2.utils, "logging"):
+            cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+        elif hasattr(cv2, "setLogLevel"):
+            cv2.setLogLevel(1)
+    except Exception:
+        pass
+
+
+_silence_cv2_logs()
 
 
 def _image_open(path):
@@ -191,6 +213,9 @@ def _ffprobe_metadata(path):
 
 def video_metadata(path):
     """Prefer OpenCV; fall back to ffprobe. Soft defaults if both fail but ffmpeg exists."""
+    from pathlib import Path as _Path
+    if _Path(path).suffix.lower() in _SKIP_VIDEO_SUFFIXES:
+        raise ValueError(f"Unsupported video container (skipped): {_Path(path).suffix.lower()}")
     try:
         import cv2
         capture = _capture(path)
@@ -269,7 +294,7 @@ def _ffmpeg_frames(path, interval, checkpoint=None):
     # MJPEG pipe avoids needing width/height up front (robust for odd containers).
     vf = f"fps=1/{interval}"
     cmd = [
-        ffmpeg, "-hide_banner", "-loglevel", "error",
+        ffmpeg, "-hide_banner", "-loglevel", "quiet", "-nostdin",
         "-err_detect", "ignore_err",
         "-i", str(path),
         "-vf", vf,
@@ -373,23 +398,31 @@ def video_frames(path, interval=3.0, checkpoint=None, adaptive=True):
         capture.release()
 
 
-def frame_at(path, seconds):
-    """Read the nearest seekable frame for a stored video face timestamp."""
+def frame_at(path, seconds, *, prefer_ffmpeg: bool = False):
+    """Read the nearest seekable frame for a stored video face timestamp.
+
+    prefer_ffmpeg=True is quieter for thumbnail generation (avoids OpenCV
+    matroska demuxer spam on incomplete / odd containers).
+    """
     import cv2
     import subprocess
+    from pathlib import Path as _Path
+
+    _silence_cv2_logs()
+    suffix = _Path(path).suffix.lower()
+    if suffix in _SKIP_VIDEO_SUFFIXES:
+        raise ValueError(f"Unsupported or unreliable video container: {suffix}")
 
     seconds = float(seconds)
     if not math.isfinite(seconds) or seconds < 0:
         raise ValueError("Frame timestamp must be nonnegative and finite")
 
-    try:
-        capture = _capture(path)
-    except ValueError:
+    def _via_ffmpeg() -> np.ndarray:
         ffmpeg = _ffmpeg_bin()
         if not ffmpeg:
             raise ValueError(f"Cannot open video and ffmpeg is missing: {path}")
         cmd = [
-            ffmpeg, "-hide_banner", "-loglevel", "error",
+            ffmpeg, "-hide_banner", "-loglevel", "quiet", "-nostdin",
             "-ss", f"{seconds:.3f}",
             "-i", str(path),
             "-frames:v", "1",
@@ -397,7 +430,7 @@ def frame_at(path, seconds):
             "-q:v", "3",
             "pipe:1",
         ]
-        proc = subprocess.run(cmd, capture_output=True, timeout=60)
+        proc = subprocess.run(cmd, capture_output=True, timeout=45)
         if proc.returncode != 0 or not proc.stdout:
             raise ValueError(f"No decodable video frame at {seconds:.3f}s")
         arr = np.frombuffer(proc.stdout, dtype=np.uint8)
@@ -406,12 +439,28 @@ def frame_at(path, seconds):
             raise ValueError(f"No decodable video frame at {seconds:.3f}s")
         return np.ascontiguousarray(image)
 
+    # Thumbnails: ffmpeg first (quiet). Indexing can still use OpenCV seek.
+    if prefer_ffmpeg:
+        try:
+            return _via_ffmpeg()
+        except Exception:
+            pass
+
     try:
-        if seconds and not capture.set(cv2.CAP_PROP_POS_MSEC, seconds * 1000):
-            raise ValueError(f"Video does not support seeking to {seconds:.3f}s")
+        capture = _capture(path)
+    except ValueError:
+        return _via_ffmpeg()
+
+    try:
+        if seconds:
+            capture.set(cv2.CAP_PROP_POS_MSEC, seconds * 1000)
         ok, image = capture.read()
         if not ok or image is None or not image.size:
-            raise ValueError(f"No decodable video frame at {seconds:.3f}s")
+            # Fall back to ffmpeg rather than raising on flaky seeks
+            try:
+                return _via_ffmpeg()
+            except Exception as exc:
+                raise ValueError(f"No decodable video frame at {seconds:.3f}s") from exc
         return np.ascontiguousarray(image)
     finally:
         capture.release()

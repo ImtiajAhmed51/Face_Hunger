@@ -1,13 +1,21 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { number, queryString } from '../api';
-import { useDebounced, useResource } from '../hooks';
-import type { Page, Person } from '../types';
-import { Icon } from '../components/Icon';
-import { Badge, Empty, ErrorNotice, Loading, PageHeader, Pagination, Thumbnail } from '../components/ui';
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { number, queryString } from "../api";
+import { useDebounced, useResource } from "../hooks";
+import type { Page, Person } from "../types";
+import { Icon } from "../components/Icon";
+import {
+  Badge,
+  Empty,
+  ErrorNotice,
+  Loading,
+  PageHeader,
+  Pagination,
+  Thumbnail,
+} from "../components/ui";
 
 export function Clusters() {
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState("");
   const query = useDebounced(q);
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -16,8 +24,10 @@ export function Clusters() {
   );
   const items = resource.data?.items ?? [];
 
-  const zoomOut = () => setZoom((z) => Math.max(0.55, Math.round((z - 0.15) * 100) / 100));
-  const zoomIn = () => setZoom((z) => Math.min(1.85, Math.round((z + 0.15) * 100) / 100));
+  const zoomOut = () =>
+    setZoom((z) => Math.max(0.55, Math.round((z - 0.15) * 100) / 100));
+  const zoomIn = () =>
+    setZoom((z) => Math.min(1.85, Math.round((z + 0.15) * 100) / 100));
   const zoomReset = () => setZoom(1);
 
   return (
@@ -28,14 +38,31 @@ export function Clusters() {
         description="Each card is one person cluster — small faces that the engine grouped together. Zoom to inspect tiles."
         actions={
           <div className="cluster-zoom-controls" role="group" aria-label="Zoom">
-            <button className="button small" type="button" onClick={zoomOut} aria-label="Zoom out" disabled={zoom <= 0.55}>
+            <button
+              className="button small"
+              type="button"
+              onClick={zoomOut}
+              aria-label="Zoom out"
+              disabled={zoom <= 0.55}
+            >
               <Icon name="close" size={14} />
               <span>−</span>
             </button>
-            <button className="button small" type="button" onClick={zoomReset} aria-label="Reset zoom">
+            <button
+              className="button small"
+              type="button"
+              onClick={zoomReset}
+              aria-label="Reset zoom"
+            >
               {Math.round(zoom * 100)}%
             </button>
-            <button className="button small" type="button" onClick={zoomIn} aria-label="Zoom in" disabled={zoom >= 1.85}>
+            <button
+              className="button small"
+              type="button"
+              onClick={zoomIn}
+              aria-label="Zoom in"
+              disabled={zoom >= 1.85}
+            >
               <Icon name="plus" size={14} />
             </button>
           </div>
@@ -56,7 +83,9 @@ export function Clusters() {
           />
         </label>
         <span className="muted">
-          {resource.data ? `${number(resource.data.total)} clusters` : 'Local face groups'}
+          {resource.data
+            ? `${number(resource.data.total)} clusters`
+            : "Local face groups"}
         </span>
       </div>
       <ErrorNotice error={resource.error} retry={resource.reload} />
@@ -65,15 +94,22 @@ export function Clusters() {
       ) : resource.data && !items.length ? (
         <Empty
           icon="people"
-          title={q ? 'No cluster by that name' : 'No clusters yet'}
+          title={q ? "No cluster by that name" : "No clusters yet"}
           description={
             q
-              ? 'Try another name, or clear the search.'
-              : 'Connect a library and run a scan. Faces will group into clusters here.'
+              ? "Try another name, or clear the search."
+              : "Connect a library and run a scan. Faces will group into clusters here."
           }
         >
           {q ? (
-            <button className="button" type="button" onClick={() => { setQ(''); setPage(1); }}>
+            <button
+              className="button"
+              type="button"
+              onClick={() => {
+                setQ("");
+                setPage(1);
+              }}
+            >
               Clear search
             </button>
           ) : (
@@ -87,7 +123,11 @@ export function Clusters() {
         <div className="cluster-viewport">
           <div
             className="cluster-scale"
-            style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: `${100 / zoom}%` }}
+            style={{
+              transform: `scale(${zoom})`,
+              transformOrigin: "top left",
+              width: `${100 / zoom}%`,
+            }}
           >
             <div className="cluster-board">
               {items.map((person) => {
@@ -135,7 +175,9 @@ export function Clusters() {
                         {number(person.video_count)}
                       </span>
                       {!!person.unreviewed_count && (
-                        <Badge tone="amber">{number(person.unreviewed_count)} review</Badge>
+                        <Badge tone="amber">
+                          {number(person.unreviewed_count)} review
+                        </Badge>
                       )}
                     </div>
                   </Link>
@@ -146,7 +188,12 @@ export function Clusters() {
         </div>
       )}
       {resource.data && (
-        <Pagination page={page} limit={36} total={resource.data.total} onPage={setPage} />
+        <Pagination
+          page={page}
+          limit={36}
+          total={resource.data.total}
+          onPage={setPage}
+        />
       )}
     </>
   );

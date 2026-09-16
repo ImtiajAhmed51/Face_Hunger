@@ -6,7 +6,7 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LFS_", env_file=".env", extra="ignore")
     data_dir: Path = Path("data")
     model_dir: Path = Path("models")
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     port: int = 8765
     allowed_roots: str = ""
     frontend_dir: Path = Path(__file__).resolve().parent.parent / "frontend" / "dist"
