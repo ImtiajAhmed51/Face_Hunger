@@ -1,0 +1,91 @@
+# --- Dependencies ---
+node_modules/
+frontend/node_modules/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# --- Frontend build (optional: remove dist/ line if you want to commit built UI) ---
+frontend/dist/
+*.tsbuildinfo
+
+# --- App data / index (private — never push) ---
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+embeddings.bin
+embeddings*.bin
+thumbnails/
+cache/
+.cache/
+*.npy
+*.npz
+
+# --- Models / downloads (large) ---
+*.onnx
+*.pt
+*.pth
+*.bin
+models/
+.insightface/
+~/.insightface/
+
+# --- Media (originals stay on your disk, not in repo) ---
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.webp
+# allow UI assets if any under src
+!frontend/src/**/*.svg
+!frontend/src/**/*.png
+
+# --- Secrets / local config ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+config.local.*
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+.AppleDouble
+.LSOverride
+
+# --- Logs / temp ---
+*.log
+logs/
+tmp/
+temp/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+htmlcov/
+
+# --- Archives ---
+*.zip
+*.tar
+*.tar.gz
