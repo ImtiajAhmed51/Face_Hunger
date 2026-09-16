@@ -12,7 +12,7 @@ export interface Person {
 export interface Media {
   id: number;
   name: string;
-  kind: 'photo' | 'video';
+  kind: "photo" | "video";
   captured_at: string | null;
   width: number | null;
   height: number | null;
@@ -34,23 +34,37 @@ export interface Face {
   detection: number;
   similarity: number | null;
   confidence_label: string;
-  review_state: 'confirmed' | 'unreviewed' | 'rejected';
+  review_state: "confirmed" | "unreviewed" | "rejected";
   deleted_at: string | null;
   excluded: boolean;
 }
-export interface MediaDetail extends Media { faces: Face[] }
-export interface Page<T> { items: T[]; total: number; page: number; limit: number }
+export interface MediaDetail extends Media {
+  faces: Face[];
+}
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+}
 export interface Engine {
-  state: 'unloaded' | 'loading' | 'ready' | 'error';
+  state: "unloaded" | "loading" | "ready" | "error";
   provider: string | null;
   available_providers: string[];
-  model: 'buffalo_l';
+  model: "buffalo_l";
   error: string | null;
 }
 export interface Job {
   id: number;
   library_id: number | null;
-  status: 'queued' | 'running' | 'paused' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  status:
+    | "queued"
+    | "running"
+    | "paused"
+    | "completed"
+    | "cancelled"
+    | "failed"
+    | "interrupted";
   phase: string;
   total: number;
   processed: number;
@@ -87,8 +101,14 @@ export interface Dashboard {
   job: Job | null;
   engine: Engine;
 }
-export interface Library { id: number; name: string; path: string; ignored: string[]; media_count: number }
-export type Theme = 'light' | 'dark' | 'system';
+export interface Library {
+  id: number;
+  name: string;
+  path: string;
+  ignored: string[];
+  media_count: number;
+}
+export type Theme = "light" | "dark" | "system";
 export interface Settings {
   matching_threshold: number;
   review_threshold: number;
@@ -98,27 +118,32 @@ export interface Settings {
   storage: { database: number; embeddings: number; thumbnails: number };
   roots: string[];
 }
-export interface Exclusion { person_id: number; media_id: number; display_name: string; name: string }
+export interface Exclusion {
+  person_id: number;
+  media_id: number;
+  display_name: string;
+  name: string;
+}
 export interface MediaFilters {
-  kind?: 'photo' | 'video' | '';
+  kind?: "photo" | "video" | "";
   people?: number[];
   exclude_people?: number[];
-  mode?: 'ANY' | 'ALL';
+  mode?: "ANY" | "ALL";
   date_from?: string;
   date_to?: string;
-  confidence?: number | '';
-  reviewed?: 'confirmed' | 'unreviewed' | '';
+  confidence?: number | "";
+  reviewed?: "confirmed" | "unreviewed" | "";
   excluded?: boolean;
   deleted?: boolean;
   no_faces?: boolean;
-  sort?: 'date' | 'size_desc' | 'size_asc' | 'name' | '';
+  sort?: "date" | "size_desc" | "size_asc" | "name" | "";
   q?: string;
 }
 export interface ParsedSearch {
   people: number[];
-  mode: 'ANY' | 'ALL';
+  mode: "ANY" | "ALL";
   date_from?: string;
   date_to?: string;
-  kind?: 'photo' | 'video';
+  kind?: "photo" | "video";
   unmatched: string[];
 }

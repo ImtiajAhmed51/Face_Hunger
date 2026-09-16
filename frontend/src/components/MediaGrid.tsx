@@ -33,18 +33,39 @@ import {
 
 function VideoHoverPreview({ id, name }: { id: number; name: string }) {
   const [hover, setHover] = useState(false);
+  const [showPlayer, setShowPlayer] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (hover) {
+      // Small delay so quick mouse-overs don't start downloading large videos
+      timerRef.current = window.setTimeout(() => setShowPlayer(true), 280);
+    } else {
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      setShowPlayer(false);
+    }
+    return () => {
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [hover]);
 
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
-    if (hover) {
+    if (showPlayer) {
       el.currentTime = 0;
       void el.play().catch(() => {});
     } else {
       el.pause();
     }
-  }, [hover]);
+  }, [showPlayer]);
 
   return (
     <div
@@ -53,7 +74,7 @@ function VideoHoverPreview({ id, name }: { id: number; name: string }) {
       onMouseLeave={() => setHover(false)}
     >
       <Thumbnail src={`/api/media/${id}/thumbnail`} alt={name} icon="video" />
-      {hover && (
+      {showPlayer && (
         <video
           ref={videoRef}
           className="video-hover-player"
@@ -61,7 +82,7 @@ function VideoHoverPreview({ id, name }: { id: number; name: string }) {
           muted
           playsInline
           loop
-          preload="metadata"
+          preload="none"
         />
       )}
     </div>
