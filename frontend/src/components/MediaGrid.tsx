@@ -34,6 +34,7 @@ import {
 function VideoHoverPreview({ id, name }: { id: number; name: string }) {
   const [hover, setHover] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -44,6 +45,7 @@ function VideoHoverPreview({ id, name }: { id: number; name: string }) {
       el.pause();
     }
   }, [hover]);
+
   return (
     <div
       className="video-hover-preview"
@@ -66,18 +68,11 @@ function VideoHoverPreview({ id, name }: { id: number; name: string }) {
   );
 }
 
-/** Mosaic tile size from aspect ratio + position (collage look). */
-function mosaicClass(item: Media, index: number): string {
-  const w = item.width || 4;
-  const h = item.height || 3;
-  const ratio = w / h;
-  // Periodic large feature tiles (like the hero portrait in the reference)
-  if (index % 12 === 2 && ratio >= 0.65 && ratio <= 1.35) return "mosaic-lg";
-  if (index % 9 === 5 && ratio > 1.25) return "mosaic-wide";
-  if (ratio >= 1.45) return "mosaic-wide";
-  if (ratio <= 0.72) return "mosaic-tall";
-  if (index % 7 === 3) return "mosaic-tall";
-  return "mosaic-sm";
+function getAspectRatio(item: Media): number {
+  const w = item.width;
+  const h = item.height;
+  if (w && h && w > 0 && h > 0) return w / h;
+  return item.kind === "video" ? 16 / 9 : 3 / 4;
 }
 
 export function MediaGrid({
@@ -89,7 +84,6 @@ export function MediaGrid({
 }: {
   items: Media[];
   selected?: Set<number>;
-  /** id, optional mouse event (Shift = range), optional paint-drag */
   onSelect?: (
     id: number,
     event?: ReactMouseEvent,
@@ -111,123 +105,164 @@ export function MediaGrid({
 
   return (
     <div className={mosaic ? "media-grid media-mosaic" : "media-grid"}>
-      {items.map((item, index) => (
-        <article
-          className={`media-card ${selected?.has(item.id) ? "selected" : ""} ${mosaic ? mosaicClass(item, index) : ""}`}
-          key={item.id}
-          onMouseEnter={() => {
-            if (paintRef.current && onSelect)
-              onSelect(item.id, undefined, "paint");
-          }}
-        >
-          <div className="media-image">
-            <button
-              className="image-button"
-              onClick={() => onOpen(item.id)}
-              aria-label={`Open ${item.name}`}
+      {items.map((item) => {
+        const aspectRatio = getAspectRatio(item);
+
+        return (
+          <article
+            className={`media-card ${selected?.has(item.id) ? "selected" : ""}`}
+            key={item.id}
+            onMouseEnter={() => {
+              if (paintRef.current && onSelect)
+                onSelect(item.id, undefined, "paint");
+            }}
+            style={
+              mosaic
+                ? {
+                    flexGrow: aspectRatio,
+                    width: `${aspectRatio * 200}px`,
+                  }
+                : undefined
+            }
+          >
+            <div
+              className="media-image"
+              style={mosaic ? { aspectRatio: String(aspectRatio) } : undefined}
             >
-              {item.kind === "video" ? (
-                <VideoHoverPreview id={item.id} name={item.name} />
-              ) : (
-                <Thumbnail
-                  src={`/api/media/${item.id}/thumbnail`}
-                  alt={item.name}
-                  icon="photo"
-                />
-              )}
-            </button>
-            {onSelect && (
-              <label
-                className="select-check"
-                onMouseDown={(event) => {
-                  if (event.button === 0 && !event.shiftKey)
-                    paintRef.current = true;
-                }}
+              <button
+                className="image-button"
+                onClick={() => onOpen(item.id)}
+                aria-label={`Open ${item.name}`}
               >
-                <input
-                  type="checkbox"
-                  checked={selected?.has(item.id) ?? false}
-                  onChange={(event) => {
-                    const native = event.nativeEvent as MouseEvent;
-                    if (native.shiftKey)
-                      onSelect(
-                        item.id,
-                        event as unknown as ReactMouseEvent,
-                        "range",
-                      );
-                    else
-                      onSelect(
-                        item.id,
-                        event as unknown as ReactMouseEvent,
-                        "toggle",
-                      );
+                {item.kind === "video" ? (
+                  <VideoHoverPreview id={item.id} name={item.name} />
+                ) : (
+                  <Thumbnail
+                    src={`/api/media/${item.id}/thumbnail`}
+                    alt={item.name}
+                    icon="photo"
+                  />
+                )}
+              </button>
+              {onSelect && (
+                <label
+                  className="select-check"
+                  onMouseDown={(event) => {
+                    if (event.button === 0 && !event.shiftKey)
+                      paintRef.current = true;
                   }}
-                  onClick={(event) => event.stopPropagation()}
-                  aria-label={`Select ${item.name}`}
-                />
-              </label>
-            )}
-            {item.kind === "video" && (
-              <span className="media-duration">
-                <Icon name="play" size={12} />
-                {timeLabel(item.duration)}
-              </span>
-            )}
-            {item.size > 0 && (
-              <span className="media-size-badge" title="File size">
-                {bytes(item.size)}
-              </span>
-            )}
-            {(item.missing || item.deleted_at || item.status === "failed") && (
-              <span className="media-warning">
-                <Icon name="alert" size={13} />
-                {item.missing
-                  ? "Missing"
-                  : item.deleted_at
-                    ? "Deleted"
-                    : "Failed"}
-              </span>
-            )}
-            {!!item.face_count && (
-              <span className="face-count">
-                <Icon name="people" size={12} />
-                {item.face_count}
-              </span>
-            )}
-            {mosaic && (
-              <div className="mosaic-hover-caption">
-                <strong>{item.name}</strong>
-                {item.size > 0 && <span>{bytes(item.size)}</span>}
-              </div>
-            )}
-          </div>
-          {!mosaic && (
-            <div className="media-caption">
-              <strong title={item.name}>{item.name}</strong>
-              <span className="media-meta-line">
-                {dateLabel(item.captured_at)}
-                {item.size > 0 ? (
-                  <em className="media-size-text">{bytes(item.size)}</em>
-                ) : null}
-                {item.width && item.height ? (
-                  <span className="media-dims">
-                    {item.width}×{item.height}
-                  </span>
-                ) : null}
-              </span>
-              {item.people.length > 0 && (
-                <p
-                  title={item.people
-                    .map((person) => person.display_name)
-                    .join(", ")}
                 >
-                  {item.people.map((person) => person.display_name).join(", ")}
-                </p>
+                  <input
+                    type="checkbox"
+                    checked={selected?.has(item.id) ?? false}
+                    onChange={(event) => {
+                      const native = event.nativeEvent as MouseEvent;
+                      if (native.shiftKey)
+                        onSelect(
+                          item.id,
+                          event as unknown as ReactMouseEvent,
+                          "range",
+                        );
+                      else
+                        onSelect(
+                          item.id,
+                          event as unknown as ReactMouseEvent,
+                          "toggle",
+                        );
+                    }}
+                    onClick={(event) => event.stopPropagation()}
+                    aria-label={`Select ${item.name}`}
+                  />
+                </label>
+              )}
+              {item.kind === "video" && (
+                <span className="media-duration">
+                  <Icon name="play" size={12} />
+                  {timeLabel(item.duration)}
+                </span>
+              )}
+              {item.size > 0 && (
+                <span className="media-size-badge" title="File size">
+                  {bytes(item.size)}
+                </span>
+              )}
+              {(item.missing ||
+                item.deleted_at ||
+                item.status === "failed") && (
+                <span className="media-warning">
+                  <Icon name="alert" size={13} />
+                  {item.missing
+                    ? "Missing"
+                    : item.deleted_at
+                      ? "Deleted"
+                      : "Failed"}
+                </span>
+              )}
+              {!!item.face_count && (
+                <span className="face-count">
+                  <Icon name="people" size={12} />
+                  {item.face_count}
+                </span>
+              )}
+              {mosaic && (
+                <div className="mosaic-hover-caption">
+                  <strong title={item.name}>{item.name}</strong>
+                  <span className="media-meta-line">
+                    {dateLabel(item.captured_at)}
+                    {item.size > 0 ? (
+                      <em className="media-size-text"> · {bytes(item.size)}</em>
+                    ) : null}
+                    {item.width && item.height ? (
+                      <span className="media-dims">
+                        {" "}
+                        · {item.width}×{item.height}
+                      </span>
+                    ) : null}
+                  </span>
+                  {item.people.length > 0 && (
+                    <p
+                      title={item.people
+                        .map((person) => person.display_name)
+                        .join(", ")}
+                    >
+                      {item.people
+                        .map((person) => person.display_name)
+                        .join(", ")}
+                    </p>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </article>
-      ))}
+            {!mosaic && (
+              <div className="media-caption">
+                <strong title={item.name}>{item.name}</strong>
+                <span className="media-meta-line">
+                  {dateLabel(item.captured_at)}
+                  {item.size > 0 ? (
+                    <em className="media-size-text">{bytes(item.size)}</em>
+                  ) : null}
+                  {item.width && item.height ? (
+                    <span className="media-dims">
+                      {item.width}×{item.height}
+                    </span>
+                  ) : null}
+                </span>
+                {item.people.length > 0 && (
+                  <p
+                    title={item.people
+                      .map((person) => person.display_name)
+                      .join(", ")}
+                  >
+                    {item.people
+                      .map((person) => person.display_name)
+                      .join(", ")}
+                  </p>
+                )}
+              </div>
+            )}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -261,10 +296,10 @@ export function MediaCollection({
   const [deleted, setDeleted] = useState(false);
   const [sort, setSort] =
     useState<(typeof MEDIA_SORT_OPTIONS)[number]["value"]>("date");
-  // People to hide: media containing any of these faces is filtered out
   const [excludePeople, setExcludePeople] = useState<number[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [layout, setLayout] = useState<"grid" | "mosaic">("mosaic");
+
   const actualFilters = {
     ...filters,
     sort,
@@ -275,18 +310,21 @@ export function MediaCollection({
         : { q: search, excluded, deleted }
       : { excluded: false, deleted: false }),
   };
+
   const filterKey = queryString(actualFilters);
   useEffect(() => setPage(1), [filterKey]);
+
   const path = `/media?${filterKey}&page=${page}&limit=60`;
   const resource = useResource<Page<Media>>(path);
-  // Key by filters only — paging must not clear multi-page selection.
   const selection = useSelection(filterKey);
   const action = useAction();
   const [viewer, setViewer] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);
+
   const items = resource.data?.items ?? [];
   const lastAnchor = useRef<number | null>(null);
+
   const handleSelect = (
     id: number,
     _event?: ReactMouseEvent,
@@ -309,14 +347,15 @@ export function MediaCollection({
     lastAnchor.current = id;
     selection.toggle(id);
   };
-  // All selected ids across pages (for bulk actions)
+
   const ids = Array.from(selection.selected);
   const selectedCount = ids.length;
-  // Current page only — for "Select page" checkbox and restore (needs deleted_at from items)
   const pageSelected = items.filter((item) => selection.selected.has(item.id));
+
   const run = async (fn: () => Promise<unknown>, success: string) => {
     if (await action.run(fn, success)) selection.clear();
   };
+
   const purgeDialog = (
     <ConfirmDialog
       open={purgeOriginals ? deleteOpen : purgeOpen}
@@ -335,6 +374,7 @@ export function MediaCollection({
       success="Selected original files deleted from disk and removed from the index."
     />
   );
+
   return (
     <section className="collection" aria-label="Media collection">
       {tools && (

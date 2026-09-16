@@ -65,7 +65,8 @@ class Clustering:
                     break
                 placeholders = ",".join("?" for _ in chunk)
                 sums, weight_sums, counts, representatives, vectors = {}, {}, {}, {}, {}
-                cursor = conn.execute("SELECT f.* FROM faces f JOIN media m ON m.id=f.media_id "
+                cursor = conn.execute(
+                    "SELECT f.*, m.kind AS media_kind FROM faces f JOIN media m ON m.id=f.media_id "
                     f"WHERE f.person_id IN ({placeholders}) AND {ACTIVE} ORDER BY f.id", chunk)
                 while rows := cursor.fetchmany(256):
                     for face in rows:
@@ -86,7 +87,15 @@ class Clustering:
                         weight_sums[pid] += weight
                         counts[pid] += 1
                         vectors[pid].append(vector)
-                        score = (face["review_state"] == "confirmed", q, face["detection"], -face["id"])
+                        # Prefer still photos over video frames for the person tile.
+                        is_photo = 1 if face["media_kind"] == "photo" else 0
+                        score = (
+                            is_photo,
+                            face["review_state"] == "confirmed",
+                            q,
+                            face["detection"],
+                            -face["id"],
+                        )
                         if pid not in representatives or score > representatives[pid][0]:
                             representatives[pid] = (score, face["id"])
                 for pid in chunk:
