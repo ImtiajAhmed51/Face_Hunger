@@ -2886,6 +2886,44 @@
   .duplicate-details .inline-actions .button {
     flex: 1;
   }
+  .duplicate-media-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    padding: 18px;
+    background: var(--soft);
+  }
+  .duplicate-media-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    padding: 8px;
+    cursor: pointer;
+    color: inherit;
+  }
+  .duplicate-media-tile.keep {
+    border-color: var(--teal);
+    background: var(--glass);
+  }
+  .duplicate-media-tile .thumbnail {
+    aspect-ratio: 1;
+    width: 100%;
+    border-radius: 12px;
+  }
+  .duplicate-media-tile strong {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .duplicate-media-tile > span {
+    color: var(--muted);
+    font-size: 11px;
+  }
   .issue-help {
     background: var(--glass);
     color: var(--muted);

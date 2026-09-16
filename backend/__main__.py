@@ -11,6 +11,7 @@ import os
 import shutil
 import tempfile
 import zipfile
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -47,10 +48,29 @@ engine = Engine(config)
 cluster = Clustering(db, store)
 worker = Worker(db, config, engine, store, cluster)
 
-app = FastAPI(title="Face Hunger", version="1.0.0", docs_url=None, redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: nothing heavy — engine and worker stay lazy.
+    yield
+    # Shutdown
+    worker.shutdown(timeout=5)
+    try:
+        store.close()
+    except Exception:
+        pass
+
+
+app = FastAPI(
+    title="Face Hunger",
+    version="1.0.0",
+    docs_url=None,
+    redoc_url=None,
+    lifespan=lifespan,
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://127.0.0.1:8765", "http://localhost:8765", "http://127.0.0.1:5173", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -937,28 +957,6 @@ def face_thumbnail(face_id: int):
         resp = _serve_face_thumb_file(path)
         if resp is not None:
             return resp
-
-    # Another face of the same person that already has a cached thumb
-    if face.get("person_id"):
-        alt = db.one(
-            """
-            SELECT f.thumbnail FROM faces f
-            JOIN media m ON m.id = f.media_id
-            WHERE f.person_id = ? AND f.id != ? AND f.deleted_at IS NULL
-              AND m.deleted_at IS NULL AND m.missing = 0
-              AND f.thumbnail IS NOT NULL AND f.thumbnail != ''
-            ORDER BY CASE m.kind WHEN 'photo' THEN 0 ELSE 1 END,
-                     COALESCE(f.quality, 0) DESC
-            LIMIT 1
-            """,
-            (face["person_id"], face_id),
-        )
-        if alt and alt.get("thumbnail"):
-            p = Path(alt["thumbnail"])
-            for path in (p, config.data_dir / "thumbnails" / p.name):
-                resp = _serve_face_thumb_file(path)
-                if resp is not None:
-                    return resp
 
     # Regenerate from original (ignore soft-deleted media row if file still on disk)
     media = db.one("SELECT * FROM media WHERE id=?", (face["media_id"],))
@@ -2361,19 +2359,6 @@ if frontend_dir.is_dir():
         if index.is_file():
             return FileResponse(index)
         raise HTTPException(404, "Frontend not built")
-
-
-# ---------------------------------------------------------------------------
-# Lifecycle
-# ---------------------------------------------------------------------------
-
-@app.on_event("shutdown")
-def on_shutdown():
-    worker.shutdown(timeout=5)
-    try:
-        store.close()
-    except Exception:
-        pass
 
 
 def main():
