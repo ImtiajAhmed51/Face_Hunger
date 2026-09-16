@@ -1,0 +1,36 @@
+const paths = {
+  home: 'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z',
+  people: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M17 4a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
+  photo: 'M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM3 16l5-5 4 4 4-6 5 7M8 7h.01',
+  video: 'm16 8 6-4v16l-6-4M3 5h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z',
+  search: 'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
+  review: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11',
+  cleanup: 'm15 4 5 5M6 13l5 5M14 3l7 7-10 10H4v-7ZM3 22h19',
+  settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z',
+  arrow: 'M4 12h16m-6-6 6 6-6 6',
+  back: 'M20 12H4m6-6-6 6 6 6',
+  close: 'm6 6 12 12M6 18 18 6',
+  plus: 'M12 5v14M5 12h14',
+  check: 'm5 12 4 4L19 6',
+  trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
+  restore: 'M3 10a9 9 0 1 1 1 8M3 4v6h6M12 7v5l3 3',
+  download: 'M12 3v12m-5-5 5 5 5-5M4 15v6h16v-6',
+  folder: 'M3 5h6l2 3h10v12H3Z',
+  shield: 'M12 2 3 6v6c0 5 9 10 9 10s9-5 9-10V6ZM8 12l3 3 5-6',
+  menu: 'M4 6h16M4 12h16M4 18h16',
+  play: 'm8 4 12 8-12 8Z',
+  pause: 'M8 4v16M16 4v16',
+  expand: 'M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5',
+  filter: 'M3 5h18M6 12h12M10 19h4M7 3v4M16 10v4M12 17v4',
+  merge: 'M6 3v4c0 4 12 4 12 8v6M18 3v4c0 4-12 4-12 8v6m8-4 4 4 4-4',
+  edit: 'm15 4 5 5M4 20l5-1L21 7l-5-5L4 14ZM3 22h18',
+  eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Zm13 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  hidden: 'm3 3 18 18M10 5h2c6 0 10 7 10 7l-3 4M6 6l-4 6s4 7 10 7l5-2M10 10a3 3 0 0 0 4 4',
+  alert: 'M12 3 2 21h20ZM12 9v5M12 18h.01',
+  spark: 'm12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z',
+  sun: 'M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1 1M18 18l1 1M5 19l1-1M18 6l1-1M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0',
+} as const;
+export type IconName = keyof typeof paths;
+export function Icon({ name, size = 20, className = '' }: { name: IconName; size?: number; className?: string }) {
+  return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
+}
