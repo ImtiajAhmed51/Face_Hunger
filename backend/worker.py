@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 
 from . import media_processing as media_io
+from . import duplicates as dup_mod
 from .engine import deduplicate, iou
 from .scanner import authorized_root, resolve_inside, scan
 
@@ -239,7 +240,6 @@ class Worker:
         previous = self.db.one("SELECT * FROM media WHERE path=?", (str(path),))
         if previous and (previous["deleted_at"] is not None or previous["library_id"] != library["id"]):
             return "skipped", 0
-        # A normal scan retries failures. The explicit retry action selects failures only.
         if retry_failed and not force and (not previous or previous["status"] != "failed"):
             return "skipped", 0
         before = path.stat()
@@ -291,9 +291,7 @@ class Worker:
                 path, float(settings["video_interval"]), self._checkpoint, adaptive=adaptive
             )
         media_jpeg, duplicates = None, 0
-        # Video tracklets: link consecutive-frame faces by IoU + embedding similarity
-        # so the same person across samples becomes one consolidated entry downstream.
-        active_tracks = []  # list of {bbox, emb, track_id, last_ts}
+        active_tracks = []
         next_track = 1
         try:
             for timestamp, image in frames:
@@ -351,7 +349,6 @@ class Worker:
                          offset, sha, jpeg, quality, track_id),
                     )
                     frame_faces.append(face)
-                # Drop stale tracks
                 if timestamp is not None:
                     active_tracks = [
                         t for t in active_tracks
@@ -363,10 +360,55 @@ class Worker:
                 frames.close()
         if media_jpeg is None:
             raise ValueError("No decodable image or video frames")
+
+        # --- exact + perceptual hashes ---
+        try:
+            metadata["content_hash"] = dup_mod.content_hash(path)
+        except Exception:
+            metadata["content_hash"] = None
+
+        try:
+            if kind == "photo":
+                bgr = media_io.load_image(path)
+                metadata["phash"] = dup_mod.image_phash(bgr)
+            else:
+                metadata["phash"] = dup_mod.video_phash(
+                    path,
+                    metadata.get("duration"),
+                    frame_at_fn=lambda p, t: media_io.frame_at(p, t),
+                )
+        except Exception:
+            metadata["phash"] = None
+
+        # --- DINOv2 media embedding (best-effort; never fail indexing) ---
+        metadata["dino_offset"] = None
+        metadata["dino_sha"] = None
+        try:
+            from . import dino as dino_mod
+            from .media_embeddings import MediaEmbeddingStore
+
+            if dino_mod.available():
+                mstore = MediaEmbeddingStore(self.data_dir / "media_embeddings.bin")
+                try:
+                    from .dino_duplicates import embed_media
+
+                    offset, sha = embed_media(
+                        path,
+                        kind,
+                        metadata.get("duration"),
+                        lambda p, t: media_io.frame_at(p, t),
+                        mstore,
+                    )
+                    metadata["dino_offset"] = offset
+                    metadata["dino_sha"] = sha
+                finally:
+                    mstore.close()
+        except Exception:
+            pass
+
         return metadata, media_jpeg, duplicates
 
     def _cancel_only(self):
-        # Never pause while holding SQLite's write lock. Cancellation rolls back.
         if self._cancelled or self._closing:
             raise Cancelled("Job cancelled before media commit")
 
@@ -377,7 +419,6 @@ class Worker:
             media = conn.execute("SELECT * FROM media WHERE id=?", (media_id,)).fetchone()
             if media is None or media["deleted_at"] is not None:
                 return "skipped", 0
-            # A disk-backed temporary table avoids all-video-face Python lists.
             conn.execute("CREATE TEMP TABLE prior AS SELECT f.*,p.name AS person_name,"
                 "EXISTS(SELECT 1 FROM rejections r WHERE r.face_id=f.id) AS has_rejections,0 AS reused "
                 "FROM faces f LEFT JOIN people p ON p.id=f.person_id WHERE f.media_id=?", (media_id,))
@@ -431,8 +472,6 @@ class Worker:
                          "AND review_state='unreviewed' AND deleted_at IS NULL AND has_rejections=0 "
                          "AND TRIM(COALESCE(person_name,''))='')")
             self.cluster.refresh(conn, affected)
-            # Track-then-cluster: assign once per tracklet (leader = highest quality),
-            # then propagate person_id to sibling faces of the same track.
             auto_confirm = bool(settings.get("auto_confirm", True))
             auto_confirm_threshold = float(
                 settings.get("auto_confirm_threshold")
@@ -442,11 +481,9 @@ class Worker:
             min_quality_confirm = float(settings.get("min_face_quality", 0.35))
 
             def _review_state(similarity, quality):
-                """Matched faces at/above auto_confirm_threshold skip the review queue."""
                 if not auto_confirm or similarity is None:
                     return "unreviewed"
                 q = 0.5 if quality is None else float(quality)
-                # Very low quality still needs a human look
                 if q < max(0.25, min_quality_confirm * 0.85):
                     return "unreviewed"
                 if float(similarity) >= auto_confirm_threshold:
@@ -494,9 +531,6 @@ class Worker:
                     assigned_tracks[tid] = (pid, similarity)
                 if pid is not None:
                     affected.add(pid)
-            # One review item per person per media: keep the highest-quality face
-            # unreviewed (if it still needs review); mark sibling faces confirmed so
-            # the same person in one video does not flood the review queue.
             conn.execute(
                 """
                 UPDATE faces SET review_state='confirmed'
@@ -516,8 +550,6 @@ class Worker:
                 """,
                 (media_id, media_id),
             )
-            # Same for tracklets that have not yet been assigned a person_id:
-            # only the track leader stays unreviewed.
             conn.execute(
                 """
                 UPDATE faces SET review_state='confirmed'
@@ -539,15 +571,27 @@ class Worker:
                 (media_id, media_id),
             )
             self.cluster.refresh(conn, affected)
-            conn.execute("UPDATE media SET width=?,height=?,duration=?,captured_at=?,thumbnail=?,duplicate_count=?,"
-                         "status='stale',error=NULL,missing=0,indexed_at=CURRENT_TIMESTAMP WHERE id=?",
-                         (metadata["width"], metadata["height"], metadata.get("duration"), metadata.get("captured_at"),
-                          str(thumbnail_dir / f"media-{media_id}.jpg"), duplicates, media_id))
+            conn.execute(
+                "UPDATE media SET width=?,height=?,duration=?,captured_at=?,thumbnail=?,duplicate_count=?,"
+                "content_hash=?,phash=?,dino_offset=?,dino_sha=?,"
+                "status='stale',error=NULL,missing=0,indexed_at=CURRENT_TIMESTAMP WHERE id=?",
+                (
+                    metadata["width"],
+                    metadata["height"],
+                    metadata.get("duration"),
+                    metadata.get("captured_at"),
+                    str(thumbnail_dir / f"media-{media_id}.jpg"),
+                    duplicates,
+                    metadata.get("content_hash"),
+                    metadata.get("phash"),
+                    metadata.get("dino_offset"),
+                    metadata.get("dino_sha"),
+                    media_id,
+                ),
+            )
             count = conn.execute("SELECT COUNT(*) FROM faces WHERE media_id=? AND deleted_at IS NULL", (media_id,)).fetchone()[0]
             self._cancel_only()
         staged.commit()
-        # The DB is authoritative. Missing thumbnails can always be regenerated;
-        # replacing them before commit would damage old thumbnails on rollback.
         self._checkpoint()
         media_io.write_thumbnail(thumbnail_dir / f"media-{media_id}.jpg", jpeg)
         for detection in staged.execute("SELECT face_id,jpeg FROM detections ORDER BY id"):
@@ -558,8 +602,6 @@ class Worker:
         return "indexed", count
 
     def _mark_missing(self, library_id, root):
-        # Build a complete proposal before changing any missing flags. Ignored but
-        # existing files are not missing merely because traversal omitted them.
         if authorized_root(root, self.config.roots) != root:
             raise ValueError("Registered library target changed before missing-file verification")
         with tempfile.TemporaryDirectory(prefix=".missing-", dir=self.data_dir) as directory:

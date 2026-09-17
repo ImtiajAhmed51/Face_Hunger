@@ -5,9 +5,22 @@ Serves the React frontend from frontend/dist and exposes the /api contract.
 
 from __future__ import annotations
 
+# OpenMP / conda + pip torch conflict (must be set before numpy/torch load)
+import os
+
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+os.environ.setdefault("KMP_INIT_AT_FORK", "FALSE")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+os.environ.setdefault("XFORMERS_DISABLED", "1")
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+os.environ.setdefault("LFS_DINO_DEVICE", "cpu")
+
 import io
 import json
-import os
 import shutil
 import tempfile
 import zipfile
@@ -33,6 +46,10 @@ from .scanner import authorized_root, resolve_inside
 from .worker import Worker
 from . import threshold_tuning
 from . import evaluation as evaluation_mod
+from . import duplicates as dup_mod
+from .media_embeddings import MediaEmbeddingStore
+from . import dino_duplicates as dino_dup_mod
+from . import dino as dino_mod
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +61,7 @@ config.prepare()
 
 db = Database(config.data_dir / "index.sqlite")
 store = EmbeddingStore(config.data_dir / "embeddings.bin")
+media_store = MediaEmbeddingStore(config.data_dir / "media_embeddings.bin")
 engine = Engine(config)
 cluster = Clustering(db, store)
 worker = Worker(db, config, engine, store, cluster)
@@ -57,6 +75,10 @@ async def lifespan(app: FastAPI):
     worker.shutdown(timeout=5)
     try:
         store.close()
+    except Exception:
+        pass
+    try:
+        media_store.close()
     except Exception:
         pass
 
@@ -221,13 +243,14 @@ def _media_row(row: dict) -> dict:
     return {
         "id": row["id"],
         "name": row["name"],
+        "path": row.get("path"),
         "kind": row["kind"],
         "captured_at": row.get("captured_at"),
         "width": row.get("width"),
         "height": row.get("height"),
         "duration": row.get("duration"),
         "size": int(row.get("size") or 0),
-        "status": row["status"],
+        "status": row.get("status") or "indexed",
         "missing": bool(row.get("missing")),
         "deleted_at": row.get("deleted_at"),
         "face_count": int((face_count or {}).get("c") or 0),
@@ -312,7 +335,6 @@ def _cleanup_counts() -> dict:
         "deleted_faces": int((db.one("SELECT COUNT(*) AS c FROM faces WHERE deleted_at IS NOT NULL") or {}).get("c") or 0),
     }
 
-
 def _page(items: list, total: int, page: int, limit: int) -> dict:
     return {"items": items, "total": total, "page": page, "limit": limit}
 
@@ -323,7 +345,8 @@ def _page(items: list, total: int, page: int, limit: int) -> dict:
 
 class NameBody(BaseModel):
     name: str
-
+class BackfillBody(BaseModel):
+    limit: int = 150
 
 class MergeBody(BaseModel):
     target_id: int
@@ -383,6 +406,7 @@ class SettingsPatch(BaseModel):
     min_face_quality: Optional[float] = None
     auto_confirm: Optional[bool] = None
     auto_confirm_threshold: Optional[float] = None
+    dino_similarity_threshold: Optional[float] = None
 
 
 class MaintenanceBody(BaseModel):
@@ -1413,6 +1437,52 @@ def restore_media(media_id: int, request: Request):
     return _media_row(db.one("SELECT * FROM media WHERE id=?", (media_id,)))
 
 
+@app.post("/api/media/empty-deleted")
+def empty_deleted(body: ConfirmBody, request: Request):
+    """Permanently delete all soft-deleted media from disk and remove their index records."""
+    _require_csrf(request)
+    if body.confirm != "DELETE":
+        raise HTTPException(400, "Type DELETE to confirm permanent deletion of all deleted files.")
+    rows = db.all("SELECT id, path FROM media WHERE deleted_at IS NOT NULL")
+    if not rows:
+        return {"deleted_files": 0, "removed_from_index": 0, "failed": []}
+
+    deleted_files = 0
+    removed_from_db = 0
+    failed: list[dict] = []
+
+    for row in rows:
+        mid = row["id"]
+        path = Path(row["path"])
+        try:
+            resolved = path.expanduser().resolve()
+            allowed = any(resolved == r or resolved.is_relative_to(r) for r in config.roots)
+            if path.is_file():
+                if not allowed:
+                    failed.append({"id": mid, "path": row["path"], "error": "Path outside allowed roots"})
+                    continue
+                path.unlink()
+                deleted_files += 1
+        except OSError as exc:
+            failed.append({"id": mid, "path": row["path"], "error": str(exc)})
+            continue
+
+        with db.connect() as conn:
+            conn.execute("DELETE FROM media WHERE id=?", (mid,))
+        removed_from_db += 1
+
+    try:
+        cluster.invalidate()
+    except Exception:
+        pass
+
+    return {
+        "deleted_files": deleted_files,
+        "removed_from_index": removed_from_db,
+        "failed": failed,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Review
 # ---------------------------------------------------------------------------
@@ -1677,6 +1747,197 @@ def get_cleanup():
     }
 
 
+@app.post("/api/cleanup/backfill-hashes")
+def backfill_hashes(request: Request, body: BackfillBody = BackfillBody()):
+    """Fill content_hash + phash for media missing them (no face re-detection)."""
+    _require_csrf(request)
+    from . import duplicates as dup_mod
+    from .media_processing import load_image, frame_at
+
+    limit = max(1, min(int(body.limit or 150), 500))
+    rows = db.all(
+        """SELECT id, path, kind, duration, content_hash, phash
+           FROM media
+           WHERE deleted_at IS NULL
+             AND status IN ('indexed', 'stale')
+             AND (content_hash IS NULL OR phash IS NULL)
+           ORDER BY id
+           LIMIT ?""",
+        (limit,),
+    )
+    updated = 0
+    failed = 0
+    for row in rows:
+        path = Path(row["path"])
+        if not path.is_file():
+            failed += 1
+            continue
+        content_hash = row.get("content_hash")
+        phash = row.get("phash")
+        try:
+            if not content_hash:
+                content_hash = dup_mod.content_hash(path)
+            if not phash:
+                if row["kind"] == "photo":
+                    bgr = load_image(path)
+                    phash = dup_mod.image_phash(bgr)
+                else:
+                    phash = dup_mod.video_phash(
+                        path,
+                        row.get("duration"),
+                        frame_at_fn=frame_at,
+                    )
+            with db.connect() as conn:
+                conn.execute(
+                    "UPDATE media SET content_hash=?, phash=? WHERE id=?",
+                    (content_hash, phash, row["id"]),
+                )
+            updated += 1
+        except Exception:
+            failed += 1
+
+    total = int((db.one(
+        "SELECT COUNT(*) AS c FROM media WHERE deleted_at IS NULL AND status IN ('indexed','stale')"
+    ) or {}).get("c") or 0)
+    filled = int((db.one(
+        "SELECT COUNT(*) AS c FROM media WHERE deleted_at IS NULL AND status IN ('indexed','stale') AND content_hash IS NOT NULL AND phash IS NOT NULL"
+    ) or {}).get("c") or 0)
+    remaining = max(0, total - filled)
+
+    return {
+        "updated": updated,
+        "failed": failed,
+        "batch": len(rows),
+        "filled": filled,
+        "total": total,
+        "remaining": remaining,
+        "done": remaining == 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# DINOv2 media duplicates
+# ---------------------------------------------------------------------------
+
+@app.get("/api/duplicates")
+def list_duplicates(
+    limit: int = Query(2000, ge=1, le=10000),
+    threshold: Optional[float] = Query(None, ge=0.5, le=0.999),
+):
+    """Exact (content_hash) + near-duplicate (DINOv2 cosine) media groups."""
+    settings = _settings()
+    sim = float(threshold if threshold is not None else settings.get("dino_similarity_threshold", 0.92))
+    groups = dino_dup_mod.find_duplicate_groups(
+        db,
+        media_store,
+        similarity_threshold=sim,
+        limit=limit,
+        media_row_fn=_media_row,
+    )
+    dino_total = int((db.one(
+        "SELECT COUNT(*) AS c FROM media WHERE deleted_at IS NULL AND missing=0 AND status IN ('indexed','stale')"
+    ) or {}).get("c") or 0)
+    dino_filled = int((db.one(
+        "SELECT COUNT(*) AS c FROM media WHERE deleted_at IS NULL AND missing=0 AND status IN ('indexed','stale') AND dino_offset IS NOT NULL AND dino_sha IS NOT NULL"
+    ) or {}).get("c") or 0)
+    return {
+        "groups": groups,
+        "threshold": sim,
+        "dino": dino_mod.status(),
+        "embedding_total": dino_total,
+        "embedding_filled": dino_filled,
+        "embedding_remaining": max(0, dino_total - dino_filled),
+        "group_count": len(groups),
+        "item_count": sum(len(g["items"]) for g in groups),
+    }
+
+
+@app.post("/api/duplicates/backfill")
+def backfill_dino_embeddings(request: Request, body: BackfillBody = BackfillBody()):
+    """Incrementally compute DINOv2 embeddings for media missing them."""
+    _require_csrf(request)
+    from .media_processing import frame_at
+
+    limit = max(1, min(int(body.limit or 40), 200))
+    result = dino_dup_mod.backfill_embeddings(
+        db, media_store, frame_at, limit=limit
+    )
+    return result
+
+
+@app.post("/api/media/{media_id}/reveal")
+def reveal_media(media_id: int, request: Request):
+    """Reveal file in system file manager (Finder / Explorer / xdg-open parent)."""
+    _require_csrf(request)
+    row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
+    if not row:
+        raise HTTPException(404, "Media not found")
+    path = Path(row["path"])
+    if not path.exists():
+        raise HTTPException(404, "File not found on disk")
+    import platform
+    import subprocess
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", "-R", str(path)], start_new_session=True)
+        elif system == "Windows":
+            subprocess.Popen(["explorer", "/select,", str(path)], start_new_session=True)
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent)], start_new_session=True)
+    except Exception as exc:
+        raise HTTPException(500, f"Could not reveal file: {exc}") from exc
+    return {"ok": True, "path": str(path)}
+
+
+@app.post("/api/media/move")
+def move_media_files(body: MoveMediaBody, request: Request):
+    """Move selected media files to a destination folder (user-initiated only)."""
+    _require_csrf(request)
+    if not body.media_ids:
+        raise HTTPException(400, "media_ids required")
+    dest_root = Path(body.destination).expanduser().resolve()
+    try:
+        authorized_root(str(dest_root), config.roots)
+    except Exception:
+        # Allow destinations under home even if not a library root
+        home = Path.home().resolve()
+        if not str(dest_root).startswith(str(home)):
+            raise HTTPException(400, "Destination must be under an allowed root or home")
+    dest_root.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    failed: list[dict] = []
+    moved_ids: list[int] = []
+    for mid in body.media_ids:
+        row = db.one("SELECT * FROM media WHERE id=? AND deleted_at IS NULL", (mid,))
+        if not row:
+            failed.append({"id": mid, "error": "not found"})
+            continue
+        src = Path(row["path"])
+        if not src.is_file():
+            failed.append({"id": mid, "error": "missing on disk"})
+            continue
+        target = dest_root / src.name
+        if target.exists():
+            stem, suf = target.stem, target.suffix
+            n = 1
+            while target.exists():
+                target = dest_root / f"{stem}_{n}{suf}"
+                n += 1
+        try:
+            shutil.move(str(src), str(target))
+            with db.connect() as conn:
+                conn.execute(
+                    "UPDATE media SET path=?, name=? WHERE id=?",
+                    (str(target), target.name, mid),
+                )
+            moved += 1
+            moved_ids.append(mid)
+        except Exception as exc:
+            failed.append({"id": mid, "error": str(exc)})
+    return {"moved": moved, "failed": failed, "destination": str(dest_root), "moved_ids": moved_ids}
+
+
 @app.post("/api/cleanup/check")
 def cleanup_check(request: Request):
     _require_csrf(request)
@@ -1896,6 +2157,8 @@ def patch_settings(body: SettingsPatch, request: Request):
         raise HTTPException(400, "min_face_quality must be between 0 and 1")
     if "auto_confirm_threshold" in updates and not (0.3 <= updates["auto_confirm_threshold"] <= 0.95):
         raise HTTPException(400, "auto_confirm_threshold must be between 0.3 and 0.95")
+    if "dino_similarity_threshold" in updates and not (0.5 <= updates["dino_similarity_threshold"] <= 0.999):
+        raise HTTPException(400, "dino_similarity_threshold must be between 0.5 and 0.999")
 
     with db.connect() as conn:
         for key, value in updates.items():

@@ -16,6 +16,7 @@ import { JobCard } from "./components/JobCard";
 import { MediaCollection } from "./components/MediaGrid";
 import { Dialog, Empty, PageHeader } from "./components/ui";
 import { Cleanup } from "./pages/Cleanup";
+import { Duplicates } from "./pages/Duplicates";
 import { Home } from "./pages/Home";
 import { Clusters } from "./pages/Clusters";
 import { People, PersonProfile } from "./pages/People";
@@ -35,8 +36,10 @@ const navigation: {
   { to: "/photos", label: "Photos", icon: "photo" },
   { to: "/videos", label: "Videos", icon: "video" },
   { to: "/no-faces", label: "No faces", icon: "hidden" },
+  { to: "/deleted", label: "Deleted", icon: "trash" },
   { to: "/search", label: "Search", icon: "search", group: true },
   { to: "/review", label: "Review", icon: "review" },
+  { to: "/duplicates", label: "Duplicates", icon: "merge" },
   { to: "/cleanup", label: "Cleanup", icon: "cleanup" },
   { to: "/settings", label: "Settings", icon: "settings", group: true },
 ];
@@ -324,20 +327,38 @@ export function App() {
                 <PageHeader
                   eyebrow="NO ONE IN THE FRAME"
                   title="Media without faces"
-                  description="Photos and videos where the engine found no faces. Browse them here separately from your people collection. Deleting here permanently removes the original files from disk."
+                  description="Photos and videos where the engine found no faces. Browse them here separately from your people collection. Deleting moves items to the Deleted tab; originals stay on disk until you permanently remove them."
                 />
                 <MediaCollection
                   key="no-faces"
                   filters={{ no_faces: true }}
-                  purgeOriginals
                   emptyTitle="Every file has a face"
                   emptyDescription="When a scan finds media with no detectable faces, those items will appear here."
                 />
               </>
             }
           />
+          <Route
+            path="/deleted"
+            element={
+              <>
+                <PageHeader
+                  eyebrow="SOFT DELETED"
+                  title="Deleted"
+                  description="Media you soft-deleted. Restore them anytime, or permanently remove original files from disk. Empty Deleted clears everything listed here."
+                />
+                <MediaCollection
+                  key="deleted"
+                  deletedOnly
+                  emptyTitle="Nothing in Deleted"
+                  emptyDescription="Soft-deleted photos and videos will appear here. You can restore them or permanently delete the files from disk."
+                />
+              </>
+            }
+          />
           <Route path="/search" element={<Search />} />
           <Route path="/review" element={<Review />} />
+          <Route path="/duplicates" element={<Duplicates />} />
           <Route path="/cleanup" element={<Cleanup />} />
           <Route path="/settings" element={<Settings />} />
           <Route

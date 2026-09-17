@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS media (
  size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, captured_at TEXT,
  width INTEGER, height INTEGER, duration REAL, status TEXT NOT NULL DEFAULT 'pending', error TEXT,
  thumbnail TEXT, duplicate_count INTEGER NOT NULL DEFAULT 0, missing INTEGER NOT NULL DEFAULT 0,
+ content_hash TEXT, phash TEXT,
  deleted_at TEXT, indexed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS people (
@@ -95,6 +96,8 @@ DEFAULTS = {
     # Auto-confirm at this cosine similarity (can be lower than review_threshold).
     # Default 0.52 sits between matching (0.48) and review (0.62).
     "auto_confirm_threshold": 0.52,
+    # DINOv2 media near-duplicate cosine similarity (0–1). Higher = stricter.
+    "dino_similarity_threshold": 0.92,
 }
 
 
@@ -134,7 +137,27 @@ class Database:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS hard_negatives_person ON hard_negatives(person_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS faces_track ON faces(media_id, track_id)")
-        conn.execute("PRAGMA user_version=2")
+
+        # --- media content_hash + phash ---
+        cols_media = {r[1] for r in conn.execute("PRAGMA table_info(media)")}
+        if "content_hash" not in cols_media:
+            conn.execute("ALTER TABLE media ADD COLUMN content_hash TEXT")
+        if "phash" not in cols_media:
+            conn.execute("ALTER TABLE media ADD COLUMN phash TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS media_content_hash ON media(content_hash) WHERE content_hash IS NOT NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS media_phash ON media(phash) WHERE phash IS NOT NULL")
+
+        # --- DINOv2 media embeddings ---
+        cols_media = {r[1] for r in conn.execute("PRAGMA table_info(media)")}
+        if "dino_offset" not in cols_media:
+            conn.execute("ALTER TABLE media ADD COLUMN dino_offset INTEGER")
+        if "dino_sha" not in cols_media:
+            conn.execute("ALTER TABLE media ADD COLUMN dino_sha TEXT")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS media_dino ON media(dino_offset) WHERE dino_offset IS NOT NULL"
+        )
+
+        conn.execute("PRAGMA user_version=3")
 
     @contextmanager
     def connect(self):
