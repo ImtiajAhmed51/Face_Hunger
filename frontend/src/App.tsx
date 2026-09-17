@@ -41,6 +41,18 @@ const navigation: {
   { to: "/settings", label: "Settings", icon: "settings", group: true },
 ];
 
+const primaryNav: { to: string; label: string; icon: IconName }[] = [
+  { to: "/", label: "Home", icon: "home" },
+  { to: "/people", label: "People", icon: "people" },
+  { to: "/photos", label: "Photos", icon: "photo" },
+  { to: "/review", label: "Review", icon: "review" },
+];
+
+function isPrimaryPath(pathname: string, to: string) {
+  if (to === "/") return pathname === "/";
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
 function Brand() {
   return (
     <Link className="brand" to="/" aria-label="Face Hunger home">
@@ -76,12 +88,13 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           key={item.to}
           to={item.to}
           end={item.to === "/"}
+          title={item.label}
           className={({ isActive }) =>
             `nav-link ${isActive ? "active" : ""} ${item.group ? "nav-group" : ""}`
           }
           onClick={onNavigate}
         >
-          <Icon name={item.icon} size={20} />
+          <Icon name={item.icon} size={18} />
           <span>{item.label}</span>
           {item.to === "/review" && !!data?.review_count && (
             <span className="nav-count">
@@ -91,6 +104,50 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           {item.to === "/search" && <kbd>/</kbd>}
         </NavLink>
       ))}
+    </nav>
+  );
+}
+
+function BottomNav({ onMore }: { onMore: () => void }) {
+  const { data } = useResource<Dashboard>("/dashboard");
+  const location = useLocation();
+  const extraActive = !primaryNav.some((item) =>
+    isPrimaryPath(location.pathname, item.to),
+  );
+  return (
+    <nav className="bottom-nav" aria-label="Primary">
+      {primaryNav.map((item) => {
+        const active = isPrimaryPath(location.pathname, item.to);
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.to === "/"}
+            className={`bottom-nav-item${active ? " active" : ""}`}
+          >
+            <span className="bottom-nav-icon">
+              <Icon name={item.icon} size={20} />
+              {item.to === "/review" && !!data?.review_count && (
+                <span className="bottom-nav-badge">
+                  {data.review_count > 99 ? "99+" : data.review_count}
+                </span>
+              )}
+            </span>
+            <span>{item.label}</span>
+          </NavLink>
+        );
+      })}
+      <button
+        type="button"
+        className={`bottom-nav-item${extraActive ? " active" : ""}`}
+        aria-label="More pages"
+        onClick={onMore}
+      >
+        <span className="bottom-nav-icon">
+          <Icon name="menu" size={20} />
+        </span>
+        <span>More</span>
+      </button>
     </nav>
   );
 }
@@ -185,14 +242,19 @@ export function App() {
       </aside>
       <header className="mobile-header">
         <Brand />
-        <button
-          className="icon-button"
-          aria-label="Open navigation"
-          aria-expanded={mobileOpen}
-          onClick={() => setMobileOpen(true)}
-        >
-          <Icon name="menu" size={24} />
-        </button>
+        <div className="mobile-header-actions">
+          <Link className="icon-button" to="/search" aria-label="Search">
+            <Icon name="search" size={20} />
+          </Link>
+          <button
+            className="icon-button"
+            aria-label="Open navigation"
+            aria-expanded={mobileOpen}
+            onClick={() => setMobileOpen(true)}
+          >
+            <Icon name="menu" size={20} />
+          </button>
+        </div>
       </header>
       <Dialog
         open={mobileOpen}
@@ -301,6 +363,7 @@ export function App() {
           <span>Originals always untouched.</span>
         </footer>
       </main>
+      <BottomNav onMore={() => setMobileOpen(true)} />
     </>
   );
 }
