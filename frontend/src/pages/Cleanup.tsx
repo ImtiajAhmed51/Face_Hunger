@@ -1,15 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { batch, bytes, mutate, number, percent } from "../api";
+import { batch, mutate, number, percent } from "../api";
 import { useAction, useApp } from "../context";
 import { useResource, useSelection } from "../hooks";
-import type {
-  Cleanup as CleanupData,
-  DuplicateMediaGroup,
-  Library,
-  Media,
-  Person,
-} from "../types";
+import type { Cleanup as CleanupData, Library, Media, Person } from "../types";
 import { Icon } from "../components/Icon";
 import { MediaCollection, MediaGrid } from "../components/MediaGrid";
 import { MediaViewer } from "../components/MediaViewer";
@@ -120,114 +114,6 @@ function DuplicatePair({
           mutate(`/people/${source.id}/merge`, { target_id: destination.id })
         }
         success="People merged."
-      />
-    </article>
-  );
-}
-
-function DuplicateMediaCard({
-  group,
-  onChanged,
-}: {
-  group: DuplicateMediaGroup;
-  onChanged: () => void;
-}) {
-  const [keepId, setKeepId] = useState(group.keep_id);
-  const [purge, setPurge] = useState(false);
-  const [gone, setGone] = useState(false);
-  const action = useAction();
-  const drop = group.items.filter((item) => item.id !== keepId);
-  if (gone) return null;
-  const extra = drop.reduce((sum, item) => sum + (item.size || 0), 0);
-  return (
-    <article className="duplicate-card duplicate-media-card">
-      <div className="duplicate-media-grid">
-        {group.items.map((item) => {
-          const selected = item.id === keepId;
-          return (
-            <button
-              type="button"
-              key={item.id}
-              className={`duplicate-media-tile ${selected ? "keep" : ""}`}
-              onClick={() => setKeepId(item.id)}
-            >
-              <Thumbnail
-                src={`/api/media/${item.id}/thumbnail`}
-                alt={item.name}
-                icon={item.kind === "video" ? "video" : "photo"}
-              />
-              <strong>{item.name}</strong>
-              <span>
-                {item.width && item.height
-                  ? `${item.width}×${item.height}`
-                  : "size unknown"}
-                {" · "}
-                {bytes(item.size)}
-              </span>
-              {selected ? (
-                <Badge tone="teal">Keep this</Badge>
-              ) : (
-                <Badge>Delete</Badge>
-              )}
-            </button>
-          );
-        })}
-      </div>
-      <div className="duplicate-details">
-        <div className="inline-actions">
-          <Badge tone={group.match === "exact" ? "teal" : "amber"}>
-            {group.match === "exact" ? "Exact copy" : "Near duplicate"}
-          </Badge>
-          <Badge>{group.kind}</Badge>
-          <Badge>{percent(group.similarity)} match</Badge>
-          <Badge>{bytes(extra)} extra</Badge>
-        </div>
-        <p>
-          Best copy is pre-selected (highest resolution, then largest file).
-          Click another tile to keep that one instead.
-        </p>
-        <div className="inline-actions">
-          <button
-            className="button primary small"
-            disabled={action.busy || drop.length === 0}
-            onClick={() => setPurge(true)}
-          >
-            Delete {drop.length} duplicate{drop.length === 1 ? "" : "s"}
-          </button>
-          <button
-            className="button small"
-            disabled={action.busy}
-            onClick={() =>
-              void action.run(async () => {
-                await mutate("/cleanup/duplicates/ignore", {
-                  media_ids: group.items.map((item) => item.id),
-                });
-                setGone(true);
-                onChanged();
-              }, "Hidden. This group will not be suggested again.")
-            }
-          >
-            Not duplicates
-          </button>
-        </div>
-      </div>
-      <ConfirmDialog
-        open={purge}
-        onClose={() => setPurge(false)}
-        title="Delete duplicate originals?"
-        description={`This permanently deletes ${drop.length} file(s) from disk and the index. The file you marked Keep stays. Type DELETE to confirm.`}
-        label="Delete duplicates"
-        confirmation="DELETE"
-        onConfirm={async () => {
-          await mutate("/cleanup/duplicates/purge", {
-            keep_id: keepId,
-            media_ids: group.items.map((item) => item.id),
-            confirm: "DELETE",
-          });
-          setGone(true);
-          onChanged();
-        }}
-        success="Duplicate originals deleted."
       />
     </article>
   );
@@ -411,8 +297,8 @@ function IssueMedia({ items, missing }: { items: Media[]; missing?: boolean }) {
 export function Cleanup() {
   const resource = useResource<CleanupData>("/cleanup");
   const [tab, setTab] = useState<
-    "files" | "duplicates" | "failed" | "missing" | "deleted"
-  >("files");
+    "duplicates" | "failed" | "missing" | "deleted"
+  >("duplicates");
   const [deletedTab, setDeletedTab] = useState<"faces" | "media">("faces");
   const action = useAction();
   const data = resource.data;
@@ -421,44 +307,21 @@ export function Cleanup() {
       <PageHeader
         eyebrow="A LITTLE CARE GOES A LONG WAY"
         title="Room to remember"
-        description="Find duplicate photos and videos. Bring duplicate people together. Keep your collection healthy."
+        description="Bring duplicate people together. Find missing files. Keep your collection healthy."
         actions={
-          <>
-            <button
-              className="button primary"
-              disabled={action.busy}
-              onClick={() =>
-                void action.run(async () => {
-                  let remaining = 1;
-                  while (remaining > 0) {
-                    const result = await mutate<{
-                      remaining: number;
-                      hashed: number;
-                    }>("/cleanup/duplicates/scan", {});
-                    remaining = result.remaining;
-                    if (!result.hashed && remaining === 0) break;
-                  }
-                  resource.reload();
-                }, "Duplicate scan finished. Review groups below.")
-              }
-            >
-              <Icon name="search" size={17} />
-              {action.busy ? "Scanning..." : "Find duplicate files"}
-            </button>
-            <button
-              className="button"
-              disabled={action.busy}
-              onClick={() =>
-                void action.run(
-                  () => mutate("/cleanup/check"),
-                  "Library health check completed.",
-                )
-              }
-            >
-              <Icon name="shield" size={17} />
-              {action.busy ? "Checking..." : "Check library health"}
-            </button>
-          </>
+          <button
+            className="button"
+            disabled={action.busy}
+            onClick={() =>
+              void action.run(
+                () => mutate("/cleanup/check"),
+                "Library health check completed.",
+              )
+            }
+          >
+            <Icon name="shield" size={17} />
+            {action.busy ? "Checking..." : "Check library health"}
+          </button>
         }
       />
       <ErrorNotice error={resource.error} retry={resource.reload} />
@@ -468,10 +331,6 @@ export function Cleanup() {
       {data && (
         <>
           <div className="cleanup-summary">
-            <button onClick={() => setTab("files")}>
-              <span>Duplicate files</span>
-              <strong>{number(data.duplicate_files || 0)}</strong>
-            </button>
             <button onClick={() => setTab("duplicates")}>
               <span>Duplicate candidates</span>
               <strong>{number(data.duplicates)}</strong>
@@ -521,7 +380,6 @@ export function Cleanup() {
           <div className="tabs" role="group" aria-label="Cleanup category">
             {(
               [
-                ["files", "Duplicate files"],
                 ["duplicates", "Duplicate people"],
                 ["failed", "Failed files"],
                 ["missing", "Missing files"],
@@ -537,37 +395,6 @@ export function Cleanup() {
               </button>
             ))}
           </div>
-          {tab === "files" &&
-            (data.duplicate_media?.length ? (
-              <>
-                <p className="muted small-text">
-                  Exact copies share the same bytes. Near duplicates are
-                  visually the same after recompress/resize. Keep the best file,
-                  then delete the rest from disk. Hashed{" "}
-                  {number(data.duplicate_hashed || 0)} of{" "}
-                  {number(data.duplicate_indexed || 0)} indexed files.
-                </p>
-                <div className="duplicate-grid">
-                  {data.duplicate_media.map((group) => (
-                    <DuplicateMediaCard
-                      key={group.id}
-                      group={group}
-                      onChanged={() => resource.reload()}
-                    />
-                  ))}
-                </div>
-              </>
-            ) : (
-              <Empty
-                icon="photo"
-                title="No duplicate files yet"
-                description={
-                  (data.duplicate_hashed || 0) < (data.duplicate_indexed || 0)
-                    ? "Click Find duplicate files to hash the library (no face re-scan). Then exact and near copies will appear here."
-                    : "No extra copies found. If you add more folders, run Find duplicate files again."
-                }
-              />
-            ))}
           {tab === "duplicates" &&
             (data.possible_people.length ? (
               <>
