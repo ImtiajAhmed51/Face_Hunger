@@ -301,14 +301,15 @@ export function MediaCollection({
   personId,
   emptyTitle = "Nothing here just yet",
   emptyDescription = "Add a library in Settings and run a scan. Your indexed media will appear here.",
-  purgeOriginals = false,
+  deletedOnly = false,
 }: {
   filters?: MediaFilters;
   tools?: boolean;
   personId?: number;
   emptyTitle?: string;
   emptyDescription?: string;
-  purgeOriginals?: boolean;
+  /** When true, show only soft-deleted media and permanent-delete actions. */
+  deletedOnly?: boolean;
 }) {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
@@ -326,10 +327,10 @@ export function MediaCollection({
     sort,
     ...(excludePeople.length ? { exclude_people: excludePeople } : {}),
     ...(tools
-      ? purgeOriginals
-        ? { q: search, excluded: false, deleted: false }
+      ? deletedOnly
+        ? { q: search, excluded: false, deleted: true }
         : { q: search, excluded, deleted }
-      : { excluded: false, deleted: false }),
+      : { excluded: false, deleted: deletedOnly }),
   };
 
   const filterKey = queryString(actualFilters);
@@ -342,6 +343,7 @@ export function MediaCollection({
   const [viewer, setViewer] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);
+  const [emptyOpen, setEmptyOpen] = useState(false);
 
   const items = resource.data?.items ?? [];
   const lastAnchor = useRef<number | null>(null);
@@ -379,20 +381,33 @@ export function MediaCollection({
 
   const purgeDialog = (
     <ConfirmDialog
-      open={purgeOriginals ? deleteOpen : purgeOpen}
-      onClose={() => {
-        setDeleteOpen(false);
-        setPurgeOpen(false);
-      }}
-      title={`Permanently delete ${selectedCount} original file(s)?`}
+      open={purgeOpen}
+      onClose={() => setPurgeOpen(false)}
+      title={`Permanently delete ${selectedCount} file(s)?`}
       description="WARNING: This permanently deletes the original photos/videos from disk. They cannot be recovered from this app. Index records will also be removed. Type DELETE to confirm."
-      label="Delete originals forever"
+      label="Delete permanently"
       confirmation="DELETE"
       onConfirm={async () => {
         await mutate("/media/purge", { media_ids: ids, confirm: "DELETE" });
         selection.clear();
       }}
-      success="Selected original files deleted from disk and removed from the index."
+      success="Selected files permanently deleted from disk and removed from the index."
+    />
+  );
+
+  const emptyDialog = (
+    <ConfirmDialog
+      open={emptyOpen}
+      onClose={() => setEmptyOpen(false)}
+      title="Empty Deleted?"
+      description="WARNING: This permanently deletes ALL soft-deleted photos/videos from disk and removes their index records. This cannot be undone. Type DELETE to confirm."
+      label="Empty Deleted"
+      confirmation="DELETE"
+      onConfirm={async () => {
+        await mutate("/media/empty-deleted", { confirm: "DELETE" });
+        selection.clear();
+      }}
+      success="All soft-deleted files permanently removed from disk."
     />
   );
 
@@ -443,7 +458,7 @@ export function MediaCollection({
               Grid
             </button>
           </div>
-          {!purgeOriginals && !filters.no_faces && (
+          {!deletedOnly && !filters?.no_faces && (
             <button
               type="button"
               className="button small"
@@ -454,7 +469,7 @@ export function MediaCollection({
               {excludePeople.length ? ` (${excludePeople.length})` : ""}
             </button>
           )}
-          {!purgeOriginals && (
+          {!deletedOnly && (
             <>
               <label className="check-label">
                 <input
@@ -473,6 +488,17 @@ export function MediaCollection({
                 Deleted media
               </label>
             </>
+          )}
+          {deletedOnly && (
+            <button
+              type="button"
+              className="button small danger-text"
+              disabled={action.busy || !resource.data?.total}
+              onClick={() => setEmptyOpen(true)}
+            >
+              <Icon name="trash" size={16} />
+              Empty Deleted
+            </button>
           )}
         </div>
       )}
@@ -607,48 +633,45 @@ export function MediaCollection({
                 Exclude for person
               </button>
             )}
-            {!purgeOriginals &&
-            pageSelected.some((item) => !!item.deleted_at) ? (
-              <button
-                className="button small"
-                disabled={action.busy}
-                onClick={() =>
-                  void run(
-                    () =>
-                      batch(
-                        pageSelected.filter((item) => !!item.deleted_at),
-                        (item) => mutate(`/media/${item.id}/restore`),
-                      ),
-                    "Media restored.",
-                  )
-                }
-              >
-                <Icon name="restore" size={16} />
-                Restore
-              </button>
-            ) : (
+            {deletedOnly || pageSelected.some((item) => !!item.deleted_at) ? (
               <>
-                {!purgeOriginals && (
-                  <button
-                    className="button small danger-text"
-                    disabled={action.busy}
-                    onClick={() => setDeleteOpen(true)}
-                  >
-                    <Icon name="trash" size={16} />
-                    Delete from index
-                  </button>
-                )}
+                <button
+                  className="button small"
+                  disabled={action.busy}
+                  onClick={() =>
+                    void run(
+                      () =>
+                        batch(
+                          pageSelected.filter(
+                            (item) => !!item.deleted_at || deletedOnly,
+                          ),
+                          (item) => mutate(`/media/${item.id}/restore`),
+                        ),
+                      "Media restored.",
+                    )
+                  }
+                >
+                  <Icon name="restore" size={16} />
+                  Restore
+                </button>
                 <button
                   className="button small danger-text"
                   disabled={action.busy}
-                  onClick={() =>
-                    purgeOriginals ? setDeleteOpen(true) : setPurgeOpen(true)
-                  }
+                  onClick={() => setPurgeOpen(true)}
                 >
                   <Icon name="trash" size={16} />
-                  Delete originals forever
+                  Delete permanently
                 </button>
               </>
+            ) : (
+              <button
+                className="button small danger-text"
+                disabled={action.busy}
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Icon name="trash" size={16} />
+                Delete
+              </button>
             )}
             <button
               className="button ghost small"
@@ -700,20 +723,21 @@ export function MediaCollection({
         />
       )}
       {purgeDialog}
-      {!purgeOriginals && (
+      {emptyDialog}
+      {!deletedOnly && (
         <ConfirmDialog
           open={deleteOpen}
           onClose={() => setDeleteOpen(false)}
-          title={`Delete ${selectedCount} media records?`}
-          description="This removes the selected media from the active index only. Your original files will not be deleted. Use the deleted media filter to restore records."
-          label="Delete from index"
+          title={`Move ${selectedCount} item(s) to Deleted?`}
+          description="This soft-deletes the selected media. Original files stay on disk. You can restore them from the Deleted tab, or permanently remove them later."
+          label="Delete"
           onConfirm={async () => {
             await batch(ids, (mediaId) =>
               mutate(`/media/${mediaId}`, undefined, "DELETE"),
             );
             selection.clear();
           }}
-          success="Selected media deleted from the index."
+          success="Selected media moved to Deleted."
         />
       )}
     </section>

@@ -38,6 +38,7 @@ function Preferences({ settings }: { settings: SettingsData }) {
     detection_size: settings.detection_size,
     video_interval: settings.video_interval,
     theme: settings.theme,
+    dino_similarity_threshold: settings.dino_similarity_threshold ?? 0.92,
   });
   const action = useAction();
   const autotune = useAction();
@@ -50,6 +51,7 @@ function Preferences({ settings }: { settings: SettingsData }) {
         detection_size: settings.detection_size,
         video_interval: settings.video_interval,
         theme: settings.theme,
+        dino_similarity_threshold: settings.dino_similarity_threshold ?? 0.92,
       }),
     [settings],
   );
@@ -153,6 +155,34 @@ function Preferences({ settings }: { settings: SettingsData }) {
             />
             <output htmlFor="review-threshold">
               {draft.review_threshold.toFixed(2)}
+            </output>
+          </div>
+        </div>
+        <div className="setting-row">
+          <div>
+            <label htmlFor="dino-threshold">Duplicate similarity</label>
+            <p>
+              DINOv2 cosine similarity for near-duplicate media. Higher is
+              stricter (fewer groups). Default 0.92.
+            </p>
+          </div>
+          <div className="range-control">
+            <input
+              id="dino-threshold"
+              type="range"
+              min="0.7"
+              max="0.99"
+              step="0.01"
+              value={draft.dino_similarity_threshold}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  dino_similarity_threshold: Number(event.target.value),
+                }))
+              }
+            />
+            <output htmlFor="dino-threshold">
+              {draft.dino_similarity_threshold.toFixed(2)}
             </output>
           </div>
         </div>

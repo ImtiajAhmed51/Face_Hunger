@@ -4841,6 +4841,15 @@
     .topline {
       display: none;
     }
+    html {
+      -webkit-overflow-scrolling: touch;
+    }
+    body {
+      background-attachment: scroll;
+    }
+    .main-content {
+      padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    }
     .bottom-nav {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -5024,5 +5033,327 @@
       width: 64px;
       height: 64px;
     }
+  }
+}
+
+/* ========== DINOv2 Duplicates ========== */
+.dino-toolbar.card-panel {
+  background: var(--panel, var(--card, #fff));
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  border-radius: 18px;
+  padding: 16px 18px;
+  margin-bottom: 22px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.dino-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.dino-threshold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.dino-threshold input[type="range"] {
+  width: 140px;
+  accent-color: var(--accent);
+}
+.dino-threshold strong {
+  min-width: 36px;
+  color: var(--text, inherit);
+  font-variant-numeric: tabular-nums;
+}
+.dino-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dino-progress-block {
+  margin-top: 14px;
+}
+.dino-progress-track {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--soft);
+  overflow: hidden;
+}
+.dino-progress-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--accent), #5ac8fa);
+  transition: width 0.35s ease;
+}
+.dino-progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.dino-progress-meta strong {
+  color: var(--text, inherit);
+  font-weight: 600;
+}
+.dino-device {
+  opacity: 0.85;
+}
+.dino-status-msg {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dino-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+}
+
+.dino-group {
+  background: var(--panel, var(--card, #fff));
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+  contain: layout style paint;
+}
+.dino-scroll-sentinel {
+  display: flex;
+  justify-content: center;
+  padding: 18px 12px 28px;
+}
+.dino-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.06));
+  background: var(--soft);
+}
+.dino-group-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.dino-sim-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.dino-group-count {
+  font-size: 12px;
+  color: var(--muted);
+}
+.dino-group-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dino-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.dino-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .dino-item {
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .dino-item:hover {
+    background: var(--soft);
+  }
+}
+.dino-item.selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.dino-thumb-wrap {
+  position: relative;
+}
+.dino-thumb {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: #0b0f16;
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  aspect-ratio: 1;
+  position: relative;
+}
+.dino-thumb .thumbnail,
+.dino-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 14px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .dino-thumb .thumbnail,
+  .dino-thumb img {
+    transition: transform 0.25s ease;
+  }
+  .dino-item:hover .dino-thumb img,
+  .dino-item:hover .dino-thumb .thumbnail {
+    transform: scale(1.03);
+  }
+}
+.dino-thumb .play-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.58);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.dino-thumb-sim {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 3px 7px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+.dino-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.92);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+.dino-check input {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.dino-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 2px;
+}
+.dino-name {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dino-specs {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.dino-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  font-size: 10px;
+  opacity: 0.9;
+}
+.dino-path {
+  margin: 0;
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dino-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.button.tiny,
+button.tiny {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  line-height: 1.2;
+}
+
+@media (max-width: 640px) {
+  .dino-items {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    padding: 12px;
+  }
+  .dino-toolbar-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dino-group {
+    border-radius: 16px;
+    box-shadow: none;
+  }
+  .dino-item {
+    padding: 6px;
+  }
+  .dino-actions {
+    gap: 6px;
+  }
+  .dino-actions .button {
+    min-height: 32px;
   }
 }

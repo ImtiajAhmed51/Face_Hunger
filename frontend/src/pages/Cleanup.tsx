@@ -307,7 +307,7 @@ export function Cleanup() {
       <PageHeader
         eyebrow="A LITTLE CARE GOES A LONG WAY"
         title="Room to remember"
-        description="Bring duplicate people together. Find missing files. Keep your collection healthy."
+        description="Bring duplicate people together. Find missing files. Keep your collection healthy. Media duplicates live in the Duplicates tab."
         actions={
           <button
             className="button"
@@ -335,6 +335,10 @@ export function Cleanup() {
               <span>Duplicate candidates</span>
               <strong>{number(data.duplicates)}</strong>
             </button>
+            <Link to="/duplicates">
+              <span>Media duplicates</span>
+              <strong>→</strong>
+            </Link>
             <Link to="/review">
               <span>Low confidence</span>
               <strong>{number(data.low_confidence)}</strong>
@@ -402,6 +406,8 @@ export function Cleanup() {
                   Only stronger matches are shown. Use{" "}
                   <strong>Skip / not the same</strong> to hide a pair forever
                   and load fresher suggestions. Merge only when you are sure.
+                  For photo/video file duplicates, open the{" "}
+                  <Link to="/duplicates">Duplicates</Link> tab.
                 </p>
                 <div className="duplicate-grid">
                   {data.possible_people.map((pair) => (
@@ -417,7 +423,7 @@ export function Cleanup() {
               <Empty
                 icon="people"
                 title="Every connection has its own place"
-                description="No strong duplicate suggestions right now. After you skip noisy pairs or run a new scan, better matches can appear here."
+                description="No strong duplicate suggestions right now. After you skip noisy pairs or run a new scan, better matches can appear here. Photo and video duplicates are in the Duplicates tab."
               />
             ))}
           {tab === "failed" && <IssueMedia items={data.failed_media} />}
