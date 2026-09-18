@@ -1865,6 +1865,41 @@ def backfill_dino_embeddings(request: Request, body: BackfillBody = BackfillBody
     return result
 
 
+
+class IgnoreDuplicateBody(BaseModel):
+    media_ids: list[int]
+
+
+@app.post("/api/duplicates/ignore")
+def ignore_duplicate_group(body: IgnoreDuplicateBody, request: Request):
+    """Mark a media set as not-a-duplicate. Does not delete or soft-delete files."""
+    _require_csrf(request)
+    ids = sorted({int(x) for x in (body.media_ids or []) if int(x) > 0})
+    if len(ids) < 2:
+        raise HTTPException(400, "media_ids must contain at least two media ids")
+    key = dino_dup_mod.group_fingerprint(ids)
+    with db.connect() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO ignored_duplicate_groups (group_key, media_ids)
+               VALUES (?, ?)""",
+            (key, json.dumps(ids)),
+        )
+    return {"ok": True, "group_key": key}
+
+
+@app.delete("/api/duplicates/ignore")
+def unignore_duplicate_group(body: IgnoreDuplicateBody, request: Request):
+    """Clear a not-a-duplicate ignore so the group can appear in results again."""
+    _require_csrf(request)
+    ids = sorted({int(x) for x in (body.media_ids or []) if int(x) > 0})
+    if len(ids) < 2:
+        raise HTTPException(400, "media_ids must contain at least two media ids")
+    key = dino_dup_mod.group_fingerprint(ids)
+    with db.connect() as conn:
+        conn.execute("DELETE FROM ignored_duplicate_groups WHERE group_key=?", (key,))
+    return {"ok": True, "group_key": key}
+
+
 @app.post("/api/media/{media_id}/reveal")
 def reveal_media(media_id: int, request: Request):
     """Reveal file in system file manager (Finder / Explorer / xdg-open parent)."""

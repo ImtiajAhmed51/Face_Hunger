@@ -22,6 +22,17 @@ logger = logging.getLogger(__name__)
 DEFAULT_SIMILARITY = 0.92  # cosine; configurable via settings
 
 
+def group_fingerprint(media_ids) -> str:
+    """Stable key for a duplicate group: sorted unique media ids, comma-separated."""
+    return ",".join(str(i) for i in sorted({int(x) for x in media_ids}))
+
+
+def load_ignored_group_keys(db) -> set:
+    rows = db.all("SELECT group_key FROM ignored_duplicate_groups")
+    return {r["group_key"] for r in rows}
+
+
+
 def _try_faiss():
     try:
         import faiss
@@ -274,4 +285,13 @@ def find_duplicate_groups(
 
     # Prefer exact first, then higher similarity
     groups.sort(key=lambda g: (0 if g["type"] == "exact" else 1, -(g.get("similarity") or 0)))
-    return groups[:limit]
+
+    ignored = load_ignored_group_keys(db)
+    filtered = []
+    for g in groups:
+        ids = [it["id"] for it in g.get("items") or []]
+        fp = group_fingerprint(ids)
+        g["fingerprint"] = fp
+        if fp not in ignored:
+            filtered.append(g)
+    return filtered[:limit]

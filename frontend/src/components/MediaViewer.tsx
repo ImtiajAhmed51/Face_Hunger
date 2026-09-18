@@ -450,11 +450,11 @@ export function MediaViewer({
                     onClick={() => setDeleteOpen(true)}
                   >
                     <Icon name="trash" size={16} />
-                    Delete from index
+                    Delete
                   </button>
                 )}
                 <p className="small-text muted">
-                  Your original files are never removed.
+                  Soft-deletes only. Originals stay on disk until permanently removed from the Deleted tab.
                 </p>
               </div>
             </>
@@ -464,11 +464,11 @@ export function MediaViewer({
       <ConfirmDialog
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
-        title="Delete this media from the index?"
-        description="The original file stays exactly where it is. You can restore this indexed record from the deleted media filter."
-        label="Delete from index"
+        title="Move this media to Deleted?"
+        description="The original file stays on disk. Restore it anytime from the Deleted tab, or permanently remove it there."
+        label="Delete"
         onConfirm={() => mutate(`/media/${current}`, undefined, "DELETE")}
-        success="Media deleted from the index, not from disk."
+        success="Media moved to Deleted. Original file unchanged."
       />
     </Dialog>
   );

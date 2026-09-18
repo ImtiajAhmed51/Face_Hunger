@@ -15,7 +15,12 @@ import {
   timeLabel,
 } from "../api";
 import { useAction } from "../context";
-import { useDebounced, useResource, useSelection } from "../hooks";
+import {
+  useAnimatedList,
+  useDebounced,
+  useResource,
+  useSelection,
+} from "../hooks";
 import type { Media, MediaFilters, Page } from "../types";
 import { Icon } from "./Icon";
 import { MediaViewer } from "./MediaViewer";
@@ -115,6 +120,7 @@ export function MediaGrid({
 }) {
   const paintRef = useRef(false);
   const mosaic = layout === "mosaic";
+  const animated = useAnimatedList(items, (item) => item.id);
 
   useEffect(() => {
     const up = () => {
@@ -126,13 +132,13 @@ export function MediaGrid({
 
   return (
     <div className={mosaic ? "media-grid media-mosaic" : "media-grid"}>
-      {items.map((item) => {
+      {animated.map(({ item, key, phase }) => {
         const aspectRatio = getAspectRatio(item);
 
         return (
           <article
-            className={`media-card ${selected?.has(item.id) ? "selected" : ""}`}
-            key={item.id}
+            className={`media-card anim-item anim-${phase} ${selected?.has(item.id) ? "selected" : ""}`}
+            key={key}
             onMouseEnter={() => {
               if (paintRef.current && onSelect)
                 onSelect(item.id, undefined, "paint");
@@ -344,8 +350,23 @@ export function MediaCollection({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [emptyOpen, setEmptyOpen] = useState(false);
+  const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
 
-  const items = resource.data?.items ?? [];
+  // Drop optimistic hides once the server list no longer includes them
+  useEffect(() => {
+    if (!resource.data?.items) return;
+    const live = new Set(resource.data.items.map((item) => item.id));
+    setHiddenIds((prev) => {
+      if (!prev.size) return prev;
+      const next = new Set<number>();
+      for (const id of prev) if (live.has(id)) next.add(id);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [resource.data]);
+
+  const items = (resource.data?.items ?? []).filter(
+    (item) => !hiddenIds.has(item.id),
+  );
   const lastAnchor = useRef<number | null>(null);
 
   const handleSelect = (
@@ -388,8 +409,14 @@ export function MediaCollection({
       label="Delete permanently"
       confirmation="DELETE"
       onConfirm={async () => {
-        await mutate("/media/purge", { media_ids: ids, confirm: "DELETE" });
-        selection.clear();
+        const target = [...ids];
+        setHiddenIds((prev) => {
+          const next = new Set(prev);
+          target.forEach((id) => next.add(id));
+          return next;
+        });
+        selection.remove(target);
+        await mutate("/media/purge", { media_ids: target, confirm: "DELETE" });
       }}
       success="Selected files permanently deleted from disk and removed from the index."
     />
@@ -493,7 +520,7 @@ export function MediaCollection({
             <button
               type="button"
               className="button small danger-text"
-              disabled={action.busy || !resource.data?.total}
+              disabled={action.busy || !(resource.data?.total)}
               onClick={() => setEmptyOpen(true)}
             >
               <Icon name="trash" size={16} />
@@ -577,7 +604,7 @@ export function MediaCollection({
               : "Your local collection"}
             {selectedCount > 0 ? ` · ${number(selectedCount)} selected` : ""}
           </span>
-          {resource.loading && !!resource.data && <Badge>Refreshing</Badge>}
+          {resource.refreshing && <Badge>Updating</Badge>}
         </div>
         <button
           className="button small"
@@ -638,18 +665,26 @@ export function MediaCollection({
                 <button
                   className="button small"
                   disabled={action.busy}
-                  onClick={() =>
+                  onClick={() => {
+                    const targets = pageSelected.filter(
+                      (item) => !!item.deleted_at || deletedOnly,
+                    );
+                    if (deletedOnly) {
+                      setHiddenIds((prev) => {
+                        const next = new Set(prev);
+                        targets.forEach((item) => next.add(item.id));
+                        return next;
+                      });
+                      selection.remove(targets.map((item) => item.id));
+                    }
                     void run(
                       () =>
-                        batch(
-                          pageSelected.filter(
-                            (item) => !!item.deleted_at || deletedOnly,
-                          ),
-                          (item) => mutate(`/media/${item.id}/restore`),
+                        batch(targets, (item) =>
+                          mutate(`/media/${item.id}/restore`),
                         ),
                       "Media restored.",
-                    )
-                  }
+                    );
+                  }}
                 >
                   <Icon name="restore" size={16} />
                   Restore
@@ -732,10 +767,16 @@ export function MediaCollection({
           description="This soft-deletes the selected media. Original files stay on disk. You can restore them from the Deleted tab, or permanently remove them later."
           label="Delete"
           onConfirm={async () => {
-            await batch(ids, (mediaId) =>
+            const target = [...ids];
+            setHiddenIds((prev) => {
+              const next = new Set(prev);
+              target.forEach((id) => next.add(id));
+              return next;
+            });
+            selection.remove(target);
+            await batch(target, (mediaId) =>
               mutate(`/media/${mediaId}`, undefined, "DELETE"),
             );
-            selection.clear();
           }}
           success="Selected media moved to Deleted."
         />

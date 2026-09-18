@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { number, queryString } from "../api";
-import { useDebounced, useResource } from "../hooks";
+import { useAnimatedList, useDebounced, useResource } from "../hooks";
 import type { Page, Person } from "../types";
 import { Icon } from "../components/Icon";
 import {
@@ -23,6 +23,7 @@ export function Clusters() {
     `/clusters?${queryString({ q: query, page, limit: 36, samples: 12 })}`,
   );
   const items = resource.data?.items ?? [];
+  const animated = useAnimatedList(items, (person) => person.id);
 
   const zoomOut = () =>
     setZoom((z) => Math.max(0.55, Math.round((z - 0.15) * 100) / 100));
@@ -129,8 +130,8 @@ export function Clusters() {
               width: `${100 / zoom}%`,
             }}
           >
-            <div className="cluster-board">
-              {items.map((person) => {
+            <div className="cluster-board cluster-grid">
+              {animated.map(({ item: person, key, phase }) => {
                 const samples =
                   person.sample_face_ids && person.sample_face_ids.length
                     ? person.sample_face_ids
@@ -139,8 +140,8 @@ export function Clusters() {
                       : [];
                 return (
                   <Link
-                    key={person.id}
-                    className="cluster-card"
+                    key={key}
+                    className={`cluster-card anim-item anim-${phase}`}
                     to={`/people/${person.id}`}
                     title={person.display_name}
                   >
