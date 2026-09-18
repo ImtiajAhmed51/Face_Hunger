@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { mutate, number, percent, queryString, timeLabel } from "../api";
 import { useAction } from "../context";
-import { useResource } from "../hooks";
+import { useAnimatedList, useResource } from "../hooks";
 import type { Face, Page } from "../types";
 import { MoveFacesDialog } from "../components/FaceActions";
 import { Icon } from "../components/Icon";
@@ -36,6 +36,7 @@ export function Review() {
   const action = useAction();
   const items =
     resource.data?.items.filter((face) => !dismissed.has(face.id)) ?? [];
+  const animatedItems = useAnimatedList(items, (face) => face.id);
   const face = items[Math.min(cursor, Math.max(0, items.length - 1))];
   useEffect(() => {
     setCursor(0);
@@ -296,12 +297,13 @@ export function Review() {
                 <Icon name="arrow" size={16} />
               </button>
             </div>
-            <div className="review-filmstrip" aria-label="Faces on this page">
-              {items.map((item, index) => (
+            <div className="review-filmstrip review-grid" aria-label="Faces on this page">
+              {animatedItems.map(({ item, key, phase }, index) => (
                 <button
-                  key={item.id}
+                  key={key}
+                  className={`anim-item anim-${phase}`}
                   aria-label={`Review face ${item.id}: ${item.display_name}`}
-                  aria-pressed={item.id === face.id}
+                  aria-pressed={item.id === face?.id}
                   onClick={() => setCursor(index)}
                   disabled={action.busy}
                 >

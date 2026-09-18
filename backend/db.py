@@ -157,7 +157,16 @@ class Database:
             "CREATE INDEX IF NOT EXISTS media_dino ON media(dino_offset) WHERE dino_offset IS NOT NULL"
         )
 
-        conn.execute("PRAGMA user_version=3")
+        # --- ignored duplicate groups (Not a duplicate) ---
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ignored_duplicate_groups (
+              group_key TEXT PRIMARY KEY,
+              media_ids TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        conn.execute("PRAGMA user_version=4")
 
     @contextmanager
     def connect(self):

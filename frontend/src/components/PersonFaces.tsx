@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { queryString, request } from "../api";
-import { useResource, useSelection } from "../hooks";
+import { useAnimatedList, useResource, useSelection } from "../hooks";
 import type { Face, Media, MediaDetail, Page } from "../types";
 import { FaceActions, FaceTile } from "./FaceActions";
 import { MediaViewer } from "./MediaViewer";
@@ -13,6 +13,7 @@ export function DeletedFaces({ personId }: { personId?: number }) {
   const selection = useSelection(path);
   const [viewer, setViewer] = useState<Face | null>(null);
   const items = resource.data?.items ?? [];
+  const animatedFaces = useAnimatedList(items, (face) => face.id);
   return (
     <section>
       <div className="collection-bar">
@@ -46,14 +47,15 @@ export function DeletedFaces({ personId }: { personId?: number }) {
         />
       ) : (
         <div className="face-grid">
-          {items.map((face) => (
-            <FaceTile
-              face={face}
-              key={face.id}
-              selected={selection.selected.has(face.id)}
-              onSelect={() => selection.toggle(face.id)}
-              onOpen={() => setViewer(face)}
-            />
+          {animatedFaces.map(({ item: face, key, phase }) => (
+            <div key={key} className={`anim-item anim-${phase}`}>
+              <FaceTile
+                face={face}
+                selected={selection.selected.has(face.id)}
+                onSelect={() => selection.toggle(face.id)}
+                onOpen={() => setViewer(face)}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -94,7 +96,7 @@ export function PersonFaces({ personId }: { personId: number }) {
   useEffect(() => {
     if (!mediaResource.data) return;
     const controller = new AbortController();
-    setState({ faces: [], loading: true, error: "" });
+    setState((prev) => ({ ...prev, loading: !prev.faces.length, error: "" }));
     void Promise.all(
       mediaResource.data.items.map((item) =>
         request<MediaDetail>(`/media/${item.id}`, {
@@ -121,6 +123,7 @@ export function PersonFaces({ personId }: { personId: number }) {
     return () => controller.abort();
   }, [mediaResource.data, personId]);
   const loading = mediaResource.loading || state.loading;
+  const animatedActive = useAnimatedList(state.faces, (face) => face.id);
   return (
     <section>
       <div className="collection-filters">
@@ -181,14 +184,15 @@ export function PersonFaces({ personId }: { personId: number }) {
             />
           ) : (
             <div className="face-grid">
-              {state.faces.map((face) => (
-                <FaceTile
-                  key={face.id}
-                  face={face}
-                  selected={selection.selected.has(face.id)}
-                  onSelect={() => selection.toggle(face.id)}
-                  onOpen={() => setViewer(face)}
-                />
+              {animatedActive.map(({ item: face, key, phase }) => (
+                <div key={key} className={`anim-item anim-${phase}`}>
+                  <FaceTile
+                    face={face}
+                    selected={selection.selected.has(face.id)}
+                    onSelect={() => selection.toggle(face.id)}
+                    onOpen={() => setViewer(face)}
+                  />
+                </div>
               ))}
             </div>
           )}

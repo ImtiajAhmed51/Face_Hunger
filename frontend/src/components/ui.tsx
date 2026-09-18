@@ -64,15 +64,15 @@ export function Dialog({ open, onClose, title, children, className = '', busy = 
     {children}
   </dialog>;
 }
-export function ConfirmDialog({ open, onClose, title, description, label = 'Confirm', confirmation, onConfirm, success, danger = true }: {
+export function ConfirmDialog({ open, onClose, title, description, label = 'Confirm', confirmation, onConfirm, success, danger = true, refresh = true }: {
   open: boolean; onClose: () => void; title: string; description: string; label?: string; confirmation?: string;
-  onConfirm: () => Promise<unknown>; success?: string; danger?: boolean;
+  onConfirm: () => Promise<unknown>; success?: string; danger?: boolean; refresh?: boolean;
 }) {
   const [value, setValue] = useState('');
   const action = useAction();
   useEffect(() => setValue(''), [open]);
   return <Dialog open={open} onClose={onClose} title={title} busy={action.busy}>
-    <form onSubmit={async event => { event.preventDefault(); if (confirmation && value !== confirmation) return; if (await action.run(onConfirm, success)) onClose(); }}>
+    <form onSubmit={async event => { event.preventDefault(); if (confirmation && value !== confirmation) return; if (await action.run(onConfirm, success, refresh)) onClose(); }}>
       <div className="dialog-body"><p>{description}</p>{confirmation && <label className="field">Type <strong>{confirmation}</strong> to continue<input autoFocus value={value} onChange={event => setValue(event.target.value)} autoComplete="off" spellCheck={false} required /></label>}<ErrorNotice error={action.error} /></div>
       <div className="dialog-footer"><button type="button" className="button" disabled={action.busy} onClick={onClose}>Cancel</button><button className={`button ${danger ? 'danger' : 'primary'}`} disabled={action.busy || (!!confirmation && value !== confirmation)}>{action.busy ? 'Working...' : label}</button></div>
     </form>

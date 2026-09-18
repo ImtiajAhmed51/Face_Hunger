@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { exportZip, mutate, number, queryString } from "../api";
 import { useAction, useApp } from "../context";
-import { useDebounced, useResource } from "../hooks";
+import { useAnimatedList, useDebounced, useResource } from "../hooks";
 import type { Page, Person } from "../types";
 import { Icon } from "../components/Icon";
 import { MediaCollection } from "../components/MediaGrid";
@@ -36,6 +36,8 @@ export function People() {
   const resource = useResource<Page<Person>>(
     `/people?${queryString({ q: query, page, limit: 48, sort })}`,
   );
+  const people = resource.data?.items ?? [];
+  const animatedPeople = useAnimatedList(people, (person) => person.id);
   return (
     <>
       <PageHeader
@@ -112,10 +114,10 @@ export function People() {
         </Empty>
       ) : (
         <div className="people-grid">
-          {resource.data?.items.map((person) => (
+          {animatedPeople.map(({ item: person, key, phase }) => (
             <Link
-              className="person-card"
-              key={person.id}
+              className={`person-card anim-item anim-${phase}`}
+              key={key}
               to={`/people/${person.id}`}
             >
               <div className="person-portrait">
