@@ -62,10 +62,13 @@ def autotune(db, cluster=None) -> Optional[dict]:
     library sizes (a few thousand reviewed faces); move it to a periodic
     job if that stops being true.
     """
+    # Cap sample size so autotune stays O(1) as the library grows past tens of
+    # thousands of reviews. Recent rows are most relevant for threshold drift.
     rows = db.all(
         "SELECT similarity, review_state FROM faces "
         "WHERE similarity IS NOT NULL AND review_state IN ('confirmed','rejected') "
-        "AND deleted_at IS NULL"
+        "AND deleted_at IS NULL "
+        "ORDER BY id DESC LIMIT 4000"
     )
     if len(rows) < MIN_SAMPLES:
         return None

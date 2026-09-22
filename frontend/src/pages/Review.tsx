@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { mutate, number, percent, queryString, timeLabel } from "../api";
 import { useAction } from "../context";
@@ -20,14 +20,17 @@ import {
   Thumbnail,
 } from "../components/ui";
 
+const PAGE_LIMIT = 30;
+
 export function Review() {
   const [params, setParams] = useSearchParams();
   const personId = Number(params.get("person_id")) || undefined;
   const [page, setPage] = useState(1);
   const [cursor, setCursor] = useState(0);
+  // Bounded set of dismissed face ids for the current page only.
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
   const resource = useResource<Page<Face>>(
-    `/review?${queryString({ page, limit: 30, person_id: personId, deleted: false })}`,
+    `/review?${queryString({ page, limit: PAGE_LIMIT, person_id: personId, deleted: false })}`,
   );
   const [viewer, setViewer] = useState<Face | null>(null);
   const [dialog, setDialog] = useState<"delete" | "move" | "person" | null>(
@@ -36,53 +39,112 @@ export function Review() {
   const action = useAction();
   // In-flight review IDs — allow rapid Yes/No without waiting for each HTTP round-trip
   const pendingReviews = useRef<Set<number>>(new Set());
+  // Prevent concurrent auto-advance reloads
+  const advancing = useRef(false);
   const items =
     resource.data?.items.filter((face) => !dismissed.has(face.id)) ?? [];
   const animatedItems = useAnimatedList(items, (face) => face.id);
-  const face = items[Math.min(cursor, Math.max(0, items.length - 1))];
+  const face = items[Math.min(cursor, Math.max(0, items.length - 1))] ?? null;
+  const faceRef = useRef(face);
+  faceRef.current = face;
+  const itemsLenRef = useRef(items.length);
+  itemsLenRef.current = items.length;
+  const dialogRef = useRef(dialog);
+  dialogRef.current = dialog;
+  const viewerRef = useRef(viewer);
+  viewerRef.current = viewer;
+
   useEffect(() => {
     setCursor(0);
     setDismissed(new Set());
     pendingReviews.current.clear();
+    advancing.current = false;
   }, [page, personId]);
+
   useEffect(() => {
     setCursor((value) => Math.min(value, Math.max(0, items.length - 1)));
   }, [items.length]);
-  const dismiss = (id: number) =>
-    setDismissed((current) => new Set([...current, id]));
-  const decide = (decision: "yes" | "no") => {
-    if (!face) return;
-    const id = face.id;
-    if (pendingReviews.current.has(id)) return;
-    pendingReviews.current.add(id);
-    // Optimistic: leave the queue immediately so the next face is ready
-    dismiss(id);
-    void mutate(`/faces/${id}/review`, { decision })
-      .then(() => {
-        // Quiet success — toast on every click is noisy during rapid review
-      })
-      .catch((cause) => {
-        // Roll back so the face returns to the queue
-        setDismissed((current) => {
-          const next = new Set(current);
-          next.delete(id);
-          return next;
+
+  const reloadQueue = resource.reload;
+  const queueTotal = resource.data?.total ?? 0;
+  const queueLoading = resource.loading || resource.refreshing;
+
+  // When the current page is fully reviewed, reload page 1 of the queue.
+  // Reviews shrink the server-side total, so advancing offset would skip faces;
+  // always re-fetch the head of the queue for continuous Yes/Select.
+  useEffect(() => {
+    if (queueLoading) {
+      // Reload in flight — keep advancing lock until data lands
+      return;
+    }
+    if (advancing.current && items.length > 0) {
+      advancing.current = false;
+    }
+    if (items.length > 0 || dismissed.size === 0) return;
+    if (advancing.current) return;
+    const remaining = Math.max(0, queueTotal - dismissed.size);
+    if (remaining <= 0) return;
+    advancing.current = true;
+    setPage(1);
+    setDismissed(new Set());
+    reloadQueue();
+  }, [items.length, dismissed.size, queueTotal, queueLoading, reloadQueue]);
+
+  const dismiss = useCallback((id: number) => {
+    setDismissed((current) => {
+      if (current.has(id)) return current;
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const actionRunRef = useRef(action.run);
+  actionRunRef.current = action.run;
+
+  const decide = useCallback(
+    (decision: "yes" | "no") => {
+      const current = faceRef.current;
+      if (!current) return;
+      const id = current.id;
+      if (pendingReviews.current.has(id)) return;
+      pendingReviews.current.add(id);
+      // Optimistic: leave the queue immediately so the next face is ready
+      dismiss(id);
+      void mutate(`/faces/${id}/review`, { decision })
+        .then(() => {
+          // Quiet success — toast on every click is noisy during rapid review
+        })
+        .catch((cause) => {
+          // Roll back so the face returns to the queue
+          setDismissed((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          const message =
+            cause instanceof Error ? cause.message : String(cause);
+          void actionRunRef.current(
+            async () => {
+              throw new Error(message);
+            },
+            undefined,
+            false,
+          );
+        })
+        .finally(() => {
+          pendingReviews.current.delete(id);
         });
-        const message =
-          cause instanceof Error ? cause.message : String(cause);
-        void action.run(async () => {
-          throw new Error(message);
-        }, undefined, false);
-      })
-      .finally(() => {
-        pendingReviews.current.delete(id);
-      });
-  };
+    },
+    [dismiss],
+  );
+
+  // Single keydown listener for the component lifetime — no per-render rebind.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (
-        dialog ||
-        viewer ||
+        dialogRef.current ||
+        viewerRef.current ||
         document.querySelector("dialog[open]")
       )
         return;
@@ -91,8 +153,9 @@ export function Review() {
         event.target.closest("input,textarea,select,[contenteditable=true]")
       )
         return;
+      const current = faceRef.current;
       if (
-        !face ||
+        !current ||
         event.ctrlKey ||
         event.metaKey ||
         event.altKey ||
@@ -102,17 +165,19 @@ export function Review() {
       const key = event.key.toLowerCase();
       if (["y", "n", "d", "arrowright", "arrowleft", "v"].includes(key))
         event.preventDefault();
-      if (key === "y") void decide("yes");
-      if (key === "n") void decide("no");
+      if (key === "y") decide("yes");
+      if (key === "n") decide("no");
       if (key === "d") setDialog("delete");
-      if (key === "v") setViewer(face);
+      if (key === "v") setViewer(current);
       if (key === "arrowright")
-        setCursor((value) => Math.min(items.length - 1, value + 1));
+        setCursor((value) =>
+          Math.min(itemsLenRef.current - 1, value + 1),
+        );
       if (key === "arrowleft") setCursor((value) => Math.max(0, value - 1));
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  });
+  }, [decide]);
   return (
     <>
       <PageHeader
@@ -146,7 +211,7 @@ export function Review() {
         </div>
         <span className="muted">
           {resource.data
-            ? `${number(resource.data.total)} awaiting review`
+            ? `${number(Math.max(0, resource.data.total - dismissed.size))} awaiting review`
             : "Loading queue"}
         </span>
       </div>
@@ -330,8 +395,8 @@ export function Review() {
       {resource.data && (
         <Pagination
           page={page}
-          total={resource.data.total}
-          limit={30}
+          total={Math.max(0, resource.data.total - dismissed.size)}
+          limit={PAGE_LIMIT}
           onPage={setPage}
         />
       )}

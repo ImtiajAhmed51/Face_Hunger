@@ -73,7 +73,10 @@ CREATE INDEX IF NOT EXISTS media_kind_date ON media(kind, deleted_at, captured_a
 CREATE INDEX IF NOT EXISTS faces_person_media ON faces(person_id, deleted_at, media_id);
 CREATE INDEX IF NOT EXISTS faces_media ON faces(media_id, deleted_at);
 CREATE INDEX IF NOT EXISTS faces_review ON faces(review_state, deleted_at, similarity);
+CREATE INDEX IF NOT EXISTS faces_review_queue ON faces(review_state, deleted_at, media_id, person_id, quality DESC);
+CREATE INDEX IF NOT EXISTS faces_person_rep ON faces(person_id, deleted_at, review_state, quality DESC, detection DESC);
 CREATE INDEX IF NOT EXISTS media_status ON media(status, missing);
+CREATE INDEX IF NOT EXISTS media_missing_deleted ON media(missing, deleted_at);
 CREATE INDEX IF NOT EXISTS faces_embedding ON faces(embedding_offset);
 CREATE INDEX IF NOT EXISTS hard_negatives_person ON hard_negatives(person_id);
 -- faces_track index is created in _migrate after track_id column is ensured
@@ -137,6 +140,17 @@ class Database:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS hard_negatives_person ON hard_negatives(person_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS faces_track ON faces(media_id, track_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS faces_review_queue "
+            "ON faces(review_state, deleted_at, media_id, person_id, quality DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS faces_person_rep "
+            "ON faces(person_id, deleted_at, review_state, quality DESC, detection DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS media_missing_deleted ON media(missing, deleted_at)"
+        )
 
         # --- media content_hash + phash ---
         cols_media = {r[1] for r in conn.execute("PRAGMA table_info(media)")}
