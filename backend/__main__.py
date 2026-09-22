@@ -17,7 +17,7 @@ os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 os.environ.setdefault("XFORMERS_DISABLED", "1")
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-os.environ.setdefault("LFS_DINO_DEVICE", "cpu")
+# LFS_DINO_DEVICE no longer forced to cpu; auto-selects MPS on Apple Silicon
 
 import io
 import json
@@ -50,6 +50,7 @@ from . import duplicates as dup_mod
 from .media_embeddings import MediaEmbeddingStore
 from . import dino_duplicates as dino_dup_mod
 from . import dino as dino_mod
+from .video_compat import init_video_compat, get_video_compat
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,43 @@ media_store = MediaEmbeddingStore(config.data_dir / "media_embeddings.bin")
 engine = Engine(config)
 cluster = Clustering(db, store)
 worker = Worker(db, config, engine, store, cluster)
+def _on_video_replaced(
+    media_id: int,
+    new_path: Path,
+    new_name: str,
+    size: int,
+    mtime_ns: int,
+    width,
+    height,
+    duration,
+    original_path=None,
+) -> None:
+    """Persist path/name/size after conversion; keep soft-original path for UI."""
+    with db.connect() as conn:
+        conn.execute(
+            """UPDATE media SET path=?, name=?, size=?, mtime_ns=?,
+                   width=COALESCE(?, width), height=COALESCE(?, height),
+                   duration=COALESCE(?, duration), error=NULL,
+                   original_path=COALESCE(?, original_path)
+               WHERE id=?""",
+            (
+                str(new_path),
+                new_name,
+                size,
+                mtime_ns,
+                width,
+                height,
+                duration,
+                str(original_path) if original_path else None,
+                media_id,
+            ),
+        )
+
+
+video_compat = init_video_compat(
+    config.data_dir / "video_cache",
+    on_replaced=_on_video_replaced,
+)
 
 
 @asynccontextmanager
@@ -240,7 +278,7 @@ def _media_row(row: dict) -> dict:
         "SELECT COUNT(*) AS c FROM faces WHERE media_id=? AND deleted_at IS NULL",
         (row["id"],),
     )
-    return {
+    out = {
         "id": row["id"],
         "name": row["name"],
         "path": row.get("path"),
@@ -256,6 +294,43 @@ def _media_row(row: dict) -> dict:
         "face_count": int((face_count or {}).get("c") or 0),
         "people": _media_people(row["id"]),
     }
+    # Soft-kept pre-conversion original (for frontend)
+    orig = row.get("original_path")
+    if orig:
+        op = Path(orig)
+        out["original_path"] = str(op) if op.is_file() else None
+        out["original_name"] = op.name if op.is_file() else None
+        out["has_original"] = op.is_file()
+    else:
+        # Heuristic: sibling *.lfs_original from current stem
+        out["original_path"] = None
+        out["original_name"] = None
+        out["has_original"] = False
+        try:
+            cur = Path(row["path"]) if row.get("path") else None
+            if cur is not None and cur.parent.is_dir():
+                stem = cur.stem
+                for cand in cur.parent.iterdir():
+                    if cand.name.endswith(".lfs_original") and (
+                        cand.name.startswith(stem + ".")
+                        or cand.name.startswith(stem + ".lfs")
+                    ):
+                        if cand.is_file():
+                            out["original_path"] = str(cand)
+                            out["original_name"] = cand.name
+                            out["has_original"] = True
+                            break
+        except OSError:
+            pass
+
+    if row.get("kind") == "video" and row.get("path"):
+        try:
+            st = video_compat.status_response(row["id"])
+            out["playback_status"] = st.get("status")
+            out["conversion"] = st
+        except Exception:
+            out["playback_status"] = "pending"
+    return out
 
 
 def _face_row(row: dict, review_threshold: float, media_id: Optional[int] = None) -> dict:
@@ -880,7 +955,7 @@ def review_face(face_id: int, body: ReviewBody, request: Request):
             )
     # Soft invalidation only — do not rebuild all centroids on every click
     cluster.invalidate()
-    # Autotune is expensive (full labeled scan). Run every ~25 reviews, not each click.
+    # Autotune is expensive. Count here; run off the request thread every ~25 reviews.
     try:
         with db.connect() as conn:
             row = conn.execute("SELECT value FROM settings WHERE key='review_autotune_counter'").fetchone()
@@ -892,7 +967,13 @@ def review_face(face_id: int, body: ReviewBody, request: Request):
                 (json.dumps(n),),
             )
         if n % 25 == 0:
-            threshold_tuning.autotune(db, cluster)
+            import threading
+            def _bg_autotune():
+                try:
+                    threshold_tuning.autotune(db, cluster)
+                except Exception:
+                    pass
+            threading.Thread(target=_bg_autotune, name="review-autotune", daemon=True).start()
     except Exception:
         pass
     return {"ok": True}
@@ -1198,6 +1279,209 @@ def list_media(
     return _page([_media_row(r) for r in rows], total, page, limit)
 
 
+@app.get("/api/media/conversion-statuses")
+def media_conversion_statuses(ids: str = Query("", description="Comma-separated media ids")):
+    """Batch conversion status for grid badges (does not start conversion)."""
+    out: dict[str, dict] = {}
+    raw = [x.strip() for x in ids.split(",") if x.strip()]
+    id_list: list[int] = []
+    for x in raw[:120]:
+        try:
+            id_list.append(int(x))
+        except ValueError:
+            continue
+
+    try:
+        with video_compat._lock:
+            active_ids = set(video_compat._active)
+            known_ids = set(video_compat._states.keys())
+    except Exception:
+        active_ids = set()
+        known_ids = set()
+
+    watch = set(id_list) | active_ids
+    for mid in watch:
+        if mid not in known_ids and mid not in active_ids:
+            continue
+        st = video_compat.status_response(mid)
+        status = st.get("status") or ""
+        # Only surface meaningful states to the grid
+        if status in (
+            "analyzing", "converting", "verifying", "replacing",
+            "pending", "failed", "completed",
+        ) or mid in active_ids:
+            out[str(mid)] = st
+    return {"items": out}
+
+@app.get("/api/media/soft-originals")
+def list_soft_originals():
+    items = _list_soft_originals()
+    return {"items": items, "total": len(items), "total_bytes": sum(int(i.get("size") or 0) for i in items)}
+
+@app.post("/api/media/soft-originals/purge")
+def purge_soft_originals(request: Request):
+    """Permanently delete all soft-kept pre-conversion originals."""
+    _require_csrf(request)
+    items = _list_soft_originals()
+    deleted = 0
+    failed: list[dict] = []
+    freed = 0
+    for item in items:
+        path = Path(item["original_path"])
+        try:
+            size = int(item.get("size") or 0)
+            if path.is_file():
+                path.unlink()
+                deleted += 1
+                freed += size
+            mid = item.get("media_id")
+            if mid is not None:
+                with db.connect() as conn:
+                    conn.execute(
+                        "UPDATE media SET original_path=NULL WHERE id=?",
+                        (mid,),
+                    )
+        except OSError as exc:
+            failed.append({"path": str(path), "error": str(exc)})
+    return {
+        "deleted": deleted,
+        "failed": failed,
+        "freed_bytes": freed,
+    }
+
+
+@app.post("/api/media/soft-originals/restore-all")
+def restore_all_soft_originals(request: Request):
+    """Restore every soft-kept original found by _list_soft_originals()."""
+    _require_csrf(request)
+    items = _list_soft_originals()
+    restored = 0
+    failed: list[dict] = []
+    for item in items:
+        mid = int(item["media_id"])
+        try:
+            # inline same logic via internal call pattern
+            row, soft = _resolve_soft_original(mid, item.get("original_path"))
+            target = _restored_path_from_soft(soft)
+            converted = Path(row["path"]) if row.get("path") else None
+            backup = None
+            if target.is_file() and target.resolve() != soft.resolve():
+                backup = Path(str(target) + ".lfs_converted")
+                n = 1
+                while backup.exists():
+                    backup = Path(str(target) + f".lfs_converted.{n}")
+                    n += 1
+                os.replace(str(target), str(backup))
+            elif (
+                converted is not None
+                and converted.is_file()
+                and converted.resolve() != soft.resolve()
+                and converted.resolve() != target.resolve()
+            ):
+                backup = Path(str(converted) + ".lfs_converted")
+                n = 1
+                while backup.exists():
+                    backup = Path(str(converted) + f".lfs_converted.{n}")
+                    n += 1
+                os.replace(str(converted), str(backup))
+            os.replace(str(soft), str(target))
+            try:
+                st = target.stat()
+                size = int(st.st_size)
+                mtime_ns = int(st.st_mtime_ns)
+            except OSError:
+                size = 0
+                mtime_ns = 0
+            with db.connect() as conn:
+                conn.execute(
+                    """UPDATE media SET path=?, name=?, size=?, mtime_ns=?,
+                       original_path=NULL, missing=0 WHERE id=?""",
+                    (str(target), target.name, size, mtime_ns, mid),
+                )
+            restored += 1
+        except HTTPException as exc:
+            failed.append({"media_id": mid, "error": str(exc.detail)})
+        except Exception as exc:
+            failed.append({"media_id": mid, "error": str(exc)})
+    return {"restored": restored, "failed": failed, "total": len(items)}
+
+
+@app.post("/api/media/converted-backups/purge")
+def purge_converted_backups(request: Request):
+    """Permanently delete every *.lfs_converted backup on disk."""
+    _require_csrf(request)
+    items = _list_converted_backups()
+    deleted = 0
+    failed: list[dict] = []
+    freed = 0
+    for item in items:
+        path = Path(item["path"])
+        try:
+            size = int(item.get("size") or 0)
+            if path.is_file():
+                path.unlink()
+                deleted += 1
+                freed += size
+        except OSError as exc:
+            failed.append({"path": str(path), "error": str(exc)})
+    return {"deleted": deleted, "failed": failed, "freed_bytes": freed}
+
+
+@app.post("/api/media/converted-backups/delete")
+async def delete_converted_backup(request: Request):
+    """Delete one *.lfs_converted file by absolute path."""
+    _require_csrf(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+    raw = body.get("path") if isinstance(body, dict) else None
+    if not raw or not isinstance(raw, str):
+        raise HTTPException(400, "path required")
+    path = Path(raw)
+    if not path.is_file() or ".lfs_converted" not in path.name:
+        raise HTTPException(404, "Converted backup not found")
+    # Stay inside configured library roots
+    try:
+        resolved = path.resolve()
+        allowed = False
+        for root in config.roots:
+            try:
+                resolved.relative_to(root.resolve())
+                allowed = True
+                break
+            except ValueError:
+                continue
+        # Also allow under data_dir just in case
+        if not allowed:
+            try:
+                resolved.relative_to(Path(config.data_dir).resolve())
+                allowed = True
+            except ValueError:
+                pass
+        if not allowed:
+            # Allow if parent matches any media path parent
+            parents = {
+                str(Path(r["path"]).parent.resolve())
+                for r in db.all(
+                    "SELECT path FROM media WHERE path IS NOT NULL AND deleted_at IS NULL"
+                )
+                if r.get("path")
+            }
+            if str(resolved.parent) not in parents:
+                raise HTTPException(403, "Path is outside library roots")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(400, f"Invalid path: {exc}") from exc
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise HTTPException(500, f"Could not delete: {exc}") from exc
+    return {"ok": True, "deleted": str(path)}
+
+
+
 @app.get("/api/media/{media_id}")
 def get_media(media_id: int):
     row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
@@ -1314,10 +1598,343 @@ def media_file(media_id: int, request: Request):
         raise HTTPException(404, "Media not found")
     path = Path(row["path"])
     if not path.is_file():
-        raise HTTPException(404, "File missing on disk")
-    media_type = "video/mp4" if row["kind"] == "video" else "image/jpeg"
-    # FileResponse handles Range for videos
-    return FileResponse(path, media_type=media_type, filename=row["name"])
+        # After conversion the path may still be stale for one request — try .mp4 sibling
+        if row["kind"] == "video":
+            alt = path.with_suffix(".mp4")
+            if alt.is_file():
+                path = alt
+            else:
+                raise HTTPException(404, "File missing on disk")
+        else:
+            raise HTTPException(404, "File missing on disk")
+
+    if row["kind"] != "video":
+        return FileResponse(path, media_type="image/jpeg", filename=row["name"])
+
+    ready, state = video_compat.ensure_playable(media_id, path, start_if_needed=False)
+
+    # Re-read path in case conversion replaced the file and updated DB
+    if state.ready or state.status in ("completed", "ready"):
+        row2 = db.one("SELECT * FROM media WHERE id=?", (media_id,))
+        if row2 and row2.get("path"):
+            path = Path(row2["path"])
+        if not path.is_file():
+            alt = Path(row["path"]).with_suffix(".mp4")
+            if alt.is_file():
+                path = alt
+        if path.is_file():
+            suffix = path.suffix.lower()
+            media_types = {
+                ".mp4": "video/mp4",
+                ".m4v": "video/mp4",
+                ".mov": "video/quicktime",
+                ".webm": "video/webm",
+                ".ogg": "video/ogg",
+                ".ogv": "video/ogg",
+            }
+            media_type = media_types.get(suffix, "video/mp4")
+            name = path.name if path.suffix.lower() == ".mp4" else (row.get("name") or path.name)
+            # FileResponse handles HTTP Range (206 Partial Content) correctly
+            return FileResponse(path, media_type=media_type, filename=name)
+
+    if state.status == "failed":
+        raise HTTPException(
+            415,
+            detail={
+                "status": "failed",
+                "error": state.error or "Video conversion failed",
+                "stage": state.stage,
+            },
+        )
+
+    # Conversion needed but not started / in progress — still try original for native play.
+    # Manual convert is started only via POST /api/media/{id}/convert.
+    if path.is_file() and state.status not in ("converting", "analyzing", "verifying", "replacing"):
+        suffix = path.suffix.lower()
+        media_types = {
+            ".mp4": "video/mp4",
+            ".m4v": "video/mp4",
+            ".mov": "video/quicktime",
+            ".webm": "video/webm",
+            ".ogg": "video/ogg",
+            ".ogv": "video/ogg",
+            ".avi": "video/x-msvideo",
+            ".mkv": "video/x-matroska",
+        }
+        media_type = media_types.get(suffix, "application/octet-stream")
+        return FileResponse(path, media_type=media_type, filename=row.get("name") or path.name)
+
+    raise HTTPException(
+        409,
+        detail={
+            "status": state.status,
+            "progress": state.progress,
+            "stage": state.stage or "Converting video",
+            "ready": False,
+            "error": state.error,
+            "message": "Video is being prepared for playback",
+            "needs_conversion": True,
+        },
+    )
+
+
+
+
+@app.get("/api/media/{media_id}/conversion-status")
+@app.get("/api/media/{media_id}/playback")
+def media_conversion_status(media_id: int):
+    """Return conversion progress/stage. Does NOT start conversion (manual only)."""
+    row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
+    if not row:
+        raise HTTPException(404, "Media not found")
+    if row["kind"] != "video":
+        return {
+            "status": "completed",
+            "progress": 100,
+            "stage": "Ready",
+            "ready": True,
+            "error": None,
+            "needs_conversion": False,
+        }
+    path = Path(row["path"])
+    if not path.is_file():
+        alt = path.with_suffix(".mp4")
+        if alt.is_file():
+            path = alt
+        else:
+            return {
+                "status": "failed",
+                "progress": 0,
+                "stage": "Source missing",
+                "ready": False,
+                "error": "Original file is missing on disk",
+                "needs_conversion": False,
+            }
+    # Status only — never auto-start
+    ready, state = video_compat.ensure_playable(media_id, path, start_if_needed=False)
+    resp = video_compat.status_response(media_id)
+    resp["file_url"] = f"/api/media/{media_id}/file"
+    needs, _probe = video_compat.needs_conversion(path)
+    # If already completed/ready, no conversion needed
+    if ready or resp.get("status") in ("completed", "ready"):
+        needs = False
+    resp["needs_conversion"] = bool(needs) and not ready
+    return resp
+
+
+@app.post("/api/media/{media_id}/convert")
+def media_start_convert(media_id: int, request: Request):
+    """Explicitly start browser conversion for a video (no auto-start elsewhere)."""
+    _require_csrf(request)
+    row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
+    if not row:
+        raise HTTPException(404, "Media not found")
+    if row["kind"] != "video":
+        return {
+            "status": "completed",
+            "progress": 100,
+            "stage": "Ready",
+            "ready": True,
+            "error": None,
+            "needs_conversion": False,
+        }
+    path = Path(row["path"])
+    if not path.is_file():
+        alt = path.with_suffix(".mp4")
+        if alt.is_file():
+            path = alt
+        else:
+            raise HTTPException(404, "Original file is missing on disk")
+    ready, state = video_compat.ensure_playable(media_id, path, start_if_needed=True)
+    resp = video_compat.status_response(media_id)
+    resp["file_url"] = f"/api/media/{media_id}/file"
+    resp["needs_conversion"] = not ready and state.status not in ("completed", "ready")
+    return resp
+
+
+@app.get("/api/media/{media_id}/original")
+def media_original_file(media_id: int):
+    """Download the soft-kept pre-conversion original (*.lfs_original)."""
+    row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
+    if not row:
+        raise HTTPException(404, "Media not found")
+    path = None
+    if row.get("original_path"):
+        path = Path(row["original_path"])
+    if path is None or not path.is_file():
+        cur = Path(row["path"]) if row.get("path") else None
+        if cur is not None and cur.parent.is_dir():
+            stem = cur.stem
+            for cand in cur.parent.iterdir():
+                if cand.name.endswith(".lfs_original") and cand.name.startswith(stem):
+                    if cand.is_file():
+                        path = cand
+                        break
+    if path is None or not path.is_file():
+        raise HTTPException(
+            404,
+            "Original file not found (may not have been converted, or soft-keep missing)",
+        )
+    download_name = path.name
+    if download_name.endswith(".lfs_original"):
+        download_name = download_name[: -len(".lfs_original")]
+    return FileResponse(
+        path,
+        filename=download_name,
+        media_type="application/octet-stream",
+    )
+
+
+
+
+
+
+@app.delete("/api/media/{media_id}/soft-original")
+def delete_soft_original(media_id: int, request: Request):
+    """Permanently delete the soft-kept pre-conversion original for one media."""
+    _require_csrf(request)
+    row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
+    if not row:
+        raise HTTPException(404, "Media not found")
+    path = None
+    if row.get("original_path"):
+        path = Path(row["original_path"])
+    if path is None or not path.is_file():
+        # heuristic
+        cur = Path(row["path"]) if row.get("path") else None
+        if cur is not None and cur.parent.is_dir():
+            stem = cur.stem
+            for cand in cur.parent.iterdir():
+                if cand.name.endswith(".lfs_original") and cand.name.startswith(stem):
+                    if cand.is_file():
+                        path = cand
+                        break
+    if path is None or not path.is_file():
+        raise HTTPException(404, "Soft-kept original not found on disk")
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise HTTPException(500, f"Could not delete original: {exc}") from exc
+    with db.connect() as conn:
+        conn.execute("UPDATE media SET original_path=NULL WHERE id=?", (media_id,))
+    return {"ok": True, "deleted": str(path)}
+
+
+
+
+
+def _resolve_soft_original(media_id: int, original_path: str | None = None) -> tuple[dict, Path]:
+    """Return (media row, path to *.lfs_original on disk)."""
+    row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
+    if not row:
+        raise HTTPException(404, "Media not found")
+    path: Path | None = None
+    if original_path:
+        cand = Path(original_path)
+        if cand.is_file() and cand.name.endswith(".lfs_original"):
+            path = cand
+    if path is None and row.get("original_path"):
+        cand = Path(row["original_path"])
+        if cand.is_file():
+            path = cand
+    if path is None or not path.is_file():
+        cur = Path(row["path"]) if row.get("path") else None
+        if cur is not None and cur.parent.is_dir():
+            stem = cur.stem
+            for cand in cur.parent.iterdir():
+                if cand.name.endswith(".lfs_original") and (
+                    cand.name.startswith(stem + ".") or cand.name.startswith(stem)
+                ):
+                    if cand.is_file():
+                        path = cand
+                        break
+    if path is None or not path.is_file():
+        raise HTTPException(404, "Soft-kept original not found on disk")
+    return row, path
+
+
+def _restored_path_from_soft(soft: Path) -> Path:
+    """Map ``file.ext.lfs_original`` or ``file.ext.{id}.lfs_original`` → ``file.ext``."""
+    name = soft.name
+    if not name.endswith(".lfs_original"):
+        raise HTTPException(400, "Not a soft-kept original")
+    base = name[: -len(".lfs_original")]
+    # Strip optional .{{media_id}} inserted by video_compat
+    parts = base.rsplit(".", 1)
+    if len(parts) == 2 and parts[1].isdigit():
+        # e.g. movie.wmv.42 → movie.wmv  OR  movie.mp4.42 → movie.mp4
+        base = parts[0]
+    return soft.with_name(base)
+
+
+@app.post("/api/media/{media_id}/soft-original/restore")
+async def restore_soft_original(media_id: int, request: Request):
+    """Restore *.lfs_original over the converted file and point the DB at the original.
+
+    The converted MP4 (if different) is renamed to ``*.lfs_converted`` as a backup.
+    """
+    _require_csrf(request)
+    original_path = None
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            original_path = body.get("original_path")
+    except Exception:
+        pass
+    row, soft = _resolve_soft_original(media_id, original_path)
+    target = _restored_path_from_soft(soft)
+    converted = Path(row["path"]) if row.get("path") else None
+    backup: Path | None = None
+
+    try:
+        # If something already sits at the restored name and it is the converted file,
+        # move it aside; if it is a different file, also move aside.
+        if target.is_file() and target.resolve() != soft.resolve():
+            backup = Path(str(target) + ".lfs_converted")
+            n = 1
+            while backup.exists():
+                backup = Path(str(target) + f".lfs_converted.{n}")
+                n += 1
+            os.replace(str(target), str(backup))
+        elif (
+            converted is not None
+            and converted.is_file()
+            and converted.resolve() != soft.resolve()
+            and converted.resolve() != target.resolve()
+        ):
+            # Converted lives at a different path (e.g. .mov → .mp4)
+            backup = Path(str(converted) + ".lfs_converted")
+            n = 1
+            while backup.exists():
+                backup = Path(str(converted) + f".lfs_converted.{n}")
+                n += 1
+            os.replace(str(converted), str(backup))
+
+        os.replace(str(soft), str(target))
+    except OSError as exc:
+        raise HTTPException(500, f"Could not restore original: {exc}") from exc
+
+    try:
+        st = target.stat()
+        size = int(st.st_size)
+        mtime_ns = int(st.st_mtime_ns)
+    except OSError:
+        size = row.get("size") or 0
+        mtime_ns = row.get("mtime_ns") or 0
+
+    with db.connect() as conn:
+        conn.execute(
+            """UPDATE media SET path=?, name=?, size=?, mtime_ns=?,
+               original_path=NULL, missing=0 WHERE id=?""",
+            (str(target), target.name, size, mtime_ns, media_id),
+        )
+    return {
+        "ok": True,
+        "restored_path": str(target),
+        "backup_path": str(backup) if backup else None,
+        "media_id": media_id,
+    }
+
 
 
 @app.delete("/api/media/{media_id}")
@@ -1663,6 +2280,140 @@ def parse_search(body: ParseSearchBody, request: Request):
 # Cleanup
 # ---------------------------------------------------------------------------
 
+
+def _list_soft_originals() -> list[dict]:
+    """All recoverable pre-conversion originals (*.lfs_original)."""
+    items: list[dict] = []
+    seen: set[str] = set()
+
+    rows = db.all(
+        """SELECT id, name, path, original_path, size, kind
+           FROM media WHERE original_path IS NOT NULL AND deleted_at IS NULL"""
+    )
+    for row in rows:
+        op = Path(row["original_path"]) if row.get("original_path") else None
+        if op is None or not op.is_file():
+            continue
+        key = str(op.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            st = op.stat()
+            size = int(st.st_size)
+        except OSError:
+            size = 0
+        items.append({
+            "media_id": row["id"],
+            "media_name": row.get("name"),
+            "converted_path": row.get("path"),
+            "original_path": str(op),
+            "original_name": op.name,
+            "size": size,
+            "kind": row.get("kind") or "video",
+        })
+
+    # Also discover disk orphans not linked in DB (heuristic from converted paths)
+    for row in db.all(
+        "SELECT id, name, path, kind FROM media WHERE kind='video' AND deleted_at IS NULL AND path IS NOT NULL"
+    ):
+        try:
+            cur = Path(row["path"])
+            if not cur.parent.is_dir():
+                continue
+            stem = cur.stem
+            for cand in cur.parent.iterdir():
+                if not cand.name.endswith(".lfs_original"):
+                    continue
+                if not (cand.name.startswith(stem + ".") or cand.name.startswith(stem)):
+                    continue
+                if not cand.is_file():
+                    continue
+                key = str(cand.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    size = int(cand.stat().st_size)
+                except OSError:
+                    size = 0
+                items.append({
+                    "media_id": row["id"],
+                    "media_name": row.get("name"),
+                    "converted_path": row.get("path"),
+                    "original_path": str(cand),
+                    "original_name": cand.name,
+                    "size": size,
+                    "kind": row.get("kind") or "video",
+                })
+        except OSError:
+            continue
+
+    items.sort(key=lambda x: -int(x.get("size") or 0))
+    return items
+
+
+def _list_converted_backups() -> list[dict]:
+    """Discover *.lfs_converted backups left after restoring soft originals."""
+    items: list[dict] = []
+    seen: set[str] = set()
+    # Walk parents of known media paths (videos + any path that might have backups)
+    parents: set[str] = set()
+    for row in db.all(
+        "SELECT id, name, path, kind FROM media WHERE deleted_at IS NULL AND path IS NOT NULL"
+    ):
+        try:
+            p = Path(row["path"])
+            if p.parent.is_dir():
+                parents.add(str(p.parent.resolve()))
+        except OSError:
+            continue
+    for parent_s in parents:
+        parent = Path(parent_s)
+        try:
+            for cand in parent.iterdir():
+                if not cand.is_file():
+                    continue
+                if ".lfs_converted" not in cand.name:
+                    continue
+                key = str(cand.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    size = int(cand.stat().st_size)
+                except OSError:
+                    size = 0
+                # Best-effort link to a media row in the same folder
+                media_id = None
+                media_name = None
+                stem = cand.name.split(".lfs_converted")[0]
+                for row in db.all(
+                    "SELECT id, name, path FROM media WHERE deleted_at IS NULL AND path IS NOT NULL"
+                ):
+                    try:
+                        rp = Path(row["path"])
+                        if rp.parent.resolve() != parent.resolve():
+                            continue
+                        if rp.name == stem or rp.stem == Path(stem).stem or stem.startswith(rp.stem):
+                            media_id = row["id"]
+                            media_name = row.get("name")
+                            break
+                    except OSError:
+                        continue
+                items.append({
+                    "path": str(cand),
+                    "name": cand.name,
+                    "size": size,
+                    "media_id": media_id,
+                    "media_name": media_name,
+                })
+        except OSError:
+            continue
+    items.sort(key=lambda x: -int(x.get("size") or 0))
+    return items
+
+
 @app.get("/api/cleanup")
 def get_cleanup():
     counts = _cleanup_counts()
@@ -1738,11 +2489,18 @@ def get_cleanup():
     # Frontend "Duplicate candidates" count uses `duplicates` — show pair count there
     counts["duplicates"] = len(possible)
 
+    soft_originals = _list_soft_originals()
+    counts["soft_originals"] = len(soft_originals)
+    converted_backups = _list_converted_backups()
+    counts["converted_backups"] = len(converted_backups)
+
     return {
         **counts,
         "possible_people": possible,
         "failed_media": failed_media,
         "missing_media": missing_media,
+        "soft_originals": soft_originals,
+        "converted_backups": converted_backups,
         "embedding_errors": None,
     }
 

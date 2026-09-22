@@ -1,1 +1,1 @@
-"""Local Face Search."""
+"""Face Hunger."""

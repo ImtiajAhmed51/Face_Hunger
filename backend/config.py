@@ -14,7 +14,13 @@ class Config(BaseSettings):
     def prepare(self):
         self.data_dir = self.data_dir.resolve()
         self.model_dir = self.model_dir.resolve()
-        for folder in (self.data_dir, self.model_dir, self.data_dir / "thumbnails", self.data_dir / "exports"):
+        for folder in (
+            self.data_dir,
+            self.model_dir,
+            self.data_dir / "thumbnails",
+            self.data_dir / "exports",
+            self.data_dir / "video_cache",
+        ):
             folder.mkdir(parents=True, exist_ok=True)
 
     @property

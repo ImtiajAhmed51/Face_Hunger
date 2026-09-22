@@ -6,7 +6,11 @@ import os
 from pathlib import Path
 
 IMAGE = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".avif"})
-VIDEO = frozenset({".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".mts", ".m2ts", ".wmv", ".mpg", ".mpeg"})
+VIDEO = frozenset({
+    ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".mts", ".m2ts",
+    ".wmv", ".mpg", ".mpeg", ".flv", ".asf", ".rm", ".rmvb", ".vob",
+    ".3gp", ".ts",
+})
 
 
 def resolve_inside(path, root):
@@ -57,6 +61,9 @@ def scan(library, ignored=None):
         for name in sorted(files):
             path = base / name
             if excluded(path):
+                continue
+            # Soft-kept originals / converted backups — do not re-index
+            if path.name.endswith(".lfs_original") or ".lfs_converted" in path.name:
                 continue
             suffix = path.suffix.lower()
             kind = "photo" if suffix in IMAGE else "video" if suffix in VIDEO else None

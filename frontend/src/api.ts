@@ -33,7 +33,7 @@ export async function request<T>(path: string, options: { method?: string; body?
     });
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error;
-    throw new Error('Cannot reach the local server. Make sure Local Face Search is running, then retry.');
+    throw new Error('Cannot reach the local server. Make sure Face Hunger is running, then retry.');
   }
   if (!response.ok) throw await responseError(response);
   if (response.status === 204) return undefined as T;

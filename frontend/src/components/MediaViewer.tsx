@@ -33,7 +33,16 @@ export function MediaViewer({
   const [boxes, setBoxes] = useState(true);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [previewError, setPreviewError] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const [convertProgress, setConvertProgress] = useState(0);
+  const [convertStage, setConvertStage] = useState("Preparing video…");
+  const [convertIndeterminate, setConvertIndeterminate] = useState(true);
+  const [convertError, setConvertError] = useState<string | null>(null);
+  const [videoReady, setVideoReady] = useState(false);
+  const [videoSrcVersion, setVideoSrcVersion] = useState(0);
   const [time, setTime] = useState(0);
+  const [needsConvert, setNeedsConvert] = useState(false);
+  const [convertStarted, setConvertStarted] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const pendingSeek = useRef<number | null>(timestamp ?? null);
@@ -47,8 +56,135 @@ export function MediaViewer({
   useEffect(() => {
     setSelected(null);
     setPreviewError(false);
+    setConverting(false);
+    setConvertProgress(0);
+    setConvertStage("Preparing video…");
+    setConvertIndeterminate(true);
+    setConvertError(null);
+    setVideoReady(false);
+    setVideoSrcVersion(0);
     setTime(0);
+    setNeedsConvert(false);
+    setConvertStarted(false);
   }, [current]);
+
+  // Status check only — never auto-start conversion
+  useEffect(() => {
+    if (!media || media.kind !== "video" || media.missing) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const applyStatus = (data: {
+      status?: string;
+      progress?: number;
+      stage?: string;
+      ready?: boolean;
+      error?: string | null;
+      indeterminate?: boolean;
+      needs_conversion?: boolean;
+    }) => {
+      const status = data.status || "";
+      if (status === "completed" || status === "ready" || data.ready) {
+        setConverting(false);
+        setConvertStarted(false);
+        setNeedsConvert(false);
+        setConvertProgress(100);
+        setConvertStage("Video ready");
+        setConvertIndeterminate(false);
+        setConvertError(null);
+        setPreviewError(false);
+        setVideoReady(true);
+        setVideoSrcVersion((v) => v + 1);
+        return "done";
+      }
+      if (status === "failed") {
+        setConverting(false);
+        setConvertStarted(false);
+        setConvertError(
+          data.error ||
+            "Unable to convert this video. The original file has been preserved.",
+        );
+        setVideoReady(false);
+        setNeedsConvert(Boolean(data.needs_conversion));
+        return "done";
+      }
+      const active = ["analyzing", "converting", "verifying", "replacing"].includes(
+        status,
+      );
+      if (active || convertStarted) {
+        setConverting(true);
+        setVideoReady(false);
+        setNeedsConvert(false);
+        setConvertStage(data.stage || "Preparing video…");
+        if (typeof data.progress === "number") {
+          setConvertProgress(Math.max(0, Math.min(100, data.progress)));
+        }
+        setConvertIndeterminate(
+          Boolean(data.indeterminate) ||
+            !(typeof data.progress === "number" && data.progress > 0),
+        );
+        return "continue";
+      }
+      // Idle: show native player; offer Convert if needed
+      setConverting(false);
+      setNeedsConvert(Boolean(data.needs_conversion));
+      setVideoReady(true);
+      return "done";
+    };
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/media/${media.id}/conversion-status`);
+        if (!res.ok) {
+          if (!cancelled) {
+            setVideoReady(true);
+            setConverting(false);
+          }
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        const next = applyStatus(data);
+        if (next === "continue") {
+          timer = setTimeout(poll, 1000);
+        }
+      } catch {
+        if (!cancelled) {
+          setVideoReady(true);
+          setConverting(false);
+        }
+      }
+    };
+
+    setConvertError(null);
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [media?.id, media?.kind, media?.missing, convertStarted]);
+
+  const startConvert = () => {
+    if (!media) return;
+    void (async () => {
+      setConvertStarted(true);
+      setConverting(true);
+      setConvertError(null);
+      setVideoReady(false);
+      setConvertStage("Starting conversion…");
+      setConvertIndeterminate(true);
+      try {
+        await mutate(`/media/${media.id}/convert`, {});
+      } catch (error) {
+        setConvertStarted(false);
+        setConverting(false);
+        setConvertError(
+          error instanceof Error ? error.message : "Could not start conversion",
+        );
+        setVideoReady(true);
+      }
+    })();
+  };
   const go = (offset: number) => {
     const next = ids[position + offset];
     if (next !== undefined) {
@@ -174,18 +310,22 @@ export function MediaViewer({
               <ErrorNotice error={resource.error} retry={resource.reload} />
             )}
             {media &&
-              (media.missing || previewError ? (
+              (media.missing || convertError || (previewError && !converting && videoReady && !needsConvert) ? (
                 <div className="viewer-unavailable">
                   <Icon name="alert" size={40} />
                   <h3>
                     {media.missing
                       ? "Original file is missing"
-                      : "Preview unavailable"}
+                      : convertError
+                        ? "Video conversion failed"
+                        : "Preview unavailable"}
                   </h3>
                   <p>
                     {media.missing
                       ? "Reconnect the library drive or restore the file to its original location, then run a cleanup check."
-                      : "The browser could not display this file. Try downloading the original or checking the library."}
+                      : convertError
+                        ? convertError
+                        : "The browser could not display this file. Try downloading the original or checking the library."}
                   </p>
                   {!media.missing && (
                     <a
@@ -196,6 +336,68 @@ export function MediaViewer({
                       Download original
                     </a>
                   )}
+                </div>
+              ) : converting && media.kind === "video" && !videoReady ? (
+                <div className="conversion-panel">
+                  <div className="conversion-card">
+                    <div className="conversion-thumb">
+                      <Thumbnail
+                        src={`/api/media/${media.id}/thumbnail`}
+                        alt={media.name}
+                      />
+                    </div>
+                    <div className="conversion-body">
+                      <p className="conversion-eyebrow">Processing video</p>
+                      <h3 className="conversion-title">{media.name}</h3>
+                      <p className="conversion-stage">{convertStage}</p>
+                      <div className="conversion-progress-track">
+                        <div
+                          className={`conversion-progress-fill${convertIndeterminate ? " indeterminate" : ""}`}
+                          style={
+                            convertIndeterminate
+                              ? undefined
+                              : { width: `${Math.max(4, convertProgress)}%` }
+                          }
+                        />
+                      </div>
+                      <div className="conversion-meta">
+                        {!convertIndeterminate && convertProgress > 0 ? (
+                          <strong>{Math.round(convertProgress)}%</strong>
+                        ) : (
+                          <span className="conversion-pulse">Working…</span>
+                        )}
+                        <span>Please wait — the original is kept until conversion succeeds.</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : needsConvert && media.kind === "video" && !converting ? (
+                <div className="conversion-panel">
+                  <div className="conversion-card">
+                    <div className="conversion-thumb">
+                      <Thumbnail
+                        src={`/api/media/${media.id}/thumbnail`}
+                        alt={media.name}
+                      />
+                    </div>
+                    <div className="conversion-body">
+                      <p className="conversion-eyebrow">Conversion available</p>
+                      <h3 className="conversion-title">{media.name}</h3>
+                      <p className="conversion-stage">
+                        This format may not play in the browser. Convert only if playback fails —
+                        the original file is kept as a backup.
+                      </p>
+                      <div className="inline-actions" style={{ marginTop: "0.75rem" }}>
+                        <button className="button" type="button" onClick={startConvert}>
+                          <Icon name="spark" size={16} />
+                          Convert for browser
+                        </button>
+                        <a className="button subtle" href={`/api/media/${media.id}/file`} download>
+                          Download original
+                        </a>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div
@@ -220,18 +422,30 @@ export function MediaViewer({
                     />
                   ) : (
                     <video
-                      key={media.id}
+                      key={`${media.id}-${videoSrcVersion}`}
                       ref={video}
                       controls
                       playsInline
                       preload="metadata"
-                      src={`/api/media/${media.id}/file`}
+                      src={
+                        videoReady || !converting
+                          ? `/api/media/${media.id}/file?v=${videoSrcVersion}`
+                          : undefined
+                      }
                       poster={`/api/media/${media.id}/thumbnail`}
-                      onError={() => setPreviewError(true)}
+                      onError={() => {
+                        if (!converting) {
+                          setNeedsConvert(true);
+                          setPreviewError(true);
+                        }
+                      }}
                       onTimeUpdate={(event) =>
                         setTime(event.currentTarget.currentTime)
                       }
                       onLoadedMetadata={(event) => {
+                        setConverting(false);
+                        setPreviewError(false);
+                        setVideoReady(true);
                         if (pendingSeek.current !== null) {
                           event.currentTarget.currentTime = pendingSeek.current;
                           pendingSeek.current = null;
@@ -412,9 +626,27 @@ export function MediaViewer({
                       <dd>{dateLabel(media.deleted_at)}</dd>
                     </div>
                   )}
+                  {media.has_original && (
+                    <div>
+                      <dt>Pre-conversion original</dt>
+                      <dd title={media.original_path || undefined}>
+                        {media.original_name || "Soft-kept on disk"}
+                      </dd>
+                    </div>
+                  )}
                 </dl>
               </section>
               <div className="viewer-file-actions">
+                {media.has_original && (
+                  <a
+                    className="button"
+                    href={`/api/media/${media.id}/original`}
+                    download
+                  >
+                    <Icon name="download" size={16} />
+                    Download original file
+                  </a>
+                )}
                 <button
                   className="button"
                   disabled={action.busy || media.missing}

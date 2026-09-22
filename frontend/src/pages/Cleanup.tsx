@@ -294,11 +294,205 @@ function IssueMedia({ items, missing }: { items: Media[]; missing?: boolean }) {
   );
 }
 
+
+function SoftOriginalsPanel({
+  items,
+  onChanged,
+  onPurgeAll,
+}: {
+  items: {
+    media_id: number;
+    media_name: string | null;
+    original_path: string;
+    original_name: string;
+    size: number;
+  }[];
+  onChanged: () => void;
+  onPurgeAll: () => void;
+}) {
+  const action = useAction();
+  const totalBytes = items.reduce((s, i) => s + (i.size || 0), 0);
+  if (!items.length) {
+    return (
+      <Empty
+        icon="photo"
+        title="No kept originals"
+        description="After a video is converted, the previous file is soft-kept as *.lfs_original. None are on disk right now."
+      />
+    );
+  }
+  return (
+    <div className="soft-originals-panel">
+      <div className="inline-actions" style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+        <p className="muted small-text" style={{ flex: 1, margin: 0, minWidth: "12rem" }}>
+          {items.length} soft-kept file{items.length === 1 ? "" : "s"} ·{" "}
+          {(totalBytes / (1024 * 1024)).toFixed(1)} MB on disk. Restore puts the
+          original back in place (converted MP4 is kept as *.lfs_converted backup).
+        </p>
+        <button
+          className="button"
+          disabled={action.busy}
+          onClick={() =>
+            void action.run(async () => {
+              const result = await mutate<{ restored: number; failed: unknown[] }>(
+                "/media/soft-originals/restore-all",
+                {},
+              );
+              onChanged();
+              const failed = result?.failed?.length ?? 0;
+              if (failed) {
+                throw new Error(
+                  `Restored ${result?.restored ?? 0}; ${failed} failed. Check paths and retry.`,
+                );
+              }
+            }, "All originals restored to their previous paths.")
+          }
+        >
+          <Icon name="restore" size={16} />
+          Restore all
+        </button>
+        <button className="button danger" onClick={onPurgeAll} disabled={action.busy}>
+          <Icon name="trash" size={16} />
+          Delete all permanently
+        </button>
+      </div>
+      <div className="soft-originals-list">
+        {items.map((item) => (
+          <article key={`${item.media_id}:${item.original_path}`} className="soft-original-row">
+            <div className="soft-original-info">
+              <strong title={item.original_path}>{item.original_name}</strong>
+              <span className="muted small-text">
+                Media #{item.media_id}
+                {item.media_name ? ` · ${item.media_name}` : ""} ·{" "}
+                {(item.size / (1024 * 1024)).toFixed(1)} MB
+              </span>
+              <span className="muted small-text" title={item.original_path}>
+                {item.original_path}
+              </span>
+            </div>
+            <div className="inline-actions">
+              <button
+                className="button small"
+                disabled={action.busy}
+                onClick={() =>
+                  void action.run(async () => {
+                    await mutate(`/media/${item.media_id}/soft-original/restore`, {
+                      original_path: item.original_path,
+                    });
+                    onChanged();
+                  }, "Original restored; converted file kept as backup.")
+                }
+              >
+                <Icon name="restore" size={14} />
+                Restore
+              </button>
+              <a className="button small" href={`/api/media/${item.media_id}/original`} download>
+                Download
+              </a>
+              <button
+                className="button small danger"
+                disabled={action.busy}
+                onClick={() =>
+                  void action.run(async () => {
+                    await mutate(`/media/${item.media_id}/soft-original`, undefined, "DELETE");
+                    onChanged();
+                  }, "Original permanently deleted.")
+                }
+              >
+                Delete forever
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+
+function ConvertedBackupsPanel({
+  items,
+  onChanged,
+  onPurgeAll,
+}: {
+  items: {
+    path: string;
+    name: string;
+    size: number;
+    media_id: number | null;
+    media_name: string | null;
+  }[];
+  onChanged: () => void;
+  onPurgeAll: () => void;
+}) {
+  const action = useAction();
+  const totalBytes = items.reduce((s, i) => s + (i.size || 0), 0);
+  if (!items.length) {
+    return (
+      <Empty
+        icon="photo"
+        title="No conversion backups"
+        description="When you restore a kept original, the converted MP4 is renamed to *.lfs_converted. None are on disk right now."
+      />
+    );
+  }
+  return (
+    <div className="soft-originals-panel">
+      <div className="inline-actions" style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+        <p className="muted small-text" style={{ flex: 1, margin: 0, minWidth: "12rem" }}>
+          {items.length} converted backup{items.length === 1 ? "" : "s"} ·{" "}
+          {(totalBytes / (1024 * 1024)).toFixed(1)} MB. These are leftover files from
+          restore (safe to delete if the restored original is fine).
+        </p>
+        <button className="button danger" onClick={onPurgeAll} disabled={action.busy}>
+          <Icon name="trash" size={16} />
+          Delete all permanently
+        </button>
+      </div>
+      <div className="soft-originals-list">
+        {items.map((item) => (
+          <article key={item.path} className="soft-original-row">
+            <div className="soft-original-info">
+              <strong title={item.path}>{item.name}</strong>
+              <span className="muted small-text">
+                {item.media_id != null ? `Media #${item.media_id}` : "Unlinked"}
+                {item.media_name ? ` · ${item.media_name}` : ""} ·{" "}
+                {(item.size / (1024 * 1024)).toFixed(1)} MB
+              </span>
+              <span className="muted small-text" title={item.path}>
+                {item.path}
+              </span>
+            </div>
+            <div className="inline-actions">
+              <button
+                className="button small danger"
+                disabled={action.busy}
+                onClick={() =>
+                  void action.run(async () => {
+                    await mutate("/media/converted-backups/delete", { path: item.path });
+                    onChanged();
+                  }, "Converted backup deleted.")
+                }
+              >
+                Delete forever
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
 export function Cleanup() {
   const resource = useResource<CleanupData>("/cleanup");
   const [tab, setTab] = useState<
-    "duplicates" | "failed" | "missing" | "deleted"
+    "duplicates" | "failed" | "missing" | "deleted" | "originals" | "converted"
   >("duplicates");
+  const [purgeOriginalsOpen, setPurgeOriginalsOpen] = useState(false);
+  const [purgeConvertedOpen, setPurgeConvertedOpen] = useState(false);
   const [deletedTab, setDeletedTab] = useState<"faces" | "media">("faces");
   const action = useAction();
   const data = resource.data;
@@ -325,6 +519,32 @@ export function Cleanup() {
         }
       />
       <ErrorNotice error={resource.error} retry={resource.reload} />
+      <ConfirmDialog
+        open={purgeOriginalsOpen}
+        onClose={() => setPurgeOriginalsOpen(false)}
+        title="Delete all kept originals?"
+        description="This permanently deletes every soft-kept pre-conversion file (*.lfs_original) from disk. Converted MP4 files stay. This cannot be undone."
+        label="Delete all forever"
+        confirmation="DELETE"
+        onConfirm={async () => {
+          await mutate("/media/soft-originals/purge", {});
+          resource.reload();
+        }}
+        success="All kept originals permanently deleted."
+      />
+      <ConfirmDialog
+        open={purgeConvertedOpen}
+        onClose={() => setPurgeConvertedOpen(false)}
+        title="Delete all conversion backups?"
+        description="This permanently deletes every *.lfs_converted backup from disk. Restored originals and current library files stay. This cannot be undone."
+        label="Delete all forever"
+        confirmation="DELETE"
+        onConfirm={async () => {
+          await mutate("/media/converted-backups/purge", {});
+          resource.reload();
+        }}
+        success="All conversion backups permanently deleted."
+      />
       {resource.loading && !data && (
         <Loading label="Checking your collection" />
       )}
@@ -359,6 +579,26 @@ export function Cleanup() {
               <span>Deleted faces</span>
               <strong>{number(data.deleted_faces)}</strong>
             </button>
+            <button onClick={() => setTab("originals")}>
+              <span>Kept originals</span>
+              <strong>
+                {number(
+                  Array.isArray(data.soft_originals)
+                    ? data.soft_originals.length
+                    : data.soft_originals || 0,
+                )}
+              </strong>
+            </button>
+            <button onClick={() => setTab("converted")}>
+              <span>Conversion backups</span>
+              <strong>
+                {number(
+                  Array.isArray(data.converted_backups)
+                    ? data.converted_backups.length
+                    : data.converted_backups || 0,
+                )}
+              </strong>
+            </button>
           </div>
           {data.embedding_errors !== null && (
             <div
@@ -388,6 +628,8 @@ export function Cleanup() {
                 ["failed", "Failed files"],
                 ["missing", "Missing files"],
                 ["deleted", "Deleted records"],
+                ["originals", "Kept originals"],
+                ["converted", "Conversion backups"],
               ] as const
             ).map(([value, label]) => (
               <button
@@ -429,6 +671,20 @@ export function Cleanup() {
           {tab === "failed" && <IssueMedia items={data.failed_media} />}
           {tab === "missing" && (
             <IssueMedia items={data.missing_media} missing />
+          )}
+          {tab === "originals" && (
+            <SoftOriginalsPanel
+              items={Array.isArray(data.soft_originals) ? data.soft_originals : []}
+              onChanged={() => resource.reload()}
+              onPurgeAll={() => setPurgeOriginalsOpen(true)}
+            />
+          )}
+          {tab === "converted" && (
+            <ConvertedBackupsPanel
+              items={Array.isArray(data.converted_backups) ? data.converted_backups : []}
+              onChanged={() => resource.reload()}
+              onPurgeAll={() => setPurgeConvertedOpen(true)}
+            />
           )}
           {tab === "deleted" && (
             <>

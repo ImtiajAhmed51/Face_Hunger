@@ -77,7 +77,7 @@ function Brand() {
         </svg>
       </span>
       <span>
-        Face Hunger<small>LOCAL FACE SEARCH</small>
+        Face Hunger<small>PRIVATE · LOCAL</small>
       </span>
     </Link>
   );

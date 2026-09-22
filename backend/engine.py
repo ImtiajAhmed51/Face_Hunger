@@ -3,9 +3,14 @@
 Supports single-scale and multi-scale detection. Multi-scale runs the detector
 at several input sizes, merges boxes with NMS, and attaches a quality score
 (pose + blur + det confidence) used downstream for matching and review.
+
+On Apple Silicon, prefers CoreMLExecutionProvider (GPU / Neural Engine) when
+available in the installed onnxruntime build.
 """
 
+import logging
 import os
+import platform
 import threading
 from pathlib import Path
 
@@ -13,6 +18,8 @@ import numpy as np
 
 from .embeddings import normalize
 from .quality import face_quality
+
+logger = logging.getLogger(__name__)
 
 
 def iou(a, b):
@@ -44,6 +51,20 @@ def deduplicate(detections, threshold=0.6):
 MULTI_SCALE_SIZES = (320, 640, 960)
 
 
+def _provider_label(provider: str | None) -> str:
+    if not provider:
+        return "unloaded"
+    if provider == "CoreMLExecutionProvider":
+        return "Apple CoreML (GPU/ANE)"
+    if provider == "CUDAExecutionProvider":
+        return "CUDA"
+    if provider == "DmlExecutionProvider":
+        return "DirectML"
+    if provider == "CPUExecutionProvider":
+        return "CPU"
+    return provider
+
+
 class Engine:
     def __init__(self, config):
         self.model_dir = Path(config.model_dir) / "buffalo_l"
@@ -63,10 +84,16 @@ class Engine:
         except Exception:
             available = []
         with self._status_lock:
-            return {"state": self._state, "provider": self._provider,
-                    "available_providers": available, "model": "buffalo_l",
-                    "error": self._error, "multi_scale": self.multi_scale,
-                    "detection_size": self.detection_size}
+            return {
+                "state": self._state,
+                "provider": self._provider,
+                "provider_label": _provider_label(self._provider),
+                "available_providers": available,
+                "model": "buffalo_l",
+                "error": self._error,
+                "multi_scale": self.multi_scale,
+                "detection_size": self.detection_size,
+            }
 
     def configure(self, detection_size=None, multi_scale=None):
         with self._lock:
@@ -90,16 +117,37 @@ class Engine:
                 files = [self.model_dir / "det_10g.onnx", self.model_dir / "w600k_r50.onnx"]
                 missing = [str(p) for p in files if not p.is_file() or not p.stat().st_size]
                 if missing:
-                    raise FileNotFoundError("Install buffalo_l locally. Missing: " + ", ".join(missing)
-                                            + ". Automatic model downloads are disabled.")
+                    raise FileNotFoundError(
+                        "Install buffalo_l locally. Missing: " + ", ".join(missing)
+                        + ". Automatic model downloads are disabled."
+                    )
                 import onnxruntime as ort
                 # InsightFace imports Albumentations; disable its online version check too.
                 os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
                 from insightface.model_zoo import get_model
 
                 available = ort.get_available_providers()
-                candidates = [p for p in ("CUDAExecutionProvider", "CoreMLExecutionProvider",
-                                          "DmlExecutionProvider", "CPUExecutionProvider") if p in available]
+                # On Apple Silicon prefer CoreML (GPU / Neural Engine) before CUDA/CPU.
+                # CUDA is irrelevant on M-series; CoreML is the supported Apple path.
+                is_apple = platform.system() == "Darwin" and platform.machine() in (
+                    "arm64",
+                    "aarch64",
+                )
+                if is_apple:
+                    preferred_order = (
+                        "CoreMLExecutionProvider",
+                        "CUDAExecutionProvider",
+                        "DmlExecutionProvider",
+                        "CPUExecutionProvider",
+                    )
+                else:
+                    preferred_order = (
+                        "CUDAExecutionProvider",
+                        "CoreMLExecutionProvider",
+                        "DmlExecutionProvider",
+                        "CPUExecutionProvider",
+                    )
+                candidates = [p for p in preferred_order if p in available]
                 errors = []
                 for provider in candidates:
                     try:
@@ -107,33 +155,77 @@ class Engine:
                         if provider == "DmlExecutionProvider":
                             options.enable_mem_pattern = False
                             options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-                        providers = [provider] + (["CPUExecutionProvider"] if provider != "CPUExecutionProvider" else [])
-                        detector, recognizer = [get_model(str(p.resolve()), download=False,
-                            providers=providers, sess_options=options) for p in files]
+                        # CoreML often benefits from sequential execution for stability
+                        if provider == "CoreMLExecutionProvider":
+                            options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                        providers = [provider] + (
+                            ["CPUExecutionProvider"] if provider != "CPUExecutionProvider" else []
+                        )
+                        detector, recognizer = [
+                            get_model(
+                                str(p.resolve()),
+                                download=False,
+                                providers=providers,
+                                sess_options=options,
+                            )
+                            for p in files
+                        ]
                         if detector is None or recognizer is None:
                             raise RuntimeError("Unrecognized buffalo_l ONNX models")
                         if detector.taskname != "detection" or recognizer.taskname != "recognition":
                             raise RuntimeError("Incorrect detection/recognition model files")
                         ctx = -1 if provider == "CPUExecutionProvider" else 0
-                        detector.prepare(ctx_id=ctx, input_size=(self.detection_size,) * 2, det_thresh=0.5)
+                        detector.prepare(
+                            ctx_id=ctx,
+                            input_size=(self.detection_size,) * 2,
+                            det_thresh=0.5,
+                        )
                         recognizer.prepare(ctx_id=ctx)
-                        actual = [model.session.get_providers()[0] for model in (detector, recognizer)]
+                        actual = [
+                            model.session.get_providers()[0]
+                            for model in (detector, recognizer)
+                        ]
                         if actual != [provider, provider]:
-                            raise RuntimeError(f"Requested {provider}; model sessions report {actual}")
+                            raise RuntimeError(
+                                f"Requested {provider}; model sessions report {actual}"
+                            )
                         # Exercise both sessions: compiled provider availability alone is not enough.
-                        detector.detect(np.zeros((self.detection_size, self.detection_size, 3), dtype=np.uint8))
-                        normalize(recognizer.get_feat(np.zeros((112, 112, 3), dtype=np.uint8)).reshape(-1))
-                        actual = [model.session.get_providers()[0] for model in (detector, recognizer)]
+                        detector.detect(
+                            np.zeros(
+                                (self.detection_size, self.detection_size, 3),
+                                dtype=np.uint8,
+                            )
+                        )
+                        normalize(
+                            recognizer.get_feat(
+                                np.zeros((112, 112, 3), dtype=np.uint8)
+                            ).reshape(-1)
+                        )
+                        actual = [
+                            model.session.get_providers()[0]
+                            for model in (detector, recognizer)
+                        ]
                         if actual != [provider, provider]:
-                            raise RuntimeError(f"Inference fell back from {provider} to {actual}")
+                            raise RuntimeError(
+                                f"Inference fell back from {provider} to {actual}"
+                            )
                         self._detector, self._recognizer = detector, recognizer
                         with self._status_lock:
                             self._provider, self._state = provider, "ready"
+                        label = _provider_label(provider)
+                        logger.info(
+                            "Face Embedding Device: %s | Face Detection Device: %s | provider=%s",
+                            label,
+                            label,
+                            provider,
+                        )
                         break
                     except Exception as exc:
                         errors.append(f"{provider}: {exc}")
                 else:
-                    raise RuntimeError("Cannot initialize local models. " + "; ".join(errors))
+                    raise RuntimeError(
+                        "Cannot initialize local models. " + "; ".join(errors)
+                    )
             except Exception as exc:
                 with self._status_lock:
                     self._state, self._error, self._provider = "error", str(exc), None
@@ -171,7 +263,11 @@ class Engine:
                 for index, box in enumerate(boxes):
                     if not np.isfinite(box).all():
                         continue
-                    if landmarks is None or index >= len(landmarks) or not np.isfinite(landmarks[index]).all():
+                    if (
+                        landmarks is None
+                        or index >= len(landmarks)
+                        or not np.isfinite(landmarks[index]).all()
+                    ):
                         continue
                     all_boxes.append(box)
                     all_landmarks.append(landmarks[index])
@@ -187,13 +283,15 @@ class Engine:
                 det = float(box[4])
                 kps = all_landmarks[index]
                 quality = face_quality(det, kps=kps, bgr=image, bbox=bbox)
-                candidates.append({
-                    "bbox": bbox,
-                    "detection": det,
-                    "quality": quality,
-                    "_kps": kps,
-                    "_box4": box[:4],
-                })
+                candidates.append(
+                    {
+                        "bbox": bbox,
+                        "detection": det,
+                        "quality": quality,
+                        "_kps": kps,
+                        "_box4": box[:4],
+                    }
+                )
             result = deduplicate(candidates)
             for detection in result:
                 kps = detection.pop("_kps")
@@ -201,13 +299,19 @@ class Engine:
                 face = Face(bbox=box4, kps=kps, det_score=detection["detection"])
                 self._recognizer.get(image, face)
                 detection["embedding"] = normalize(face.embedding)
-            actual = [model.session.get_providers()[0] for model in (self._detector, self._recognizer)]
+            actual = [
+                model.session.get_providers()[0]
+                for model in (self._detector, self._recognizer)
+            ]
             if actual != [self._provider, self._provider]:
                 with self._status_lock:
                     if actual == ["CPUExecutionProvider", "CPUExecutionProvider"]:
                         self._provider = "CPUExecutionProvider"
                     else:
-                        self._state, self._error = "error", f"Model session providers disagree: {actual}"
+                        self._state, self._error = (
+                            "error",
+                            f"Model session providers disagree: {actual}",
+                        )
                 if self._state == "error":
                     raise RuntimeError(self._error)
             return result
