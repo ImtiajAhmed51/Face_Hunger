@@ -132,29 +132,33 @@ export function useAction() {
   const [error, setError] = useState("");
   const lock = useRef(false);
   const mounted = useMounted();
-  const run = async (
-    action: () => Promise<unknown>,
-    success?: string,
-    refresh = true,
-  ): Promise<boolean> => {
-    if (lock.current) return false;
-    lock.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      await action();
-      if (success) notify(success);
-      return true;
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (mounted.current) setError(message);
-      notify(message, true);
-      return false;
-    } finally {
-      lock.current = false;
-      if (mounted.current) setBusy(false);
-      if (refresh) refreshData();
-    }
-  };
-  return { busy, error, run };
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
+  const run = useRef(
+    async (
+      action: () => Promise<unknown>,
+      success?: string,
+      refresh = true,
+    ): Promise<boolean> => {
+      if (lock.current) return false;
+      lock.current = true;
+      setBusy(true);
+      setError("");
+      try {
+        await action();
+        if (success) notifyRef.current(success);
+        return true;
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        if (mounted.current) setError(message);
+        notifyRef.current(message, true);
+        return false;
+      } finally {
+        lock.current = false;
+        if (mounted.current) setBusy(false);
+        if (refresh) refreshData();
+      }
+    },
+  );
+  return { busy, error, run: run.current };
 }

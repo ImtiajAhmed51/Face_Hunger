@@ -900,21 +900,26 @@ def move_faces(body: MoveFacesBody, request: Request):
 @app.post("/api/faces/{face_id}/review")
 def review_face(face_id: int, body: ReviewBody, request: Request):
     _require_csrf(request)
-    face = db.one("SELECT * FROM faces WHERE id=?", (face_id,))
-    if not face:
-        raise HTTPException(404, "Face not found")
     decision = body.decision.lower()
     if decision not in ("yes", "no"):
         raise HTTPException(400, "decision must be 'yes' or 'no'")
+    # Single connection for the whole mutation — no extra round-trips.
     with db.connect() as conn:
+        face = conn.execute("SELECT * FROM faces WHERE id=?", (face_id,)).fetchone()
+        if not face:
+            raise HTTPException(404, "Face not found")
+        face = dict(face)
+        # Idempotent: already reviewed → no-op (prevents double-click races)
+        if face.get("review_state") in ("confirmed", "rejected"):
+            return {"ok": True, "already": True}
         if decision == "yes":
             conn.execute(
-                "UPDATE faces SET review_state='confirmed', manual=1 WHERE id=?",
+                "UPDATE faces SET review_state='confirmed', manual=1 WHERE id=? AND review_state='unreviewed'",
                 (face_id,),
             )
         else:
             conn.execute(
-                "UPDATE faces SET review_state='rejected', manual=1 WHERE id=?",
+                "UPDATE faces SET review_state='rejected', manual=1 WHERE id=? AND review_state='unreviewed'",
                 (face_id,),
             )
             if face.get("person_id"):
@@ -932,7 +937,7 @@ def review_face(face_id: int, body: ReviewBody, request: Request):
             # so Yes/No stays snappy during rapid review.
             pid = face["person_id"]
             if decision == "yes":
-                # Confirmed face can become representative if quality is high
+                # Only promote representative when this face looks better than current rep
                 row = conn.execute(
                     """SELECT id FROM faces WHERE person_id=? AND deleted_at IS NULL
                        ORDER BY CASE review_state WHEN 'confirmed' THEN 0 ELSE 1 END,
@@ -944,21 +949,12 @@ def review_face(face_id: int, body: ReviewBody, request: Request):
                         "UPDATE people SET representative_face_id=? WHERE id=?",
                         (row["id"], pid),
                     )
-            # Keep face_count accurate without scanning embeddings
-            cnt = conn.execute(
-                "SELECT COUNT(*) AS c FROM faces WHERE person_id=? AND deleted_at IS NULL",
-                (pid,),
+            # face_count does not change on review (only on delete/move) — skip full COUNT
+        # Autotune counter in the same transaction
+        try:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='review_autotune_counter'"
             ).fetchone()
-            conn.execute(
-                "UPDATE people SET face_count=? WHERE id=?",
-                (int(cnt["c"] if cnt else 0), pid),
-            )
-    # Soft invalidation only — do not rebuild all centroids on every click
-    cluster.invalidate()
-    # Autotune is expensive. Count here; run off the request thread every ~25 reviews.
-    try:
-        with db.connect() as conn:
-            row = conn.execute("SELECT value FROM settings WHERE key='review_autotune_counter'").fetchone()
             n = int(json.loads(row[0])) if row else 0
             n += 1
             conn.execute(
@@ -966,16 +962,19 @@ def review_face(face_id: int, body: ReviewBody, request: Request):
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (json.dumps(n),),
             )
-        if n % 25 == 0:
-            import threading
-            def _bg_autotune():
-                try:
-                    threshold_tuning.autotune(db, cluster)
-                except Exception:
-                    pass
-            threading.Thread(target=_bg_autotune, name="review-autotune", daemon=True).start()
-    except Exception:
-        pass
+        except Exception:
+            n = 0
+    # Soft invalidation only — do not rebuild all centroids on every click
+    cluster.invalidate()
+    # Autotune is expensive. Run off the request thread every ~50 reviews (was 25).
+    if n and n % 50 == 0:
+        import threading
+        def _bg_autotune():
+            try:
+                threshold_tuning.autotune(db, cluster)
+            except Exception:
+                pass
+        threading.Thread(target=_bg_autotune, name="review-autotune", daemon=True).start()
     return {"ok": True}
 
 
@@ -1035,7 +1034,11 @@ def _placeholder_face_jpeg() -> bytes:
 def _serve_face_thumb_file(path: Path):
     try:
         if path.is_file() and path.stat().st_size > 0:
-            return FileResponse(path, media_type="image/jpeg")
+            return FileResponse(
+                path,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=86400, immutable"},
+            )
     except OSError:
         pass
     return None
@@ -2114,6 +2117,8 @@ def list_review(
     """Review queue: at most one face per person per media (best quality wins).
 
     Same person appearing many times in one video is shown once.
+    Uses a single pass with window + LIMIT so we never materialize the full
+    unreviewed set into memory on every page request.
     """
     page = max(1, page)
     limit = max(1, min(limit, 100))
@@ -2131,8 +2136,8 @@ def list_review(
     where_sql = " AND ".join(where)
     # Deduplicate: one representative face per (media, person) or (media, track)
     # or the face itself when neither is set.
-    dedupe_sql = f"""
-        SELECT * FROM (
+    # Partition key is precomputed as an expression that indexes can help filter.
+    dedupe_inner = f"""
           SELECT f.*,
             ROW_NUMBER() OVER (
               PARTITION BY f.media_id,
@@ -2146,15 +2151,16 @@ def list_review(
           FROM faces f
           JOIN media m ON m.id = f.media_id
           WHERE {where_sql}
-        ) ranked
-        WHERE _rn = 1
     """
+    # Count only the deduped rows without pulling full face payloads twice.
+    # SQLite evaluates the window once; we avoid SELECT * in the count path.
     total = int((db.one(
-        f"SELECT COUNT(*) AS c FROM ({dedupe_sql})",
+        f"SELECT COUNT(*) AS c FROM (SELECT 1 FROM ({dedupe_inner}) ranked WHERE _rn = 1)",
         tuple(params),
     ) or {}).get("c") or 0)
     rows = db.all(
-        f"""SELECT * FROM ({dedupe_sql})
+        f"""SELECT * FROM ({dedupe_inner}) ranked
+            WHERE _rn = 1
             ORDER BY similarity IS NULL, similarity ASC, id
             LIMIT ? OFFSET ?""",
         (*params, limit, offset),
