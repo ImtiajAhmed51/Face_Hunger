@@ -166,7 +166,12 @@ class Database:
             )
         """)
 
-        conn.execute("PRAGMA user_version=4")
+        # Soft-kept pre-conversion original (*.lfs_original on disk)
+        cols_media = {r[1] for r in conn.execute("PRAGMA table_info(media)")}
+        if "original_path" not in cols_media:
+            conn.execute("ALTER TABLE media ADD COLUMN original_path TEXT")
+
+        conn.execute("PRAGMA user_version=5")
 
     @contextmanager
     def connect(self):

@@ -25,6 +25,21 @@ export interface Media {
   face_count: number;
   people: { id: number; display_name: string }[];
   similarity?: number;
+  playback_status?: string;
+  conversion?: {
+    status: string;
+    progress: number;
+    stage: string;
+    ready: boolean;
+    error?: string | null;
+    indeterminate?: boolean;
+    mode?: string | null;
+  };
+  error?: string | null;
+  /** Soft-kept pre-conversion original on disk */
+  has_original?: boolean;
+  original_path?: string | null;
+  original_name?: string | null;
 }
 export interface Face {
   id: number;
@@ -77,6 +92,22 @@ export interface Job {
   current_file: string | null;
   error: string | null;
 }
+export interface SoftOriginal {
+  media_id: number;
+  media_name: string | null;
+  converted_path?: string | null;
+  original_path: string;
+  original_name: string;
+  size: number;
+  kind: string;
+}
+export interface ConvertedBackup {
+  path: string;
+  name: string;
+  size: number;
+  media_id: number | null;
+  media_name: string | null;
+}
 export interface CleanupCounts {
   duplicates: number;
   low_confidence: number;
@@ -84,10 +115,15 @@ export interface CleanupCounts {
   failed: number;
   missing: number;
   deleted_faces: number;
+  soft_originals?: number;
+  converted_backups?: number;
 }
 
-export interface Cleanup extends CleanupCounts {
+export interface Cleanup extends Omit<CleanupCounts, "soft_originals" | "converted_backups"> {
   possible_people: { a: Person; b: Person; similarity: number }[];
+  soft_originals_list?: SoftOriginal[];
+  soft_originals?: SoftOriginal[] | number;
+  converted_backups?: ConvertedBackup[] | number;
   failed_media: Media[];
   missing_media: Media[];
   embedding_errors: number | null;

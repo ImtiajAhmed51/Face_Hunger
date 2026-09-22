@@ -181,7 +181,30 @@ class Worker:
             multi_scale=bool(settings.get("multi_scale", False)),
         )
         self._update(phase="loading_model")
-        self.engine.load()
+        status = self.engine.load()
+        face_label = status.get("provider_label") or status.get("provider") or "unknown"
+        import logging
+        _log = logging.getLogger(__name__)
+        _log.info("Indexing Device: %s", face_label)
+        _log.info("Face Embedding Device: %s", face_label)
+        _log.info("Face Detection Device: %s", face_label)
+        try:
+            from . import dino as dino_mod
+            if dino_mod.available():
+                st = dino_mod.status()
+                dlabel = st.get("device_label") or st.get("device") or "unknown"
+                _log.info("DINOv2 Device: %s", dlabel)
+                _log.info("Embedding Device: %s", dlabel)
+            else:
+                _log.info("DINOv2 Device: unavailable")
+        except Exception as exc:
+            _log.info("DINOv2 Device: unavailable (%s)", exc)
+        # FAISS / vector index is CPU-only (faiss-cpu); no CUDA on Apple Silicon
+        try:
+            import faiss  # noqa: F401
+            _log.info("Vector Index Device: CPU (faiss-cpu; FAISS GPU requires CUDA)")
+        except ImportError:
+            _log.info("Vector Index Device: CPU (numpy fallback; faiss not installed)")
         self._checkpoint()
         self._update(phase="scanning")
         with tempfile.TemporaryDirectory(prefix=".scan-", dir=self.data_dir) as temporary:

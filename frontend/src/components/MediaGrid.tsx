@@ -121,6 +121,78 @@ export function MediaGrid({
   const paintRef = useRef(false);
   const mosaic = layout === "mosaic";
   const animated = useAnimatedList(items, (item) => item.id);
+  const [conversionMap, setConversionMap] = useState<
+    Record<
+      number,
+      {
+        status: string;
+        progress: number;
+        stage?: string;
+        indeterminate?: boolean;
+      }
+    >
+  >({});
+
+  // Grid badges: poll which videos are converting without opening the player
+  useEffect(() => {
+    const videoIds = items.filter((m) => m.kind === "video").map((m) => m.id);
+    if (videoIds.length === 0) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const qs = videoIds.slice(0, 120).join(",");
+        const res = await fetch(
+          `/api/media/conversion-statuses?ids=${encodeURIComponent(qs)}`,
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const itemsMap = (data.items || {}) as Record<
+          string,
+          {
+            status: string;
+            progress: number;
+            stage?: string;
+            indeterminate?: boolean;
+          }
+        >;
+        const next: Record<
+          number,
+          {
+            status: string;
+            progress: number;
+            stage?: string;
+            indeterminate?: boolean;
+          }
+        > = {};
+        let anyActive = false;
+        for (const [k, v] of Object.entries(itemsMap)) {
+          const id = Number(k);
+          if (!Number.isFinite(id)) continue;
+          next[id] = v;
+          if (
+            ["analyzing", "converting", "verifying", "replacing", "pending"].includes(
+              v.status,
+            )
+          ) {
+            anyActive = true;
+          }
+        }
+        setConversionMap(next);
+        timer = setTimeout(poll, anyActive ? 1000 : 4000);
+      } catch {
+        if (!cancelled) timer = setTimeout(poll, 5000);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [items]);
 
   useEffect(() => {
     const up = () => {
@@ -223,6 +295,32 @@ export function MediaGrid({
                     : item.deleted_at
                       ? "Deleted"
                       : "Failed"}
+                </span>
+              )}
+              {item.kind === "video" && conversionMap[item.id] && (
+                <span
+                  className={`media-convert-badge tone-${conversionMap[item.id].status}`}
+                  title={
+                    conversionMap[item.id].stage ||
+                    conversionMap[item.id].status
+                  }
+                >
+                  {conversionMap[item.id].status === "failed" ? (
+                    <>
+                      <Icon name="alert" size={12} /> Failed
+                    </>
+                  ) : conversionMap[item.id].status === "completed" ? (
+                    <>Ready</>
+                  ) : conversionMap[item.id].status === "pending" ? (
+                    <>Queued</>
+                  ) : (
+                    <>
+                      {conversionMap[item.id].indeterminate ||
+                      !(conversionMap[item.id].progress > 0)
+                        ? "Converting…"
+                        : `${Math.round(conversionMap[item.id].progress)}%`}
+                    </>
+                  )}
                 </span>
               )}
               {!!item.face_count && (

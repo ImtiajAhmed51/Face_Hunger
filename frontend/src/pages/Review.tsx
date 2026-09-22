@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { mutate, number, percent, queryString, timeLabel } from "../api";
 import { useAction } from "../context";
@@ -34,6 +34,8 @@ export function Review() {
     null,
   );
   const action = useAction();
+  // In-flight review IDs — allow rapid Yes/No without waiting for each HTTP round-trip
+  const pendingReviews = useRef<Set<number>>(new Set());
   const items =
     resource.data?.items.filter((face) => !dismissed.has(face.id)) ?? [];
   const animatedItems = useAnimatedList(items, (face) => face.id);
@@ -41,37 +43,46 @@ export function Review() {
   useEffect(() => {
     setCursor(0);
     setDismissed(new Set());
+    pendingReviews.current.clear();
   }, [page, personId]);
   useEffect(() => {
     setCursor((value) => Math.min(value, Math.max(0, items.length - 1)));
   }, [items.length]);
   const dismiss = (id: number) =>
     setDismissed((current) => new Set([...current, id]));
-  const decide = async (decision: "yes" | "no") => {
-    if (!face || action.busy) return;
+  const decide = (decision: "yes" | "no") => {
+    if (!face) return;
     const id = face.id;
-    // Optimistic: advance UI immediately; don't wait on full collection refresh.
+    if (pendingReviews.current.has(id)) return;
+    pendingReviews.current.add(id);
+    // Optimistic: leave the queue immediately so the next face is ready
     dismiss(id);
-    const ok = await action.run(
-      () => mutate(`/faces/${id}/review`, { decision }),
-      decision === "yes" ? "Match confirmed." : "Incorrect match rejected.",
-      false, // skip global lfs:refresh — keeps Yes/No snappy
-    );
-    if (!ok) {
-      // Roll back dismiss on failure so the face stays in the queue
-      setDismissed((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
+    void mutate(`/faces/${id}/review`, { decision })
+      .then(() => {
+        // Quiet success — toast on every click is noisy during rapid review
+      })
+      .catch((cause) => {
+        // Roll back so the face returns to the queue
+        setDismissed((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+        const message =
+          cause instanceof Error ? cause.message : String(cause);
+        void action.run(async () => {
+          throw new Error(message);
+        }, undefined, false);
+      })
+      .finally(() => {
+        pendingReviews.current.delete(id);
       });
-    }
   };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (
         dialog ||
         viewer ||
-        action.busy ||
         document.querySelector("dialog[open]")
       )
         return;
@@ -236,16 +247,14 @@ export function Review() {
                 <div className="review-primary-actions">
                   <button
                     className="button primary"
-                    disabled={action.busy}
-                    onClick={() => void decide("yes")}
+                    onClick={() => decide("yes")}
                   >
                     <Icon name="check" />
                     Yes, that's them<kbd>Y</kbd>
                   </button>
                   <button
                     className="button"
-                    disabled={action.busy}
-                    onClick={() => void decide("no")}
+                    onClick={() => decide("no")}
                   >
                     <Icon name="close" />
                     No, not them<kbd>N</kbd>
