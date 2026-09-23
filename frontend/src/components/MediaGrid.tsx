@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -15,6 +16,7 @@ import {
   timeLabel,
 } from "../api";
 import { useAction } from "../context";
+import { collectionFilters } from "../mediaFilters";
 import {
   useAnimatedList,
   useDebounced,
@@ -31,68 +33,13 @@ import {
   Dialog,
   Empty,
   ErrorNotice,
-  Loading,
+  GallerySkeleton,
   Pagination,
   Thumbnail,
 } from "./ui";
 
-function VideoHoverPreview({ id, name }: { id: number; name: string }) {
-  const [hover, setHover] = useState(false);
-  const [showPlayer, setShowPlayer] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const timerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (hover) {
-      // Small delay so quick mouse-overs don't start downloading large videos
-      timerRef.current = window.setTimeout(() => setShowPlayer(true), 280);
-    } else {
-      if (timerRef.current) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      setShowPlayer(false);
-    }
-    return () => {
-      if (timerRef.current) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [hover]);
-
-  useEffect(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    if (showPlayer) {
-      el.currentTime = 0;
-      void el.play().catch(() => {});
-    } else {
-      el.pause();
-    }
-  }, [showPlayer]);
-
-  return (
-    <div
-      className="video-hover-preview"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
-      <Thumbnail src={`/api/media/${id}/thumbnail`} alt={name} icon="video" />
-      {showPlayer && (
-        <video
-          ref={videoRef}
-          className="video-hover-player"
-          src={`/api/media/${id}/file`}
-          muted
-          playsInline
-          loop
-          preload="none"
-        />
-      )}
-    </div>
-  );
-}
+import { VideoHoverPreview } from './VideoHoverPreview';
+import { useConversionStatuses } from '../conversionStatuses';
 
 function getAspectRatio(item: Media): number {
   const w = item.width;
@@ -121,85 +68,15 @@ export function MediaGrid({
   const paintRef = useRef(false);
   const mosaic = layout === "mosaic";
   const animated = useAnimatedList(items, (item) => item.id);
-  const [conversionMap, setConversionMap] = useState<
-    Record<
-      number,
-      {
-        status: string;
-        progress: number;
-        stage?: string;
-        indeterminate?: boolean;
-      }
-    >
-  >({});
-
-  // Grid badges: poll which videos are converting without opening the player
-  useEffect(() => {
-    const videoIds = items.filter((m) => m.kind === "video").map((m) => m.id);
-    if (videoIds.length === 0) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const poll = async () => {
-      try {
-        const qs = videoIds.slice(0, 120).join(",");
-        const res = await fetch(
-          `/api/media/conversion-statuses?ids=${encodeURIComponent(qs)}`,
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        const itemsMap = (data.items || {}) as Record<
-          string,
-          {
-            status: string;
-            progress: number;
-            stage?: string;
-            indeterminate?: boolean;
-          }
-        >;
-        const next: Record<
-          number,
-          {
-            status: string;
-            progress: number;
-            stage?: string;
-            indeterminate?: boolean;
-          }
-        > = {};
-        let anyActive = false;
-        for (const [k, v] of Object.entries(itemsMap)) {
-          const id = Number(k);
-          if (!Number.isFinite(id)) continue;
-          next[id] = v;
-          if (
-            ["analyzing", "converting", "verifying", "replacing", "pending"].includes(
-              v.status,
-            )
-          ) {
-            anyActive = true;
-          }
-        }
-        setConversionMap(next);
-        timer = setTimeout(poll, anyActive ? 1000 : 4000);
-      } catch {
-        if (!cancelled) timer = setTimeout(poll, 5000);
-      }
-    };
-
-    void poll();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [items]);
+  const conversionMap = useConversionStatuses(items);
 
   useEffect(() => {
     const up = () => {
       paintRef.current = false;
     };
     window.addEventListener("mouseup", up);
-    return () => window.removeEventListener("mouseup", up);
+    window.addEventListener("blur", up);
+    return () => { window.removeEventListener("mouseup", up); window.removeEventListener("blur", up); };
   }, []);
 
   return (
@@ -211,6 +88,7 @@ export function MediaGrid({
           <article
             className={`media-card anim-item anim-${phase} ${selected?.has(item.id) ? "selected" : ""}`}
             key={key}
+            inert={phase === "exit"}
             onMouseEnter={() => {
               if (paintRef.current && onSelect)
                 onSelect(item.id, undefined, "paint");
@@ -254,22 +132,11 @@ export function MediaGrid({
                   <input
                     type="checkbox"
                     checked={selected?.has(item.id) ?? false}
-                    onChange={(event) => {
-                      const native = event.nativeEvent as MouseEvent;
-                      if (native.shiftKey)
-                        onSelect(
-                          item.id,
-                          event as unknown as ReactMouseEvent,
-                          "range",
-                        );
-                      else
-                        onSelect(
-                          item.id,
-                          event as unknown as ReactMouseEvent,
-                          "toggle",
-                        );
+                    onChange={() => { /* Click handles keyboard and pointer activation with modifier keys. */ }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelect(item.id, event, event.shiftKey ? "range" : "toggle");
                     }}
-                    onClick={(event) => event.stopPropagation()}
                     aria-label={`Select ${item.name}`}
                   />
                 </label>
@@ -426,21 +293,13 @@ export function MediaCollection({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [layout, setLayout] = useState<"grid" | "mosaic">("mosaic");
 
-  const actualFilters = {
-    ...filters,
-    sort,
-    ...(excludePeople.length ? { exclude_people: excludePeople } : {}),
-    ...(tools
-      ? deletedOnly
-        ? { q: search, excluded: false, deleted: true }
-        : { q: search, excluded, deleted }
-      : { excluded: false, deleted: deletedOnly }),
-  };
-
+  const actualFilters = collectionFilters(filters, { tools, deletedOnly, search, excluded, deleted, sort, excludePeople });
   const filterKey = queryString(actualFilters);
-  useEffect(() => setPage(1), [filterKey]);
+  const [pageKey, setPageKey] = useState(filterKey);
+  const currentPage = pageKey === filterKey ? page : 1;
+  useEffect(() => { setPageKey(filterKey); setPage(1); }, [filterKey]);
 
-  const path = `/media?${filterKey}&page=${page}&limit=60`;
+  const path = `/media?${filterKey}&page=${currentPage}&limit=60`;
   const resource = useResource<Page<Media>>(path);
   const selection = useSelection(filterKey);
   const action = useAction();
@@ -462,9 +321,9 @@ export function MediaCollection({
     });
   }, [resource.data]);
 
-  const items = (resource.data?.items ?? []).filter(
+  const items = useMemo(() => (resource.data?.items ?? []).filter(
     (item) => !hiddenIds.has(item.id),
-  );
+  ), [resource.data, hiddenIds]);
   const lastAnchor = useRef<number | null>(null);
 
   const handleSelect = (
@@ -513,8 +372,12 @@ export function MediaCollection({
           target.forEach((id) => next.add(id));
           return next;
         });
-        selection.remove(target);
-        await mutate("/media/purge", { media_ids: target, confirm: "DELETE" });
+        try {
+          await mutate("/media/purge", { media_ids: target, confirm: "DELETE" });
+          selection.remove(target);
+        } finally {
+          setHiddenIds(new Set());
+        }
       }}
       success="Selected files permanently deleted from disk and removed from the index."
     />
@@ -720,7 +583,7 @@ export function MediaCollection({
         </button>
       </div>
       {selectedCount > 0 && (
-        <div className="selection-toolbar">
+        <div className="selection-toolbar" role="region" aria-label="Selected media actions">
           <strong>{selectedCount} selected</strong>
           <div className="inline-actions">
             <button
@@ -764,22 +627,14 @@ export function MediaCollection({
                   className="button small"
                   disabled={action.busy}
                   onClick={() => {
-                    const targets = pageSelected.filter(
-                      (item) => !!item.deleted_at || deletedOnly,
-                    );
-                    if (deletedOnly) {
-                      setHiddenIds((prev) => {
-                        const next = new Set(prev);
-                        targets.forEach((item) => next.add(item.id));
-                        return next;
-                      });
-                      selection.remove(targets.map((item) => item.id));
-                    }
+                    const targets = deletedOnly || actualFilters.deleted
+                      ? ids
+                      : pageSelected.filter(item => !!item.deleted_at).map(item => item.id);
                     void run(
-                      () =>
-                        batch(targets, (item) =>
-                          mutate(`/media/${item.id}/restore`),
-                        ),
+                      () => batch(targets, async (mediaId) => {
+                        await mutate(`/media/${mediaId}/restore`);
+                        selection.remove([mediaId]);
+                      }),
                       "Media restored.",
                     );
                   }}
@@ -818,7 +673,7 @@ export function MediaCollection({
       )}
       <ErrorNotice error={resource.error} retry={resource.reload} />
       {resource.loading && !resource.data ? (
-        <Loading />
+        <GallerySkeleton />
       ) : resource.data && !items.length ? (
         <Empty
           icon={filters.kind === "video" ? "video" : "photo"}
@@ -842,7 +697,7 @@ export function MediaCollection({
       )}
       {resource.data && (
         <Pagination
-          page={page}
+          page={currentPage}
           total={resource.data.total}
           limit={60}
           onPage={setPage}
@@ -871,10 +726,14 @@ export function MediaCollection({
               target.forEach((id) => next.add(id));
               return next;
             });
-            selection.remove(target);
-            await batch(target, (mediaId) =>
-              mutate(`/media/${mediaId}`, undefined, "DELETE"),
-            );
+            try {
+              await batch(target, async (mediaId) => {
+                await mutate(`/media/${mediaId}`, undefined, "DELETE");
+                selection.remove([mediaId]);
+              });
+            } finally {
+              setHiddenIds(new Set());
+            }
           }}
           success="Selected media moved to Deleted."
         />

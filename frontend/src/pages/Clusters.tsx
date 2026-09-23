@@ -125,9 +125,7 @@ export function Clusters() {
           <div
             className="cluster-scale"
             style={{
-              transform: `scale(${zoom})`,
-              transformOrigin: "top left",
-              width: `${100 / zoom}%`,
+              zoom,
             }}
           >
             <div className="cluster-board cluster-grid">

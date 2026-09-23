@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { dateLabel, exportZip, mutate, percent, timeLabel } from "../api";
 import { useAction, useApp } from "../context";
-import { useResource } from "../hooks";
+import { useMounted, useResource } from "../hooks";
 import type { Face, MediaDetail } from "../types";
 import { FaceActions } from "./FaceActions";
 import { Icon } from "./Icon";
@@ -15,18 +15,20 @@ import {
   Thumbnail,
 } from "./ui";
 
-export function MediaViewer({
-  id,
-  ids = [],
-  timestamp,
-  onClose,
-}: {
-  id: number;
-  ids?: number[];
-  timestamp?: number | null;
-  onClose: () => void;
-}) {
-  const [current, setCurrent] = useState(id);
+type ViewerProps = { id: number; ids?: number[]; timestamp?: number | null; onClose: () => void };
+
+export function MediaViewer(props: ViewerProps) {
+  const [navigation, setNavigation] = useState({ source: props.id, current: props.id, timestamp: props.timestamp });
+  const current = navigation.source === props.id ? navigation.current : props.id;
+  const timestamp = navigation.source === props.id ? navigation.timestamp : props.timestamp;
+  return <ViewerSession {...props} key={current} id={current} timestamp={timestamp}
+    onNavigate={id => setNavigation({ source: props.id, current: id, timestamp: undefined })} />;
+}
+
+function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerProps & { onNavigate: (id: number) => void }) {
+  const current = id;
+  const mounted = useMounted();
+  const convertLock = useRef(false);
   const resource = useResource<MediaDetail>(`/media/${current}`);
   const media = resource.data;
   const [selected, setSelected] = useState<number | null>(null);
@@ -50,9 +52,22 @@ export function MediaViewer({
   const { notify } = useApp();
   const position = ids.indexOf(current);
   useEffect(() => {
-    setCurrent(id);
     pendingSeek.current = timestamp ?? null;
-  }, [id, timestamp]);
+    if (timestamp != null && video.current && video.current.readyState >= 1) {
+      video.current.currentTime = Math.max(0, Math.min(timestamp, video.current.duration || timestamp));
+      pendingSeek.current = null;
+    }
+  }, [timestamp]);
+  const attachVideo = useCallback((player: HTMLVideoElement | null) => {
+    video.current = player;
+    if (!player) return;
+    return () => {
+      player.pause();
+      player.removeAttribute('src');
+      player.load();
+      if (video.current === player) video.current = null;
+    };
+  }, []);
   useEffect(() => {
     setSelected(null);
     setPreviewError(false);
@@ -72,6 +87,7 @@ export function MediaViewer({
   useEffect(() => {
     if (!media || media.kind !== "video" || media.missing) return;
     let cancelled = false;
+    const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const applyStatus = (data: {
@@ -94,7 +110,7 @@ export function MediaViewer({
         setConvertError(null);
         setPreviewError(false);
         setVideoReady(true);
-        setVideoSrcVersion((v) => v + 1);
+        setVideoSrcVersion(1);
         return "done";
       }
       if (status === "failed") {
@@ -108,10 +124,12 @@ export function MediaViewer({
         setNeedsConvert(Boolean(data.needs_conversion));
         return "done";
       }
-      const active = ["analyzing", "converting", "verifying", "replacing"].includes(
+      // Only an in-progress job (or one the user just started) shows the conversion panel.
+      // Bare "pending"/"idle" from a status check must NOT look like conversion is running.
+      const activeJob = ["analyzing", "converting", "verifying", "replacing"].includes(
         status,
       );
-      if (active || convertStarted) {
+      if (activeJob || convertStarted) {
         setConverting(true);
         setVideoReady(false);
         setNeedsConvert(false);
@@ -125,7 +143,7 @@ export function MediaViewer({
         );
         return "continue";
       }
-      // Idle: show native player; offer Convert if needed
+      // Idle / conversion available: play original; Convert only on explicit click
       setConverting(false);
       setNeedsConvert(Boolean(data.needs_conversion));
       setVideoReady(true);
@@ -133,12 +151,14 @@ export function MediaViewer({
     };
 
     const poll = async () => {
+      if (cancelled) return;
+      if (document.hidden) { timer = setTimeout(poll, 2000); return; }
       try {
-        const res = await fetch(`/api/media/${media.id}/conversion-status`);
+        const res = await fetch(`/api/media/${media.id}/conversion-status`, { signal: controller.signal });
         if (!res.ok) {
           if (!cancelled) {
-            setVideoReady(true);
-            setConverting(false);
+            if (convertStarted) timer = setTimeout(poll, 3000);
+            else { setVideoReady(true); setConverting(false); }
           }
           return;
         }
@@ -150,8 +170,8 @@ export function MediaViewer({
         }
       } catch {
         if (!cancelled) {
-          setVideoReady(true);
-          setConverting(false);
+          if (convertStarted) timer = setTimeout(poll, 3000);
+          else { setVideoReady(true); setConverting(false); }
         }
       }
     };
@@ -160,28 +180,36 @@ export function MediaViewer({
     void poll();
     return () => {
       cancelled = true;
+      controller.abort();
       if (timer) clearTimeout(timer);
     };
   }, [media?.id, media?.kind, media?.missing, convertStarted]);
 
   const startConvert = () => {
-    if (!media) return;
+    // Conversion starts only from this explicit user action — never on open/click.
+    if (!media || convertLock.current || converting) return;
+    convertLock.current = true;
+    setConverting(true);
+    setConvertStarted(true);
+    setNeedsConvert(false);
+    setConvertError(null);
+    setVideoReady(false);
+    setConvertStage("Starting conversion…");
+    setConvertIndeterminate(true);
     void (async () => {
-      setConvertStarted(true);
-      setConverting(true);
-      setConvertError(null);
-      setVideoReady(false);
-      setConvertStage("Starting conversion…");
-      setConvertIndeterminate(true);
       try {
         await mutate(`/media/${media.id}/convert`, {});
       } catch (error) {
+        if (!mounted.current) return;
         setConvertStarted(false);
         setConverting(false);
+        setNeedsConvert(true);
         setConvertError(
           error instanceof Error ? error.message : "Could not start conversion",
         );
         setVideoReady(true);
+      } finally {
+        convertLock.current = false;
       }
     })();
   };
@@ -189,7 +217,7 @@ export function MediaViewer({
     const next = ids[position + offset];
     if (next !== undefined) {
       pendingSeek.current = null;
-      setCurrent(next);
+      onNavigate(next);
     }
   };
   const fullscreen = async () => {
@@ -310,7 +338,7 @@ export function MediaViewer({
               <ErrorNotice error={resource.error} retry={resource.reload} />
             )}
             {media &&
-              (media.missing || convertError || (previewError && !converting && videoReady && !needsConvert) ? (
+              (media.missing || convertError || (previewError && (media.kind === "photo" || (!converting && videoReady && !needsConvert))) ? (
                 <div className="viewer-unavailable">
                   <Icon name="alert" size={40} />
                   <h3>
@@ -327,6 +355,7 @@ export function MediaViewer({
                         ? convertError
                         : "The browser could not display this file. Try downloading the original or checking the library."}
                   </p>
+                  {convertError && !media.missing && <button className="button primary" onClick={startConvert}>Retry conversion</button>}
                   {!media.missing && (
                     <a
                       className="button"
@@ -371,7 +400,7 @@ export function MediaViewer({
                     </div>
                   </div>
                 </div>
-              ) : needsConvert && media.kind === "video" && !converting ? (
+              ) : needsConvert && previewError && media.kind === "video" && !converting ? (
                 <div className="conversion-panel">
                   <div className="conversion-card">
                     <div className="conversion-thumb">
@@ -384,11 +413,11 @@ export function MediaViewer({
                       <p className="conversion-eyebrow">Conversion available</p>
                       <h3 className="conversion-title">{media.name}</h3>
                       <p className="conversion-stage">
-                        This format may not play in the browser. Convert only if playback fails —
+                        This format may not play in the browser. Convert only when you choose —
                         the original file is kept as a backup.
                       </p>
                       <div className="inline-actions" style={{ marginTop: "0.75rem" }}>
-                        <button className="button" type="button" onClick={startConvert}>
+                        <button className="button primary" type="button" onClick={startConvert}>
                           <Icon name="spark" size={16} />
                           Convert for browser
                         </button>
@@ -399,6 +428,8 @@ export function MediaViewer({
                     </div>
                   </div>
                 </div>
+              ) : media.kind === "video" && !videoReady ? (
+                <Loading label="Checking video playback" />
               ) : (
                 <div
                   className="media-surface"
@@ -423,7 +454,7 @@ export function MediaViewer({
                   ) : (
                     <video
                       key={`${media.id}-${videoSrcVersion}`}
-                      ref={video}
+                      ref={attachVideo}
                       controls
                       playsInline
                       preload="metadata"
@@ -439,15 +470,16 @@ export function MediaViewer({
                           setPreviewError(true);
                         }
                       }}
-                      onTimeUpdate={(event) =>
-                        setTime(event.currentTarget.currentTime)
-                      }
+                      onTimeUpdate={(event) => {
+                        if (boxes) setTime(Math.round(event.currentTarget.currentTime * 5) / 5);
+                      }}
                       onLoadedMetadata={(event) => {
                         setConverting(false);
                         setPreviewError(false);
                         setVideoReady(true);
                         if (pendingSeek.current !== null) {
-                          event.currentTarget.currentTime = pendingSeek.current;
+                          const duration = event.currentTarget.duration;
+                          event.currentTarget.currentTime = Math.max(0, Math.min(pendingSeek.current, Number.isFinite(duration) ? duration : pendingSeek.current));
                           pendingSeek.current = null;
                         }
                       }}
@@ -637,6 +669,24 @@ export function MediaViewer({
                 </dl>
               </section>
               <div className="viewer-file-actions">
+                {media.kind === "video" && needsConvert && !converting && !media.missing && (
+                  <button
+                    className="button primary"
+                    type="button"
+                    onClick={startConvert}
+                  >
+                    <Icon name="spark" size={16} />
+                    Convert for browser
+                  </button>
+                )}
+                {media.kind === "video" && converting && (
+                  <p className="small-text muted" role="status">
+                    {convertStage}
+                    {!convertIndeterminate && convertProgress > 0
+                      ? ` · ${Math.round(convertProgress)}%`
+                      : ""}
+                  </p>
+                )}
                 {media.has_original && (
                   <a
                     className="button"

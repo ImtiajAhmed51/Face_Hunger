@@ -92,6 +92,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           to={item.to}
           end={item.to === "/"}
           title={item.label}
+          aria-label={item.label}
           className={({ isActive }) =>
             `nav-link ${isActive ? "active" : ""} ${item.group ? "nav-group" : ""}`
           }
@@ -111,7 +112,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function BottomNav({ onMore }: { onMore: () => void }) {
+function BottomNav({ onMore, expanded }: { onMore: () => void; expanded: boolean }) {
   const { data } = useResource<Dashboard>("/dashboard");
   const location = useLocation();
   const extraActive = !primaryNav.some((item) =>
@@ -144,6 +145,8 @@ function BottomNav({ onMore }: { onMore: () => void }) {
         type="button"
         className={`bottom-nav-item${extraActive ? " active" : ""}`}
         aria-label="More pages"
+        aria-expanded={expanded}
+        aria-haspopup="dialog"
         onClick={onMore}
       >
         <span className="bottom-nav-icon">
@@ -189,6 +192,15 @@ export function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const main = useRef<HTMLElement>(null);
+  const pageContent = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const animation = pageContent.current?.animate(
+      [{ opacity: 0.4, transform: 'translateY(5px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 220, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+    );
+    return () => animation?.cancel();
+  }, [location.pathname]);
   useEffect(() => {
     setMobileOpen(false);
     main.current?.focus({ preventScroll: true });
@@ -279,6 +291,7 @@ export function App() {
             On your device
           </Link>
         </div>
+        <div className="page-content" ref={pageContent}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/people" element={<People />} />
@@ -376,15 +389,16 @@ export function App() {
             }
           />
         </Routes>
+        </div>
         <footer className="page-footer">
           <span>
             Face Hunger <span aria-hidden="true">/</span> Your memories,
             locally.
           </span>
-          <span>Originals always untouched.</span>
+          <span>Your library. Your control.</span>
         </footer>
       </main>
-      <BottomNav onMore={() => setMobileOpen(true)} />
+      <BottomNav onMore={() => setMobileOpen(true)} expanded={mobileOpen} />
     </>
   );
 }

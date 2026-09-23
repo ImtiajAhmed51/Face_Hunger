@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Private, local-first photo and video face search"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-  "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "pydantic-settings>=2.7,<3",
+  "fastapi>=0.115.2,<1", "uvicorn[standard]>=0.34,<1", "pydantic-settings>=2.7,<3",
   "numpy>=1.26,<3", "opencv-python-headless>=4.10,<5", "Pillow>=11,<13",
   "pillow-heif>=0.21,<2", "scikit-learn>=1.6,<2", "onnxruntime>=1.20,<2",
   "insightface==0.7.3", "python-multipart>=0.0.20,<1"
