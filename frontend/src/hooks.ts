@@ -1,96 +1,52 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import { request } from "./api";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { invalidateResourceRequests, readResource } from './resourceRequests';
+import { reconcileList } from './animatedList';
+import type { AnimatedEntry } from './animatedList';
+export type { AnimPhase, AnimatedEntry } from './animatedList';
 
 export function refreshData(): void {
-  window.dispatchEvent(new Event("lfs:refresh"));
+  invalidateResourceRequests();
+  window.dispatchEvent(new Event('lfs:refresh'));
 }
 
-type ResourceState<T> = {
-  path: string | null;
-  data?: T;
-  loading: boolean;
-  refreshing: boolean;
-  error: string;
-};
+type ResourceState<T> = { path: string | null; data?: T; loading: boolean; refreshing: boolean; error: string };
 
-/** Fetch remote data with stale-while-revalidate. Existing items stay on screen during refresh. */
-export function useResource<T>(
-  path: string | null,
-  options?: { globalRefresh?: boolean },
-) {
+export function useResource<T>(path: string | null, options?: { globalRefresh?: boolean }) {
   const globalRefresh = options?.globalRefresh !== false;
   const [version, setVersion] = useState(0);
-  const [state, setState] = useState<ResourceState<T>>({
-    path,
-    loading: !!path,
-    refreshing: false,
-    error: "",
-  });
-  const reload = useCallback(() => setVersion((value) => value + 1), []);
-
+  const [state, setState] = useState<ResourceState<T>>({ path, loading: !!path, refreshing: false, error: '' });
+  const reload = useCallback(() => setVersion(value => value + 1), []);
   useEffect(() => {
     if (!globalRefresh) return;
-    window.addEventListener("lfs:refresh", reload);
-    return () => window.removeEventListener("lfs:refresh", reload);
+    window.addEventListener('lfs:refresh', reload);
+    return () => window.removeEventListener('lfs:refresh', reload);
   }, [reload, globalRefresh]);
-
   useEffect(() => {
     if (!path) {
-      setState({ path, loading: false, refreshing: false, error: "" });
+      setState({ path, loading: false, refreshing: false, error: '' });
       return;
     }
     const controller = new AbortController();
-    setState((previous) => {
-      const samePath = previous.path === path;
-      const keep = samePath ? previous.data : undefined;
-      return {
-        path,
-        data: keep,
-        // Hard loading only when we have nothing to show for this path
-        loading: !keep,
-        refreshing: !!keep,
-        error: "",
-      };
+    setState(previous => {
+      const data = previous.path === path ? previous.data : undefined;
+      return { path, data, loading: data === undefined, refreshing: data !== undefined, error: '' };
     });
-    void request<T>(path, { signal: controller.signal })
-      .then((data) => {
-        if (!controller.signal.aborted) {
-          setState({
-            path,
-            data,
-            loading: false,
-            refreshing: false,
-            error: "",
-          });
-        }
-      })
-      .catch((error: Error) => {
-        if (!controller.signal.aborted) {
-          setState((previous) => ({
-            ...previous,
-            path,
-            loading: false,
-            refreshing: false,
-            error: error.message,
-          }));
-        }
-      });
+    const load = async () => {
+      try {
+        const data = await readResource<T>(path, controller.signal);
+        if (!controller.signal.aborted) setState({ path, data, loading: false, refreshing: false, error: '' });
+      } catch (error) {
+        if (!controller.signal.aborted) setState(previous => ({ ...previous, path, loading: false, refreshing: false, error: error instanceof Error ? error.message : String(error) }));
+      }
+    };
+    void load();
     return () => controller.abort();
   }, [path, version]);
-
-  const data = state.path === path ? state.data : undefined;
   return {
-    data,
-    loading: state.path !== path || state.loading,
+    data: state.path === path ? state.data : undefined,
+    loading: path !== null && (state.path !== path || state.loading),
     refreshing: state.path === path && state.refreshing,
-    error: state.path === path ? state.error : "",
-    reload,
+    error: state.path === path ? state.error : '', reload,
   };
 }
 
@@ -104,227 +60,100 @@ export function useDebounced<T>(value: T, delay = 250): T {
 }
 
 export function useSelection(key: string) {
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  // Reset only when the filter/query key changes — not when paging within the same list.
-  useEffect(() => setSelected(new Set()), [key]);
-  const toggle = (id: number) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  // Toggle membership of the given ids only; leave other pages' selections intact.
-  const all = (ids: number[]) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      const everySelected = ids.length > 0 && ids.every((id) => next.has(id));
-      if (everySelected) {
-        for (const id of ids) next.delete(id);
-      } else {
-        for (const id of ids) next.add(id);
-      }
-      return next;
-    });
-  /** Add ids without removing existing selection (Shift+range / paint). */
-  const addRange = (ids: number[]) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      for (const id of ids) next.add(id);
-      return next;
-    });
-  const remove = (ids: number[]) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      for (const id of ids) next.delete(id);
-      return next;
-    });
-  return {
-    selected,
-    toggle,
-    all,
-    addRange,
-    remove,
-    clear: () => setSelected(new Set()),
-  };
+  const [state, setState] = useState<{ key: string; selected: Set<number> }>(() => ({ key, selected: new Set() }));
+  const selected = state.key === key ? state.selected : new Set<number>();
+  const update = useCallback((change: (current: Set<number>) => Set<number>) => {
+    setState(current => ({ key, selected: change(current.key === key ? current.selected : new Set()) }));
+  }, [key]);
+  const toggle = useCallback((id: number) => update(current => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  }), [update]);
+  const all = useCallback((ids: number[]) => update(current => {
+    const next = new Set(current);
+    const remove = ids.length > 0 && ids.every(id => next.has(id));
+    for (const id of ids) { if (remove) next.delete(id); else next.add(id); }
+    return next;
+  }), [update]);
+  const addRange = useCallback((ids: number[]) => update(current => {
+    if (ids.every(id => current.has(id))) return current;
+    return new Set([...current, ...ids]);
+  }), [update]);
+  const remove = useCallback((ids: number[]) => update(current => {
+    const next = new Set(current);
+    for (const id of ids) next.delete(id);
+    return next;
+  }), [update]);
+  const clear = useCallback(() => update(() => new Set()), [update]);
+  return { selected, toggle, all, addRange, remove, clear };
 }
 
 export function useMounted() {
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
+    return () => { mounted.current = false; };
   }, []);
   return mounted;
 }
 
-export type AnimPhase = "enter" | "shown" | "exit";
-
-export type AnimatedEntry<T> = {
-  key: string | number;
-  item: T;
-  phase: AnimPhase;
-};
-
-const DEFAULT_EXIT_MS = 320;
-
-/**
- * Keep a stable rendered list so removals can play exit animations
- * before DOM nodes disappear. New items enter with a short intro phase.
- */
-export function useAnimatedList<T>(
-  items: T[],
-  getKey: (item: T) => string | number,
-  exitMs = DEFAULT_EXIT_MS,
-): AnimatedEntry<T>[] {
-  const getKeyRef = useRef(getKey);
-  getKeyRef.current = getKey;
-  const [rendered, setRendered] = useState<AnimatedEntry<T>[]>(() =>
-    items.map((item) => ({
-      key: getKey(item),
-      item,
-      phase: "shown" as const,
-    })),
-  );
-  const timers = useRef<Map<string | number, number>>(new Map());
-  const first = useRef(true);
-  // Stable signature of the current key set + item identities
-  // Stable ordered key list — avoids building a huge joined string on every call
-  const signature = items.map((item) => String(getKey(item))).join("|");
-
-  useEffect(() => {
-    return () => {
-      timers.current.forEach((id) => window.clearTimeout(id));
-      timers.current.clear();
-    };
-  }, []);
-
+export function useAnimatedList<T>(items: T[], getKey: (item: T) => string | number, exitMs = 340): AnimatedEntry<T>[] {
+  const [rendered, setRendered] = useState<AnimatedEntry<T>[]>(() => items.map(item => ({ key: getKey(item), item, phase: 'shown' })));
+  const previous = useRef(items);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useLayoutEffect(() => {
-    const gk = getKeyRef.current;
-    const nextKeys = new Set(items.map(gk));
-    const nextByKey = new Map(items.map((item) => [gk(item), item] as const));
-
-    setRendered((previous) => {
-      const prevKeys = new Set(previous.map((entry) => entry.key));
-      const result: AnimatedEntry<T>[] = [];
-
-      for (const entry of previous) {
-        if (nextKeys.has(entry.key)) {
-          const item = nextByKey.get(entry.key)!;
-          result.push({
-            key: entry.key,
-            item,
-            phase: entry.phase === "exit" ? "shown" : entry.phase,
-          });
-        } else if (entry.phase !== "exit") {
-          result.push({ ...entry, phase: "exit" });
-          const existing = timers.current.get(entry.key);
-          if (existing) window.clearTimeout(existing);
-          const timer = window.setTimeout(() => {
-            timers.current.delete(entry.key);
-            setRendered((current) =>
-              current.filter((row) => row.key !== entry.key),
-            );
-          }, exitMs);
-          timers.current.set(entry.key, timer);
-        } else {
-          result.push(entry);
-        }
-      }
-
-      for (const item of items) {
-        const key = gk(item);
-        if (!prevKeys.has(key)) {
-          const phase: AnimPhase = first.current ? "shown" : "enter";
-          result.push({ key, item, phase });
-          if (phase === "enter") {
-            const enterKey = `enter-${key}`;
-            const existing = timers.current.get(enterKey);
-            if (existing) window.clearTimeout(existing);
-            const timer = window.setTimeout(() => {
-              timers.current.delete(enterKey);
-              setRendered((current) =>
-                current.map((row) =>
-                  row.key === key && row.phase === "enter"
-                    ? { ...row, phase: "shown" }
-                    : row,
-                ),
-              );
-            }, 40);
-            timers.current.set(enterKey, timer);
-          }
-        }
-      }
-
-      first.current = false;
-      // Hard cap: never keep more than items + a few exiting nodes in memory
-      const maxKeep = nextKeys.size + 16;
-      if (result.length > maxKeep) {
-        return result.filter((row) => row.phase !== "exit" || nextKeys.has(row.key)).slice(0, maxKeep);
-      }
-      return result;
-    });
-    // signature captures item identity changes without depending on getKey identity
-  }, [signature, exitMs]); // eslint-disable-line react-hooks/exhaustive-deps
-
+    if (previous.current.length === items.length && previous.current.every((item, index) => item === items[index])) return;
+    previous.current = items;
+    const animate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setRendered(current => reconcileList(current, items, getKey, animate));
+  });
+  useEffect(() => {
+    if (!rendered.some(entry => entry.phase !== 'shown')) return;
+    timer.current = setTimeout(() => {
+      setRendered(current => current.filter(entry => entry.phase !== 'exit').map(entry => entry.phase === 'enter' ? { ...entry, phase: 'shown' } : entry));
+    }, exitMs);
+    return () => clearTimeout(timer.current);
+  }, [rendered, exitMs]);
   return rendered;
 }
 
-/** Capture scroll position around a state update and restore it. */
 export function useScrollLock() {
   const y = useRef(0);
-  const lock = useCallback(() => {
-    y.current = window.scrollY;
-  }, []);
+  const frame = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  const lock = useCallback(() => { y.current = window.scrollY; }, []);
   const restore = useCallback(() => {
-    const target = y.current;
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: target, behavior: "instant" as ScrollBehavior });
-    });
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => window.scrollTo({ top: y.current, behavior: 'instant' }));
   }, []);
   return { lock, restore };
 }
 
-
-/** FLIP layout animation for children with data-flip-id. */
-export function useFlip<T extends HTMLElement = HTMLDivElement>(
-  deps: unknown,
-  duration = 320,
-) {
+export function useFlip<T extends HTMLElement = HTMLDivElement>(deps: unknown, duration = 320) {
   const ref = useRef<T | null>(null);
   const prev = useRef<Map<string, DOMRect>>(new Map());
-
   useLayoutEffect(() => {
     const root = ref.current;
     if (!root) return;
-    const nodes = root.querySelectorAll<HTMLElement>("[data-flip-id]");
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const next = new Map<string, DOMRect>();
-    nodes.forEach((node) => {
+    const animations: Animation[] = [];
+    // Measure all nodes before writing animation styles to avoid layout thrashing.
+    const measurements = Array.from(root.querySelectorAll<HTMLElement>('[data-flip-id]'), node => ({ node, rect: node.getBoundingClientRect() }));
+    for (const { node, rect } of measurements) {
       const id = node.dataset.flipId;
-      if (!id) return;
-      const last = node.getBoundingClientRect();
-      next.set(id, last);
+      if (!id) continue;
+      next.set(id, rect);
       const first = prev.current.get(id);
-      if (!first) return;
-      const dx = first.left - last.left;
-      const dy = first.top - last.top;
-      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-      node.animate(
-        [
-          { transform: `translate(${dx}px, ${dy}px)` },
-          { transform: "translate(0, 0)" },
-        ],
-        {
-          duration,
-          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-          fill: "both",
-        },
-      );
-    });
+      if (!first || reduced || !node.animate) continue;
+      const dx = first.left - rect.left;
+      const dy = first.top - rect.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+      animations.push(node.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }], { duration, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }));
+    }
     prev.current = next;
+    return () => animations.forEach(animation => animation.cancel());
   }, [deps, duration]);
-
   return ref;
 }

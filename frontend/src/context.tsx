@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { request } from "./api";
 import { refreshData, useMounted } from "./hooks";
@@ -17,6 +17,7 @@ interface AppState {
   notify: (text: string, error?: boolean) => void;
 }
 const AppContext = createContext<AppState | null>(null);
+const NotifyContext = createContext<AppState['notify'] | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [job, setJob] = useState<Job | null>(null);
   const [jobError, setJobError] = useState("");
@@ -30,32 +31,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
   const [notices, setNotices] = useState<Notice[]>([]);
   const noticeId = useRef(0);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const notify = (text: string, error = false) => {
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  const notify = useCallback((text: string, error = false) => {
     const id = ++noticeId.current;
-    setNotices((current) => [...current.slice(-3), { id, text, error }]);
-    if (!error)
-      timers.current.push(
-        setTimeout(
-          () =>
-            setNotices((current) => current.filter((item) => item.id !== id)),
-          6000,
-        ),
-      );
-  };
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
-  const setTheme = (value: Theme) => {
+    setNotices(current => [...current.slice(-3), { id, text, error }]);
+    if (!error) {
+      const timer = setTimeout(() => {
+        timers.current.delete(timer);
+        setNotices(current => current.filter(item => item.id !== id));
+      }, 6000);
+      timers.current.add(timer);
+    }
+  }, []);
+  useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);
+  const setTheme = useCallback((value: Theme) => {
     updateTheme(value);
     try {
       localStorage.setItem("lfs-theme", value);
     } catch {
       /* Storage is optional. */
     }
-  };
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     void request<Settings>("/settings", { signal: controller.signal })
-      .then((data) => setTheme(data.theme))
+      .then((data) => { if (!controller.signal.aborted) setTheme(data.theme); })
       .catch(() => {});
     return () => controller.abort();
   }, []);
@@ -74,20 +74,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let timer: ReturnType<typeof setTimeout>;
     let previous: Job | null = null;
     const poll = async () => {
+      if (controller.signal.aborted) return;
+      if (document.hidden) { timer = setTimeout(poll, 5000); return; }
       try {
         const next = await request<Job | null>("/index/status", {
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
-        setJob(next);
+        setJob(current => JSON.stringify(current) === JSON.stringify(next) ? current : next);
         setJobError("");
-        if (previous && next && previous.status !== next.status) refreshData();
+        if (previous && (previous.id !== next?.id || previous.status !== next?.status)) refreshData();
         previous = next;
       } catch (error) {
         if (controller.signal.aborted) return;
         setJobError(error instanceof Error ? error.message : String(error));
       }
-      timer = setTimeout(poll, 2000);
+      timer = setTimeout(poll, previous && ['running', 'queued'].includes(previous.status) ? 2000 : 8000);
     };
     void poll();
     return () => {
@@ -95,9 +97,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
     };
   }, []);
+  const value = useMemo(() => ({ job, jobError, theme, setTheme, notify }), [job, jobError, theme, setTheme, notify]);
   return (
-    <AppContext.Provider value={{ job, jobError, theme, setTheme, notify }}>
-      {children}
+    <AppContext.Provider value={value}>
+      <NotifyContext.Provider value={notify}>{children}</NotifyContext.Provider>
       <div className="toast-stack" role="region" aria-label="Notifications">
         {notices.map((item) => (
           <div
@@ -127,7 +130,8 @@ export function useApp() {
   return value;
 }
 export function useAction() {
-  const { notify } = useApp();
+  const notify = useContext(NotifyContext);
+  if (!notify) throw new Error('AppProvider is missing.');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const lock = useRef(false);

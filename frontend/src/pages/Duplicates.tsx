@@ -440,16 +440,15 @@ export function Duplicates() {
 
   const preserveScroll = useCallback(() => {
     scrollLockY.current = window.scrollY;
+    // Restore after React commit + FLIP layout effects (double rAF)
     requestAnimationFrame(() => {
-      window.scrollTo({
-        top: scrollLockY.current,
-        behavior: "instant" as ScrollBehavior,
-      });
       requestAnimationFrame(() => {
-        window.scrollTo({
-          top: scrollLockY.current,
-          behavior: "instant" as ScrollBehavior,
-        });
+        if (Math.abs(window.scrollY - scrollLockY.current) > 1) {
+          window.scrollTo({
+            top: scrollLockY.current,
+            behavior: "instant" as ScrollBehavior,
+          });
+        }
       });
     });
   }, []);
@@ -493,15 +492,21 @@ export function Duplicates() {
         deletedIdsRef.current = next;
         return next;
       });
-      // Immediately prune groups — source of truth for the UI
-      setGroups((prev) =>
-        prev
-          .map((g) => ({
-            ...g,
-            items: g.items.filter((item) => !idSet.has(item.id)),
-          }))
-          .filter((g) => g.items.length >= 2),
-      );
+      // In-place prune: keep object identity for groups whose items are unchanged
+      // so memoized GroupCards and FLIP measurements stay stable.
+      setGroups((prev) => {
+        const next: DupGroup[] = [];
+        for (const g of prev) {
+          const kept = g.items.filter((item) => !idSet.has(item.id));
+          if (kept.length < 2) continue; // group exits via useAnimatedList
+          if (kept.length === g.items.length) {
+            next.push(g); // identical reference → no remount
+          } else {
+            next.push({ ...g, items: kept });
+          }
+        }
+        return next;
+      });
       setSelected((prev) => {
         const next = new Set(prev);
         ids.forEach((id) => next.delete(id));
@@ -509,7 +514,6 @@ export function Duplicates() {
       });
       setStats((s) => {
         if (!s) return s;
-        // Recompute from current groups after prune (approx)
         return {
           ...s,
           item_count: Math.max(0, s.item_count - ids.length),
@@ -541,15 +545,32 @@ export function Duplicates() {
 
   const doDelete = async (ids: number[]) => {
     const unique = [...new Set(ids)];
-    // UI updates immediately — do not wait for API or full rescan
+    // Optimistic UI: remove only the deleted items; keep scroll and layout
     removeIdsLocally(unique);
     setConfirmDelete(null);
-    preserveScroll();
-    for (const id of unique) {
-      await mutate(`/media/${id}`, undefined, "DELETE");
+    // Fire API in background — never refetch the full duplicate list
+    try {
+      await Promise.all(
+        unique.map((id) => mutate(`/media/${id}`, undefined, "DELETE")),
+      );
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
     }
-    // Re-assert prune after network (guards against any intervening merge)
-    setGroups((prev) => stripExcluded(prev, deletedIdsRef.current));
+    // Soft re-assert tombstones without replacing group identities
+    setGroups((prev) => {
+      const excluded = deletedIdsRef.current;
+      if (!excluded.size) return prev;
+      let changed = false;
+      const next = prev
+        .map((g) => {
+          const kept = g.items.filter((item) => !excluded.has(item.id));
+          if (kept.length === g.items.length) return g;
+          changed = true;
+          return { ...g, items: kept };
+        })
+        .filter((g) => g.items.length >= 2);
+      return changed ? next : prev;
+    });
     preserveScroll();
   };
 
@@ -723,10 +744,10 @@ export function Duplicates() {
 
         {stats && (
           <div className="dino-progress-block">
-            <div className="dino-progress-track" aria-hidden>
+            <div className="dino-progress-track" role="progressbar" aria-label="Duplicate analysis" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
               <div
                 className="dino-progress-fill"
-                style={{ width: `${progress}%` }}
+                style={{ transform: `scaleX(${progress / 100})` }}
               />
             </div>
             <div className="dino-progress-meta">

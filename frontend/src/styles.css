@@ -1,5 +1,5 @@
 @charset "UTF-8";
-@layer reset, base, components, responsive, compact, accessibility;
+@layer reset, base, components, responsive, compact, appearance, accessibility;
 
 @layer reset {
   *,
@@ -54,14 +54,14 @@
 @layer base {
   :root {
     color-scheme: light;
-    /* Liquid Glass — light (Apple-like frosted surfaces) */
-    --paper: #e8eef8;
-    --surface: #ffffffd9;
-    --sidebar: #f5f7fb99;
+    /* Neutral canvas with translucent chrome; media remains the focal point. */
+    --paper: #f1f3f7;
+    --surface: #fffffff0;
+    --sidebar: #f7f9fcc9;
     --ink: #0f1724;
     --muted: #5c677a;
-    --line: #ffffff66;
-    --soft: #dfe7f3aa;
+    --line: #20304824;
+    --soft: #e7ecf3c2;
     --teal: #0071e3;
     --teal-hover: #0077ed;
     --teal-wash: #d6e9ffcc;
@@ -78,15 +78,32 @@
     --hover: #ffffffa8;
     --selected: #0071e328;
     --backdrop: #1a274080;
-    --ambient: #9ec2ff66;
-    --ambient-2: #ffd4e855;
-    --ambient-3: #c8f0e855;
+    --ambient: #accaf43d;
+    --ambient-2: #dcd6ee29;
+    --ambient-3: #c6e0dd29;
     --shadow: 0 8px 32px #1a2b4814, 0 1px 0 #ffffffaa inset;
     --chrome-shadow:
       0 20px 60px #1a2b4820, 0 2px 8px #1a2b4810, inset 0 1px 0 #ffffffee;
     --inset: inset 0 1px 0 #ffffffee, inset 0 -1px 0 #00000008;
-    --blur: saturate(180%) blur(28px);
-    --blur-strong: saturate(200%) blur(40px);
+    --blur: saturate(145%) blur(20px);
+    --blur-strong: saturate(160%) blur(28px);
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --radius-control: 10px;
+    --radius-panel: 20px;
+    --duration-fast: 140ms;
+    --duration-normal: 240ms;
+    --duration-slow: 340ms;
+    --text-caption: 0.857rem;
+    --text-body: 1rem;
+    --shadow-card: 0 2px 8px #17243f0a, inset 0 1px 0 #ffffff80;
+    --shadow-hover: 0 8px 22px -10px #17243f30;
+    --solid-surface: #ffffff;
+    --on-accent: #ffffff;
     --radius: 22px;
     --radius-small: 14px;
     --sidebar-width: 248px;
@@ -119,9 +136,9 @@
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --paper: #06080f;
-    --surface: #1c2230d9;
-    --sidebar: #12182288;
+    --paper: #10131a;
+    --surface: #202630ef;
+    --sidebar: #191f29d4;
     --ink: #f2f5fb;
     --muted: #9aa6ba;
     --line: #ffffff18;
@@ -142,14 +159,18 @@
     --hover: #ffffff14;
     --selected: #0a84ff40;
     --backdrop: #00000099;
-    --ambient: #1a4a9a55;
-    --ambient-2: #6b2a7a44;
-    --ambient-3: #0a5c4a44;
+    --ambient: #294a793d;
+    --ambient-2: #53466729;
+    --ambient-3: #30555129;
     --shadow: 0 8px 32px #00000055, inset 0 1px 0 #ffffff14;
     --chrome-shadow: 0 24px 64px #00000066, inset 0 1px 0 #ffffff18;
     --inset: inset 0 1px 0 #ffffff18, inset 0 -1px 0 #00000040;
-    --blur: saturate(160%) blur(32px);
-    --blur-strong: saturate(180%) blur(44px);
+    --blur: saturate(135%) blur(20px);
+    --blur-strong: saturate(150%) blur(28px);
+    --shadow-card: 0 2px 12px #00000024, inset 0 1px 0 #ffffff12;
+    --shadow-hover: 0 10px 24px -10px #00000080;
+    --solid-surface: #202630;
+    --on-accent: #ffffff;
     --specular-top: linear-gradient(
       180deg,
       #ffffff1c 0%,
@@ -5444,7 +5465,8 @@
   }
 }
 
-/* ========== DINOv2 Duplicates ========== */
+@layer components {
+/* Duplicates and conversion UI follow the same cascade as the rest of the app. */
 .dino-toolbar.card-panel {
   background: var(--glass, var(--card, #fff));
   border: 1px solid var(--glass-edge, var(--border, rgba(0, 0, 0, 0.08)));
@@ -5807,7 +5829,8 @@ button.tiny {
 
 /* ========== Fluid item enter / exit ========== */
 .anim-item {
-  will-change: opacity, transform;
+  /* Avoid allocating a compositor layer for every card in the collection. */
+  will-change: auto;
 }
 .anim-item.anim-enter {
   animation: anim-item-in 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -5850,7 +5873,7 @@ button.tiny {
 .review-grid,
 .dino-items,
 .cluster-grid {
-  transition: gap 240ms ease;
+  transition: none;
 }
 
 .media-grid > .anim-item,
@@ -6030,6 +6053,7 @@ button.tiny {
   word-break: break-all;
 }
 .soft-original-info .small-text {
-  word-break: break-all;
-  opacity: 0.75;
+  overflow-wrap: anywhere;
+  opacity: 1;
+}
 }

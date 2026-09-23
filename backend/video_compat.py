@@ -90,7 +90,7 @@ class ProbeInfo:
 
 @dataclass
 class ConversionState:
-    status: str = "pending"  # pending|analyzing|converting|verifying|replacing|completed|failed|ready
+    status: str = "idle"  # idle|pending|analyzing|converting|verifying|replacing|completed|failed|ready
     progress: float = 0.0  # 0–100
     stage: str = "Pending"
     error: Optional[str] = None
@@ -321,12 +321,26 @@ class VideoCompatService:
             return True, state
 
         if not start_if_needed:
+            # Status check only — do NOT mark as active "pending" job.
+            # "pending" is reserved for an explicitly started conversion queue.
+            existing_idle = self.get_state(media_id)
+            if existing_idle.status in (
+                "pending",
+                "analyzing",
+                "converting",
+                "verifying",
+                "replacing",
+            ):
+                # A real job was started earlier — report that state.
+                return False, existing_idle
             state = self._set_state(
                 media_id,
-                status="pending",
+                status="idle",
                 progress=0,
-                stage="Pending conversion",
+                stage="Conversion available",
                 ready=False,
+                error=None,
+                indeterminate=False,
             )
             return False, state
 

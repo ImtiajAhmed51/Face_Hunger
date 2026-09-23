@@ -23,12 +23,20 @@ export function Badge({ children, tone = '' }: { children: ReactNode; tone?: 'te
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 export function Thumbnail({ src, alt, className = '', icon = 'photo' }: { src: string | null; alt: string; className?: string; icon?: IconName }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-  return <span className={`thumbnail ${className}`}>
-    {src && !failed ? <img src={src} alt={alt} loading="lazy" decoding="async" onError={() => setFailed(true)} />
-      : <span className="thumbnail-fallback" role="img" aria-label={alt || 'Preview unavailable'}><Icon name={icon} size={30} /></span>}
+  const [state, setState] = useState<{ src: string | null; status: 'loaded' | 'failed' }>({ src: null, status: 'loaded' });
+  const status = state.src === src ? state.status : 'loading';
+  return <span className={`thumbnail ${status === 'loading' ? 'thumbnail-loading' : ''} ${className}`}>
+    {src && status !== 'failed' ? <img key={src} src={src} alt={alt} loading="lazy" decoding="async"
+      onLoad={() => setState({ src, status: 'loaded' })} onError={() => setState({ src, status: 'failed' })} />
+      : <span className="thumbnail-fallback" role={alt ? 'img' : undefined} aria-hidden={!alt || undefined} aria-label={alt ? `${alt}: preview unavailable` : undefined}><Icon name={icon} size={30} /></span>}
   </span>;
+}
+
+export function GallerySkeleton({ label = 'Loading media' }: { label?: string }) {
+  return <div role="status" aria-label={label} className="gallery-skeleton">
+    <span className="sr-only">{label}</span>
+    {Array.from({ length: 12 }, (_, index) => <div key={index} className="skeleton-tile" aria-hidden="true" />)}
+  </div>;
 }
 export function Pagination({ page, limit, total, onPage }: { page: number; limit: number; total: number; onPage: (page: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / limit));
@@ -40,6 +48,9 @@ export function Pagination({ page, limit, total, onPage }: { page: number; limit
     <button className="button small" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">Next<Icon name="arrow" size={16} /></button>
   </div></nav>;
 }
+let openDialogs = 0;
+let bodyOverflow = '';
+
 export function Dialog({ open, onClose, title, children, className = '', busy = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; className?: string; busy?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -47,10 +58,13 @@ export function Dialog({ open, onClose, title, children, className = '', busy = 
     const dialog = ref.current;
     if (!dialog || !open) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    dialog.showModal();
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { dialog.close(); document.body.style.overflow = previousOverflow; previous?.focus(); };
+    if (!dialog.open) dialog.showModal();
+    if (openDialogs++ === 0) { bodyOverflow = document.body.style.overflow; document.body.style.overflow = 'hidden'; }
+    return () => {
+      dialog.close();
+      if (--openDialogs === 0) document.body.style.overflow = bodyOverflow;
+      if (previous?.isConnected && (!openDialogs || previous.closest('dialog[open]'))) previous.focus({ preventScroll: true });
+    };
   }, [open]);
   if (!open) return null;
   return <dialog ref={ref} className={`dialog ${className}`} aria-labelledby={titleId} aria-busy={busy}

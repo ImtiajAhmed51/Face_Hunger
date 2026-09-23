@@ -41,7 +41,8 @@ from .config import Config
 from .db import Database
 from .embeddings import EmbeddingStore
 from .engine import Engine
-from .media_processing import load_image
+from .media_processing import load_image, _ffmpeg_bin
+from .media_http import hover_clip, media_response
 from .scanner import authorized_root, resolve_inside
 from .worker import Worker
 from . import threshold_tuning
@@ -909,17 +910,33 @@ def review_face(face_id: int, body: ReviewBody, request: Request):
         if not face:
             raise HTTPException(404, "Face not found")
         face = dict(face)
-        # Idempotent: already reviewed → no-op (prevents double-click races)
-        if face.get("review_state") in ("confirmed", "rejected"):
+        current = face.get("review_state") or "unreviewed"
+        target = "confirmed" if decision == "yes" else "rejected"
+        # Idempotent only when already at the requested state — allows correcting a mistaken Confirm with Not them
+        if current == target:
             return {"ok": True, "already": True}
         if decision == "yes":
             conn.execute(
-                "UPDATE faces SET review_state='confirmed', manual=1 WHERE id=? AND review_state='unreviewed'",
+                "UPDATE faces SET review_state='confirmed', manual=1 WHERE id=?",
                 (face_id,),
             )
+            # Undoing a prior "Not them" — drop rejection / hard-negative rows
+            if face.get("person_id"):
+                conn.execute(
+                    "DELETE FROM rejections WHERE face_id=? AND person_id=?",
+                    (face_id, face["person_id"]),
+                )
+                try:
+                    conn.execute(
+                        "DELETE FROM hard_negatives WHERE face_id=? AND person_id=?",
+                        (face_id, face["person_id"]),
+                    )
+                except Exception:
+                    pass
         else:
+            # "Not them" works on unreviewed AND on a mistaken prior confirm
             conn.execute(
-                "UPDATE faces SET review_state='rejected', manual=1 WHERE id=? AND review_state='unreviewed'",
+                "UPDATE faces SET review_state='rejected', manual=1 WHERE id=?",
                 (face_id,),
             )
             if face.get("person_id"):
@@ -928,10 +945,13 @@ def review_face(face_id: int, body: ReviewBody, request: Request):
                     (face_id, face["person_id"]),
                 )
                 # Hard-negative set: future matching against this person is penalised
-                conn.execute(
-                    "INSERT OR IGNORE INTO hard_negatives(face_id, person_id, similarity) VALUES (?,?,?)",
-                    (face_id, face["person_id"], face.get("similarity")),
-                )
+                try:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO hard_negatives(face_id, person_id, similarity) VALUES (?,?,?)",
+                        (face_id, face["person_id"], face.get("similarity")),
+                    )
+                except Exception:
+                    pass
         if face.get("person_id"):
             # Lightweight count/rep update only — full centroid recompute is deferred
             # so Yes/No stays snappy during rapid review.
@@ -940,6 +960,7 @@ def review_face(face_id: int, body: ReviewBody, request: Request):
                 # Only promote representative when this face looks better than current rep
                 row = conn.execute(
                     """SELECT id FROM faces WHERE person_id=? AND deleted_at IS NULL
+                       AND review_state != 'rejected'
                        ORDER BY CASE review_state WHEN 'confirmed' THEN 0 ELSE 1 END,
                                 quality DESC, detection DESC, id LIMIT 1""",
                     (pid,),
@@ -948,6 +969,24 @@ def review_face(face_id: int, body: ReviewBody, request: Request):
                     conn.execute(
                         "UPDATE people SET representative_face_id=? WHERE id=?",
                         (row["id"], pid),
+                    )
+            else:
+                # If the rejected face was the representative, pick another
+                row = conn.execute(
+                    "SELECT representative_face_id FROM people WHERE id=?",
+                    (pid,),
+                ).fetchone()
+                if row and row["representative_face_id"] == face_id:
+                    alt = conn.execute(
+                        """SELECT id FROM faces WHERE person_id=? AND deleted_at IS NULL
+                           AND review_state != 'rejected' AND id != ?
+                           ORDER BY CASE review_state WHEN 'confirmed' THEN 0 ELSE 1 END,
+                                    quality DESC, detection DESC, id LIMIT 1""",
+                        (pid, face_id),
+                    ).fetchone()
+                    conn.execute(
+                        "UPDATE people SET representative_face_id=? WHERE id=?",
+                        (alt["id"] if alt else None, pid),
                     )
             # face_count does not change on review (only on delete/move) — skip full COUNT
         # Autotune counter in the same transaction
@@ -1586,6 +1625,7 @@ def media_preview(media_id: int):
         bgr = load_image(path)
         rgb = bgr[:, :, ::-1]
         img = Image.fromarray(np.ascontiguousarray(rgb))
+        img.thumbnail((2560, 2560))
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=90)
         buf.seek(0)
@@ -1594,6 +1634,22 @@ def media_preview(media_id: int):
         raise HTTPException(500, f"Could not generate preview: {exc}") from exc
 
 
+@app.get("/api/media/{media_id}/hover-preview")
+def media_hover_preview(media_id: int):
+    row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
+    if not row or row["kind"] != "video":
+        raise HTTPException(404, "Video not found")
+    source = Path(row["path"])
+    if not source.is_file():
+        raise HTTPException(404, "Original file missing")
+    try:
+        clip = hover_clip(source, config.data_dir / "hover_previews", _ffmpeg_bin())
+    except Exception as exc:
+        raise HTTPException(503, "Preview temporarily unavailable", headers={"Retry-After": "15"}) from exc
+    return media_response(clip)
+
+
+@app.head("/api/media/{media_id}/file")
 @app.get("/api/media/{media_id}/file")
 def media_file(media_id: int, request: Request):
     row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
@@ -1612,7 +1668,7 @@ def media_file(media_id: int, request: Request):
             raise HTTPException(404, "File missing on disk")
 
     if row["kind"] != "video":
-        return FileResponse(path, media_type="image/jpeg", filename=row["name"])
+        return media_response(path, row["name"])
 
     ready, state = video_compat.ensure_playable(media_id, path, start_if_needed=False)
 
@@ -1626,46 +1682,14 @@ def media_file(media_id: int, request: Request):
             if alt.is_file():
                 path = alt
         if path.is_file():
-            suffix = path.suffix.lower()
-            media_types = {
-                ".mp4": "video/mp4",
-                ".m4v": "video/mp4",
-                ".mov": "video/quicktime",
-                ".webm": "video/webm",
-                ".ogg": "video/ogg",
-                ".ogv": "video/ogg",
-            }
-            media_type = media_types.get(suffix, "video/mp4")
-            name = path.name if path.suffix.lower() == ".mp4" else (row.get("name") or path.name)
-            # FileResponse handles HTTP Range (206 Partial Content) correctly
-            return FileResponse(path, media_type=media_type, filename=name)
+            return media_response(path)
 
-    if state.status == "failed":
-        raise HTTPException(
-            415,
-            detail={
-                "status": "failed",
-                "error": state.error or "Video conversion failed",
-                "stage": state.stage,
-            },
-        )
+    # A failed conversion must not prevent downloading the preserved source.
 
     # Conversion needed but not started / in progress — still try original for native play.
     # Manual convert is started only via POST /api/media/{id}/convert.
     if path.is_file() and state.status not in ("converting", "analyzing", "verifying", "replacing"):
-        suffix = path.suffix.lower()
-        media_types = {
-            ".mp4": "video/mp4",
-            ".m4v": "video/mp4",
-            ".mov": "video/quicktime",
-            ".webm": "video/webm",
-            ".ogg": "video/ogg",
-            ".ogv": "video/ogg",
-            ".avi": "video/x-msvideo",
-            ".mkv": "video/x-matroska",
-        }
-        media_type = media_types.get(suffix, "application/octet-stream")
-        return FileResponse(path, media_type=media_type, filename=row.get("name") or path.name)
+        return media_response(path, row.get("name") or path.name)
 
     raise HTTPException(
         409,

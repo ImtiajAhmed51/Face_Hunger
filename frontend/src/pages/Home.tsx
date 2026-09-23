@@ -66,8 +66,10 @@ export function Home() {
   const { job } = useApp();
   const [viewer, setViewer] = useState<number | null>(null);
   useEffect(() => {
-    if (job?.status === "running") resource.reload();
-  }, [job?.processed]);
+    if (job?.status !== 'running') return;
+    const timer = setInterval(() => { if (!document.hidden) resource.reload(); }, 8000);
+    return () => clearInterval(timer);
+  }, [job?.status, resource.reload]);
   const data = resource.data;
   return (
     <>
@@ -121,7 +123,7 @@ export function Home() {
                 </h2>
                 <p>
                   Bring your photos and videos together without moving a single
-                  file. Stillroom finds the faces, you make the connections.
+                  file. Face Hunger finds the faces, you make the connections.
                 </p>
                 <Link className="button primary" to="/settings">
                   <Icon name="folder" size={18} />
