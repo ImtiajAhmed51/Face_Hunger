@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mutate, number, request } from "../api";
-import { useAction } from "../context";
-import { useAnimatedList, useFlip, useResource } from "../hooks";
+import { useAction, useApp } from "../context";
+import { useResource } from "../hooks";
+import { useListMotion } from "../listMotion";
 import type { Media } from "../types";
 import { Icon } from "../components/Icon";
 import { MediaViewer } from "../components/MediaViewer";
@@ -13,8 +14,12 @@ import {
   ErrorNotice,
   Loading,
   PageHeader,
+  Pagination,
   Thumbnail,
 } from "../components/ui";
+
+/** Groups shown per page on the Duplicates tab. */
+const GROUPS_PER_PAGE = 100;
 
 interface DupItem extends Media {
   similarity?: number;
@@ -140,16 +145,13 @@ const GroupCard = memo(
     const ids = group.items.map((i) => i.id);
     const allSelected = ids.every((id) => selected.has(id));
     const someSelected = ids.some((id) => selected.has(id));
-    const animatedItems = useAnimatedList(group.items, (i) => i.id);
-    const itemSig = animatedItems.map((e) => `${e.key}:${e.phase}`).join("|");
-    const flipRef = useFlip<HTMLDivElement>(itemSig);
 
     return (
-      <article
-        className="dino-group anim-item"
-        data-flip-id={`group-${group.key}`}
-      >
-        <header className="dino-group-header">
+      <article className="dino-group">
+        <header
+          className="dino-group-header"
+          data-motion-id={`h:${groupKey(group)}`}
+        >
           <div className="dino-group-title">
             <Badge tone={group.type === "exact" ? "red" : "amber"}>
               {group.type === "exact" ? "Exact copy" : "Near duplicate"}
@@ -200,14 +202,14 @@ const GroupCard = memo(
           </div>
         </header>
 
-        <div className="dino-items" ref={flipRef}>
-          {animatedItems.map(({ item, key, phase }) => {
+        <div className="dino-items">
+          {group.items.map((item) => {
             const isSelected = selected.has(item.id);
             return (
               <div
-                key={key}
-                data-flip-id={`item-${item.id}`}
-                className={`dino-item anim-item anim-${phase} ${isSelected ? "selected" : ""}`}
+                key={item.id}
+                data-motion-id={`i:${item.id}`}
+                className={`dino-item ${isSelected ? "selected" : ""}`}
               >
                 <div className="dino-thumb-wrap">
                   <button
@@ -340,9 +342,8 @@ export function Duplicates() {
   const [moveDest, setMoveDest] = useState("");
   const [backfilling, setBackfilling] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [visibleCount, setVisibleCount] = useState(12);
-  /** Permanently hide these media ids from the Duplicates UI (until hard threshold change). */
-  const [, setDeletedIds] = useState<Set<number>>(() => new Set());
+  const [page, setPage] = useState(1);
+  /** Hide these media ids from the Duplicates UI so a stale refetch can never revive them. */
   const deletedIdsRef = useRef<Set<number>>(new Set());
   const [groups, setGroups] = useState<DupGroup[]>([]);
   const [stats, setStats] = useState<{
@@ -357,10 +358,12 @@ export function Duplicates() {
   const [bootError, setBootError] = useState("");
   const [booting, setBooting] = useState(true);
   const [quietUpdating, setQuietUpdating] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const scrollLockY = useRef(0);
+  const groupsRootRef = useRef<HTMLDivElement | null>(null);
   const activeQs = useRef<string>("");
   const { run } = useAction();
+  const { notify } = useApp();
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
 
   const qs =
     threshold != null ? `?threshold=${threshold}&limit=2000` : "?limit=2000";
@@ -388,9 +391,8 @@ export function Duplicates() {
     if (activeQs.current !== qs) {
       activeQs.current = qs;
       deletedIdsRef.current = new Set();
-      setDeletedIds(new Set());
       setGroups(stripExcluded(data.groups, deletedIdsRef.current));
-      setVisibleCount(12);
+      setPage(1);
       return;
     }
     // Same query: granular merge — never reintroduce locally deleted media
@@ -406,121 +408,100 @@ export function Duplicates() {
 
   // groups is already pruned; this is the render source of truth
   const displayGroups = groups;
+  const totalGroups = displayGroups.length;
+  const totalPages = Math.max(1, Math.ceil(totalGroups / GROUPS_PER_PAGE));
 
-  const visibleGroups = useMemo(
-    () => displayGroups.slice(0, visibleCount),
-    [displayGroups, visibleCount],
-  );
-  const animatedGroups = useAnimatedList(visibleGroups, groupKey);
-  const groupsFlipSig = animatedGroups
-    .map((e) => `${e.key}:${e.phase}:${itemsFingerprint(e.item.items)}`)
-    .join("|");
-  const groupsFlipRef = useFlip<HTMLDivElement>(groupsFlipSig);
-
+  // Clamp page when groups shrink (e.g. after deletes)
   useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    if (visibleCount >= displayGroups.length) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setVisibleCount((n) => Math.min(displayGroups.length, n + 10));
-        }
-      },
-      { root: null, rootMargin: "400px 0px", threshold: 0 },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [visibleCount, displayGroups.length]);
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pageGroups = useMemo(() => {
+    const start = (page - 1) * GROUPS_PER_PAGE;
+    return displayGroups.slice(start, start + GROUPS_PER_PAGE);
+  }, [displayGroups, page]);
+
+  // Latest groups for callbacks that must stay referentially stable (keeps GroupCards memoized).
+  const groupsRef = useRef<DupGroup[]>(groups);
+  groupsRef.current = groups;
+
+  /** Snapshot → ghost → commit → scroll-anchor → FLIP in one synchronous task. */
+  const motion = useListMotion(groupsRootRef);
+
+  const goToPage = useCallback((next: number) => {
+    setPage(next);
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+  }, []);
 
   const remaining = stats?.embedding_remaining ?? 0;
   const filled = stats?.embedding_filled ?? 0;
   const total = stats?.embedding_total ?? 0;
   const progress = total > 0 ? Math.min(100, (filled / total) * 100) : 0;
 
-  const preserveScroll = useCallback(() => {
-    scrollLockY.current = window.scrollY;
-    // Restore after React commit + FLIP layout effects (double rAF)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (Math.abs(window.scrollY - scrollLockY.current) > 1) {
-          window.scrollTo({
-            top: scrollLockY.current,
-            behavior: "instant" as ScrollBehavior,
-          });
-        }
-      });
-    });
-  }, []);
-
   /** Quiet background fetch: merge groups, never flash loading UI. */
   const quietMerge = useCallback(async () => {
-    const y = window.scrollY;
     setQuietUpdating(true);
     try {
       const next = await request<DuplicatesResponse>(`/duplicates${qs}`);
-      setStats({
-        threshold: next.threshold,
-        embedding_total: next.embedding_total,
-        embedding_filled: next.embedding_filled,
-        embedding_remaining: next.embedding_remaining,
-        group_count: next.group_count,
-        item_count: next.item_count,
-        dino: next.dino,
+      motion([], () => {
+        setStats({
+          threshold: next.threshold,
+          embedding_total: next.embedding_total,
+          embedding_filled: next.embedding_filled,
+          embedding_remaining: next.embedding_remaining,
+          group_count: next.group_count,
+          item_count: next.item_count,
+          dino: next.dino,
+        });
+        setGroups((prev) =>
+          mergeGroups(prev, next.groups, deletedIdsRef.current),
+        );
       });
-      setGroups((prev) =>
-        mergeGroups(prev, next.groups, deletedIdsRef.current),
-      );
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setQuietUpdating(false);
-      requestAnimationFrame(() => {
-        window.scrollTo({ top: y, behavior: "instant" as ScrollBehavior });
-      });
     }
-  }, [qs]);
+  }, [qs, motion]);
 
   const removeIdsLocally = useCallback(
     (ids: number[]) => {
-      preserveScroll();
       const idSet = new Set(ids);
-      // Tombstone so future merges cannot revive these items
-      setDeletedIds((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.add(id));
-        deletedIdsRef.current = next;
-        return next;
-      });
-      // In-place prune: keep object identity for groups whose items are unchanged
-      // so memoized GroupCards and FLIP measurements stay stable.
-      setGroups((prev) => {
-        const next: DupGroup[] = [];
-        for (const g of prev) {
-          const kept = g.items.filter((item) => !idSet.has(item.id));
-          if (kept.length < 2) continue; // group exits via useAnimatedList
-          if (kept.length === g.items.length) {
-            next.push(g); // identical reference → no remount
-          } else {
-            next.push({ ...g, items: kept });
+      // Which DOM nodes leave the page: a whole group when <2 items would remain, else just the items.
+      const removed: string[] = [];
+      for (const g of groupsRef.current) {
+        const hit = g.items.filter((item) => idSet.has(item.id));
+        if (!hit.length) continue;
+        if (g.items.length - hit.length < 2) removed.push(`g:${groupKey(g)}`);
+        else for (const item of hit) removed.push(`i:${item.id}`);
+      }
+
+      motion(removed, () => {
+        // Tombstone so future merges cannot revive these items.
+        ids.forEach((id) => deletedIdsRef.current.add(id));
+        // Keep object identity for untouched groups so memoized GroupCards do not re-render.
+        setGroups((prev) => {
+          const next: DupGroup[] = [];
+          for (const g of prev) {
+            const kept = g.items.filter((item) => !idSet.has(item.id));
+            if (kept.length < 2) continue;
+            next.push(
+              kept.length === g.items.length ? g : { ...g, items: kept },
+            );
           }
-        }
-        return next;
-      });
-      setSelected((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
-        return next;
-      });
-      setStats((s) => {
-        if (!s) return s;
-        return {
-          ...s,
-          item_count: Math.max(0, s.item_count - ids.length),
-        };
+          return next;
+        });
+        setSelected((prev) => {
+          const next = new Set(prev);
+          ids.forEach((id) => next.delete(id));
+          return next;
+        });
+        setStats((s) =>
+          s ? { ...s, item_count: Math.max(0, s.item_count - ids.length) } : s,
+        );
       });
     },
-    [preserveScroll],
+    [motion],
   );
 
   const toggle = useCallback((id: number) => {
@@ -545,33 +526,22 @@ export function Duplicates() {
 
   const doDelete = async (ids: number[]) => {
     const unique = [...new Set(ids)];
-    // Optimistic UI: remove only the deleted items; keep scroll and layout
+    // Optimistic: the page updates at once (deleted cards fade, the rest glide into place)
+    // and the confirm dialog closes immediately instead of waiting on the network.
     removeIdsLocally(unique);
     setConfirmDelete(null);
-    // Fire API in background — never refetch the full duplicate list
-    try {
-      await Promise.all(
-        unique.map((id) => mutate(`/media/${id}`, undefined, "DELETE")),
-      );
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : String(e));
-    }
-    // Soft re-assert tombstones without replacing group identities
-    setGroups((prev) => {
-      const excluded = deletedIdsRef.current;
-      if (!excluded.size) return prev;
-      let changed = false;
-      const next = prev
-        .map((g) => {
-          const kept = g.items.filter((item) => !excluded.has(item.id));
-          if (kept.length === g.items.length) return g;
-          changed = true;
-          return { ...g, items: kept };
-        })
-        .filter((g) => g.items.length >= 2);
-      return changed ? next : prev;
-    });
-    preserveScroll();
+    void (async () => {
+      try {
+        await Promise.all(
+          unique.map((id) => mutate(`/media/${id}`, undefined, "DELETE")),
+        );
+      } catch (e) {
+        // The server is the source of truth: forget the tombstones and merge back what still exists.
+        unique.forEach((id) => deletedIdsRef.current.delete(id));
+        notifyRef.current(e instanceof Error ? e.message : String(e), true);
+        await quietMerge();
+      }
+    })();
   };
 
   const hardRefresh = useCallback(() => {
@@ -581,50 +551,63 @@ export function Duplicates() {
   const doIgnore = useCallback(
     async (ids: number[]) => {
       if (ids.length < 2) return;
-      preserveScroll();
-      // Remove this group from local state immediately (exit animation)
-      setGroups((prev) =>
-        prev.filter((g) => {
-          const gids = g.items.map((i) => i.id).sort((a, b) => a - b);
-          const target = [...ids].sort((a, b) => a - b);
-          if (gids.length !== target.length) return true;
-          return gids.some((id, idx) => id !== target[idx]);
-        }),
-      );
-      setSelected((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
-        return next;
+      const target = [...ids].sort((a, b) => a - b);
+      const sameMembers = (g: DupGroup) => {
+        const gids = g.items.map((i) => i.id).sort((a, b) => a - b);
+        return (
+          gids.length === target.length &&
+          gids.every((id, idx) => id === target[idx])
+        );
+      };
+      const doomed = groupsRef.current
+        .filter(sameMembers)
+        .map((g) => `g:${groupKey(g)}`);
+
+      motion(doomed, () => {
+        setGroups((prev) => prev.filter((g) => !sameMembers(g)));
+        setSelected((prev) => {
+          const next = new Set(prev);
+          ids.forEach((id) => next.delete(id));
+          return next;
+        });
+        setStats((s) =>
+          s
+            ? {
+                ...s,
+                group_count: Math.max(0, s.group_count - 1),
+                item_count: Math.max(0, s.item_count - ids.length),
+              }
+            : s,
+        );
       });
-      setStats((s) =>
-        s
-          ? {
-              ...s,
-              group_count: Math.max(0, s.group_count - 1),
-              item_count: Math.max(0, s.item_count - ids.length),
-            }
-          : s,
-      );
       try {
         await mutate("/duplicates/ignore", { media_ids: ids });
       } catch (e) {
-        setMsg(e instanceof Error ? e.message : String(e));
+        notifyRef.current(e instanceof Error ? e.message : String(e), true);
+        await quietMerge();
       }
-      preserveScroll();
     },
-    [preserveScroll],
+    [motion, quietMerge],
   );
 
-  const doKeep = async (_keepId: number, deleteIds: number[]) => {
-    if (!deleteIds.length) return;
-    setConfirmDelete(deleteIds);
-  };
+  // Stable identities keep every memoized GroupCard from re-rendering on unrelated state changes.
+  const requestDelete = useCallback(
+    (ids: number[]) => setConfirmDelete(ids),
+    [],
+  );
 
-  const doReveal = async (id: number) => {
-    await run(async () => {
-      await mutate(`/media/${id}/reveal`);
-    }, "Revealed in file manager");
-  };
+  const doKeep = useCallback((_keepId: number, deleteIds: number[]) => {
+    if (deleteIds.length) setConfirmDelete(deleteIds);
+  }, []);
+
+  const doReveal = useCallback(
+    (id: number) => {
+      void run(async () => {
+        await mutate(`/media/${id}/reveal`);
+      }, "Revealed in file manager");
+    },
+    [run],
+  );
 
   const doMove = async () => {
     if (!moveIds?.length || !moveDest.trim()) return;
@@ -638,8 +621,6 @@ export function Duplicates() {
         removeIdsLocally(ids);
         setMoveIds(null);
         setMoveDest("");
-        setGroups((prev) => stripExcluded(prev, deletedIdsRef.current));
-        preserveScroll();
       },
       `Moved ${ids.length} file(s)`,
       false,
@@ -744,7 +725,14 @@ export function Duplicates() {
 
         {stats && (
           <div className="dino-progress-block">
-            <div className="dino-progress-track" role="progressbar" aria-label="Duplicate analysis" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+            <div
+              className="dino-progress-track"
+              role="progressbar"
+              aria-label="Duplicate analysis"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(progress)}
+            >
               <div
                 className="dino-progress-fill"
                 style={{ transform: `scaleX(${progress / 100})` }}
@@ -786,13 +774,18 @@ export function Duplicates() {
         />
       )}
 
-      <div className="dino-groups" ref={groupsFlipRef}>
-        {animatedGroups.map(({ item: g, key, phase }) => (
-          <div
-            key={key}
-            data-flip-id={`group-${g.type}-${g.key}`}
-            className={`anim-item anim-${phase}`}
-          >
+      {totalGroups > 0 && (
+        <Pagination
+          page={page}
+          limit={GROUPS_PER_PAGE}
+          total={totalGroups}
+          onPage={goToPage}
+        />
+      )}
+
+      <div className="dino-groups" ref={groupsRootRef}>
+        {pageGroups.map((g) => (
+          <div key={groupKey(g)} data-motion-id={`g:${groupKey(g)}`}>
             <GroupCard
               group={g}
               selected={selected}
@@ -800,21 +793,23 @@ export function Duplicates() {
               onSelectAll={selectAll}
               onOpen={setViewer}
               onKeep={doKeep}
-              onDelete={(ids) => setConfirmDelete(ids)}
-              onReveal={(id) => void doReveal(id)}
+              onDelete={requestDelete}
+              onReveal={doReveal}
               onMove={setMoveIds}
-              onIgnore={(ids) => void doIgnore(ids)}
+              onIgnore={doIgnore}
             />
           </div>
         ))}
-        {visibleCount < displayGroups.length && (
-          <div ref={sentinelRef} className="dino-scroll-sentinel" aria-hidden>
-            <span className="muted small-text">
-              Showing {visibleCount} of {displayGroups.length} groups…
-            </span>
-          </div>
-        )}
       </div>
+
+      {totalGroups > GROUPS_PER_PAGE && (
+        <Pagination
+          page={page}
+          limit={GROUPS_PER_PAGE}
+          total={totalGroups}
+          onPage={goToPage}
+        />
+      )}
 
       {viewer && <MediaViewer id={viewer.id} onClose={() => setViewer(null)} />}
 
