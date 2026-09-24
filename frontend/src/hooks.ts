@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { invalidateResourceRequests, readResource } from './resourceRequests';
 import { reconcileList } from './animatedList';
 import type { AnimatedEntry } from './animatedList';
@@ -130,6 +130,91 @@ export function useScrollLock() {
   return { lock, restore };
 }
 
+type ScrollAnchor = { flipId: string; top: number };
+
+/**
+ * Element-based scroll anchoring for list mutations (delete/ignore/move).
+ * Capture a surviving visible [data-flip-id] before React updates, then
+ * after layout compensate with scrollBy so the anchor stays fixed in the viewport.
+ *
+ * layoutKey must change when the list layout mutates (e.g. groupsFlipSig) so the
+ * restore runs in useLayoutEffect after FLIP. If .anim-exit nodes still hold space,
+ * the anchor is re-queued for a second pass when they leave.
+ */
+export function useScrollAnchor(
+  rootRef: RefObject<HTMLElement | null>,
+  layoutKey: unknown,
+) {
+  const pending = useRef<ScrollAnchor | null>(null);
+
+  const capture = useCallback(
+    (excludeFlipIds?: Iterable<string>) => {
+      const root = rootRef.current;
+      if (!root) {
+        pending.current = null;
+        return;
+      }
+      const excluded = excludeFlipIds ? new Set(excludeFlipIds) : null;
+      const vh = window.innerHeight;
+      const candidates: { flipId: string; top: number; score: number }[] = [];
+      root.querySelectorAll<HTMLElement>('[data-flip-id]').forEach((node) => {
+        const flipId = node.dataset.flipId;
+        if (!flipId || (excluded && excluded.has(flipId))) return;
+        if (node.classList.contains('anim-exit')) return;
+        const rect = node.getBoundingClientRect();
+        if (rect.height < 4 || rect.bottom < 0 || rect.top > vh) return;
+        const mid = (rect.top + rect.bottom) / 2;
+        candidates.push({ flipId, top: rect.top, score: Math.abs(mid - vh / 2) });
+      });
+      if (!candidates.length) {
+        pending.current = null;
+        return;
+      }
+      candidates.sort((a, b) => a.score - b.score);
+      const best = candidates[0];
+      pending.current = { flipId: best.flipId, top: best.top };
+    },
+    [rootRef],
+  );
+
+  // Runs after useFlip when the caller registers this hook after useFlip.
+  useLayoutEffect(() => {
+    const anchor = pending.current;
+    if (!anchor) return;
+    const root = rootRef.current;
+    if (!root) return;
+
+    const nodes = root.querySelectorAll<HTMLElement>('[data-flip-id]');
+    let node: HTMLElement | null = null;
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].dataset.flipId === anchor.flipId) {
+        node = nodes[i];
+        break;
+      }
+    }
+    // Anchor still exiting — wait for the next layoutKey (exit removal)
+    if (!node || node.classList.contains('anim-exit')) return;
+
+    const newTop = node.getBoundingClientRect().top;
+    const delta = newTop - anchor.top;
+    if (Math.abs(delta) >= 0.5) {
+      window.scrollBy({ top: delta, left: 0, behavior: 'instant' as ScrollBehavior });
+    }
+
+    // Exit animations still holding space → re-queue with post-compensation top
+    if (root.querySelector('.anim-exit')) {
+      pending.current = {
+        flipId: anchor.flipId,
+        top: node.getBoundingClientRect().top,
+      };
+    } else {
+      pending.current = null;
+    }
+  }, [layoutKey, rootRef]);
+
+  return { capture };
+}
+
 export function useFlip<T extends HTMLElement = HTMLDivElement>(deps: unknown, duration = 320) {
   const ref = useRef<T | null>(null);
   const prev = useRef<Map<string, DOMRect>>(new Map());
@@ -140,20 +225,37 @@ export function useFlip<T extends HTMLElement = HTMLDivElement>(deps: unknown, d
     const next = new Map<string, DOMRect>();
     const animations: Animation[] = [];
     // Measure all nodes before writing animation styles to avoid layout thrashing.
-    const measurements = Array.from(root.querySelectorAll<HTMLElement>('[data-flip-id]'), node => ({ node, rect: node.getBoundingClientRect() }));
+    const measurements = Array.from(
+      root.querySelectorAll<HTMLElement>('[data-flip-id]'),
+      (node) => ({ node, rect: node.getBoundingClientRect() }),
+    );
     for (const { node, rect } of measurements) {
       const id = node.dataset.flipId;
       if (!id) continue;
+      // Exiting nodes keep their exit CSS animation; do not FLIP them
+      if (node.classList.contains('anim-exit')) {
+        next.set(id, rect);
+        continue;
+      }
       next.set(id, rect);
       const first = prev.current.get(id);
       if (!first || reduced || !node.animate) continue;
       const dx = first.left - rect.left;
       const dy = first.top - rect.top;
       if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
-      animations.push(node.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }], { duration, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }));
+      // Cancel any in-flight FLIP on this node so we start from current visual position
+      node.getAnimations().forEach((a) => {
+        if (a.effect && 'getKeyframes' in a.effect) a.cancel();
+      });
+      animations.push(
+        node.animate(
+          [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
+          { duration, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' },
+        ),
+      );
     }
     prev.current = next;
-    return () => animations.forEach(animation => animation.cancel());
+    return () => animations.forEach((animation) => animation.cancel());
   }, [deps, duration]);
   return ref;
 }
