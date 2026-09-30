@@ -28,7 +28,8 @@ include = ["backend*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["ai: uses the real buffalo_l models"]
+markers = ["ai: uses the real buffalo_l models", "perf: slow latency benchmarks (pytest -m perf)"]
+addopts = "-m 'not perf'"
 
 [tool.ruff]
 line-length = 130

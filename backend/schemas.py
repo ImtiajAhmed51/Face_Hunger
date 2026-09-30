@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class NameBody(BaseModel):
@@ -37,6 +37,7 @@ class ExclusionBody(BaseModel):
 
 class ParseSearchBody(BaseModel):
     query: str
+    embed: bool = False  # include the SigLIP text vector in the response
 
 
 class SeparateBody(BaseModel):
@@ -97,3 +98,31 @@ class PurgeMediaBody(BaseModel):
 class IgnoreDuplicateBody(BaseModel):
     media_ids: list[int]
 
+
+
+class HybridSearchBody(BaseModel):
+    text: Optional[str] = None
+    people: list[int] = Field(default_factory=list)
+    people_mode: Literal["ANY", "ALL"] = "ANY"
+    exclude_people: list[int] = Field(default_factory=list)
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    kind: Optional[Literal["photo", "video"]] = None
+    min_quality: Optional[float] = Field(None, ge=0, le=1)
+    name: Optional[str] = None
+    deleted: bool = False
+    similar_media_id: Optional[int] = None
+    similar_face_id: Optional[int] = None
+    weights: dict[str, float] = Field(default_factory=dict)
+    page: int = Field(1, ge=1)
+    limit: int = Field(60, ge=1, le=200)
+
+
+class SavedSearchBody(BaseModel):
+    name: str
+    query: HybridSearchBody
+
+
+class SavedSearchRunBody(BaseModel):
+    page: int = Field(1, ge=1)
+    limit: int = Field(60, ge=1, le=200)

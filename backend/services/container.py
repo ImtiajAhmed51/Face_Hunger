@@ -19,6 +19,7 @@ from ..vectors.spaces import Space, VectorSpaces
 from ..vectors.specs import FACE_ARCFACE
 from ..video_compat import init_video_compat
 from ..worker import Worker
+from .search import HybridSearch
 
 
 class Services:
@@ -35,6 +36,7 @@ class Services:
         for spec in self.models.installed_specs():
             self.vectors.register(spec)
         self.worker = self._make_worker()
+        self.search = HybridSearch(self)
         self.models.start()
         self.video_compat = init_video_compat(
             config.data_dir / "video_cache",

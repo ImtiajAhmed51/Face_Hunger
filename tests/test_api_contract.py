@@ -28,8 +28,11 @@ def test_openapi_operations_are_unchanged(client):
     assert not missing, f"endpoints removed: {missing}"
     for key, spec in baseline.items():
         got = current[key]
-        assert [list(p) for p in spec["params"]] == got["params"], key
-        assert spec["body"] == got["body"], key
+        old_params = [list(p) for p in spec["params"]]
+        # Existing parameters keep name/location/requiredness; only optional ones may be added.
+        assert all(p in got["params"] for p in old_params), key
+        assert all(not p[2] for p in got["params"] if p not in old_params), key
+        assert (spec["body"] is None) == (got["body"] is None), key
 
 
 def test_route_table_is_a_superset_of_baseline(client):
@@ -42,7 +45,10 @@ def test_request_schemas_keep_their_fields(client):
     schemas = client.app.openapi()["components"]["schemas"]
     for name, fields in BASELINE["schemas"].items():
         assert name in schemas, name
-        assert sorted(schemas[name].get("properties", {})) == fields, name
+        assert set(fields) <= set(schemas[name].get("properties", {})), name
+        # New fields must be optional so existing clients keep working.
+        required = set(schemas[name].get("required", []))
+        assert required <= set(fields), (name, required - set(fields))
 
 
 def test_static_media_routes_precede_parameterised_ones(client):

@@ -47,6 +47,7 @@ class Space:
         self._ready = False
         self._sync_lock = threading.Lock()
         self._last_save = time.monotonic()
+        self._coverage: Optional[tuple[float, dict]] = None
 
     # -- source-of-truth rows ------------------------------------------------
     def _rows_after(self, watermark: int, limit: int) -> list[dict]:
@@ -74,7 +75,15 @@ class Space:
             return int(self.db.one("SELECT COUNT(*) c FROM faces")["c"])
         return int(self.db.one("SELECT COUNT(*) c FROM media_vectors WHERE model_key=?", (self.key,))["c"])
 
-    def coverage(self) -> dict:
+    def coverage(self, max_age: float = 5.0) -> dict:
+        cached = self._coverage
+        if cached and time.monotonic() - cached[0] < max_age:
+            return cached[1]
+        value = self._coverage_now()
+        self._coverage = (time.monotonic(), value)
+        return value
+
+    def _coverage_now(self) -> dict:
         if self.spec.subject == "face":
             total = int(self.db.one("SELECT COUNT(*) c FROM faces WHERE deleted_at IS NULL")["c"])
             return {"filled": total, "total": total, "ratio": 1.0 if total else 0.0}
@@ -160,6 +169,7 @@ class Space:
             conn.execute(
                 f"DELETE FROM embedding_queue WHERE model_key=? AND media_id IN ({','.join('?' * len(ids))})",
                 (self.key, *ids))
+        self._coverage = None
         if self._ready:
             with self._sync_lock:
                 self.ann.upsert(ids, np.stack(vectors))

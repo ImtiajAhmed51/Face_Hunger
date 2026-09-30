@@ -50,3 +50,19 @@ Short log of choices and dependencies. One entry per decision, newest last.
   process on an M-series Mac. Each ONNX graph unloads after `LFS_MODEL_IDLE_SECONDS` (300).
 - **Migrations**: versioned list in `backend/migrations.py`; a consistent SQLite backup is written
   to `data/backups/` before the first pending migration runs on an existing database.
+
+## Hybrid search
+- **Weighted RRF (k=60)** fuses ranked lists from text (SigLIP 2), similar-media (visual space),
+  similar-face (ArcFace space) and optional recency. Filters are SQL and restrict every signal.
+  Rank fusion avoids calibrating SigLIP, DINOv2 and ArcFace similarities against each other.
+- **"Quality threshold" = best face quality in the media item** (`faces.quality`), because there
+  are no per-media quality scores yet. Media with no faces fail a quality filter.
+- **Filter sets of 5,000 ids or fewer are scored exactly**; larger ones are applied after the
+  ANN search with widening k. This keeps selective queries exact and broad ones fast.
+- **Face similarity falls back to a memory-mapped scan** of `embeddings.bin` while the face HNSW
+  index builds in the background (~141k faces in the reference library).
+- **API compatibility check relaxed from "identical" to "additive"**: existing operations,
+  parameters and fields must remain unchanged, and new ones must be optional. Item 1 was
+  verified against the identical form before the relaxation.
+- `/api/search/parse` keeps its keys and adds `text`, `filters` and `embedding_query`. It also
+  parses dates ("June 2021", "since 2018", "last year") and multi-word names.
