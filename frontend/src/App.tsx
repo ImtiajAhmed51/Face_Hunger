@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, useState } from "react";
+import { Component, Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import {
   Link,
@@ -25,6 +25,10 @@ import { Review } from "./pages/Review";
 import { Search } from "./pages/Search";
 import { Settings } from "./pages/Settings";
 import { Health } from "./pages/Health";
+import { Timeline } from "./pages/Timeline";
+
+// MapLibre is ~200 KB gzip: load it only when the Map page opens.
+const MapPage = lazy(() => import("./pages/MapPage"));
 
 const navigation: {
   to: string;
@@ -36,6 +40,8 @@ const navigation: {
   { to: "/people", label: "People", icon: "people" },
   { to: "/clusters", label: "Clusters", icon: "spark" },
   { to: "/photos", label: "Photos", icon: "photo" },
+  { to: "/timeline", label: "Timeline", icon: "filter" },
+  { to: "/map", label: "Map", icon: "folder" },
   { to: "/videos", label: "Videos", icon: "video" },
   { to: "/no-faces", label: "No faces", icon: "hidden" },
   { to: "/deleted", label: "Deleted", icon: "trash" },
@@ -391,6 +397,12 @@ export function App() {
           <Route path="/cleanup" element={<Cleanup />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/health" element={<Health />} />
+          <Route path="/timeline" element={<Timeline />} />
+          <Route path="/map" element={
+            <Suspense fallback={<><PageHeader title="Map" description="Loading the map…" /><div className="gallery-skeleton" role="status" aria-label="Loading the map" /></>}>
+              <MapPage />
+            </Suspense>
+          } />
           <Route
             path="*"
             element={

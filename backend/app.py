@@ -19,6 +19,7 @@ from .routers import (
     exclusions,
     export,
     faces,
+    geo,
     health,
     jobs,
     libraries,
@@ -49,6 +50,7 @@ ROUTERS = (
     export.router,
     models.router,
     health.router,
+    geo.router,
 )
 
 

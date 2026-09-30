@@ -38,7 +38,8 @@ def test_json_logs_carry_the_request_id():
 def test_health_summary(client):
     h = client.get("/api/health").json()
     assert h["status"] in ("ok", "degraded")
-    assert h["checks"]["database"]["ok"] and h["checks"]["database"]["schema_version"] == 8
+    from backend.migrations import LATEST
+    assert h["checks"]["database"]["ok"] and h["checks"]["database"]["schema_version"] == LATEST
     assert h["checks"]["jobs"]["ok"] and h["checks"]["watcher"]["running"]
 
 

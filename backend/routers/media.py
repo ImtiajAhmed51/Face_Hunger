@@ -52,6 +52,7 @@ def list_media(
     page: int = 1,
     limit: int = 60,
     q: str = "",
+    bbox: Optional[str] = Query(None, description="minLon,minLat,maxLon,maxLat: geotagged media inside"),
 ):
     """sort: date (default, newest first) | size_desc | size_asc | name
     people: include media that contain these people
@@ -83,6 +84,20 @@ def list_media(
     if q.strip():
         where.append("m.name LIKE ?")
         params.append(f"%{q.strip()}%")
+
+    if bbox:
+        try:
+            min_lon, min_lat, max_lon, max_lat = (float(v) for v in bbox.split(","))
+        except ValueError:
+            raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat")
+        where.append("m.gps_lat BETWEEN ? AND ?")
+        params.extend([min_lat, max_lat])
+        if min_lon <= max_lon:
+            where.append("m.gps_lon BETWEEN ? AND ?")
+            params.extend([min_lon, max_lon])
+        else:  # crosses the antimeridian
+            where.append("(m.gps_lon >= ? OR m.gps_lon <= ?)")
+            params.extend([min_lon, max_lon])
 
     if no_faces:
         # Media with zero non-deleted faces

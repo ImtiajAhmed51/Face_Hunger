@@ -163,14 +163,15 @@ def test_migration_backs_up_and_adopts_legacy_dino_vectors(tmp_path):
             conn.execute(f"DROP TABLE {table}")
         conn.execute("PRAGMA user_version=5")
     migrated = Database(path)
-    assert migrated.applied_migrations == ["embedding_stores", "saved_searches", "job_queue"]
+    from backend.migrations import LATEST, MIGRATIONS
+    assert migrated.applied_migrations == [name for _, name, _ in MIGRATIONS]
     backups = list((tmp_path / "backups").glob("index-pre-v6-*.sqlite"))
     assert len(backups) == 1
     with sqlite3.connect(backups[0]) as old:
         assert old.execute("SELECT COUNT(*) FROM media").fetchone()[0] == 3
     rows = migrated.all("SELECT media_id, offset FROM media_vectors WHERE model_key=?", (LEGACY_DINO.key,))
     assert [(r["media_id"], r["offset"]) for r in rows] == [(1, 3072), (2, 6144), (3, 9216)]
-    assert migrated.one("PRAGMA user_version")["user_version"] == 8
+    assert migrated.one("PRAGMA user_version")["user_version"] == LATEST
     # Idempotent: a second start applies nothing and makes no new backup.
     assert Database(path).applied_migrations == []
     assert len(list((tmp_path / "backups").glob("*.sqlite"))) == 1

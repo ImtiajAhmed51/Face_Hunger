@@ -152,3 +152,27 @@ Short log of choices and dependencies. One entry per decision, newest last.
 - Modern video (HEVC, AV1, VP9 in MP4/MOV) already went through ffmpeg. `.mkv`/`.webm`
   remain in the scanner's list but are excluded from frame decoding by the existing
   `SKIP_VIDEO_SUFFIXES` choice, which was left unchanged.
+
+## Phase 2: metadata, timeline, map
+- **Date fallback chain** EXIF -> file name -> mtime, with `date_source` stored so guessed dates
+  are counted in the UI. Video creation times (UTC) are converted to local time so they sort
+  with EXIF wall-clock times. Dates before 1990 or in the future are treated as missing.
+- **Backfill is a `metadata_backfill` job** whose progress is the `meta_version` column: it
+  resumes after a crash and a re-run touches only unfinished rows. A new extractor version bumps
+  `META_VERSION` and re-processes everything. The job is scheduled at startup whenever rows are
+  behind.
+- **Timeline layout is exact, not measured.** Day counts come from `/api/timeline` (grouped with
+  the same expression `/api/media?sort=date` orders by), so every header and row height is known
+  up front. Sparse days in the same month merge into one section (at least 8 items).
+- **MapLibre GL JS** (BSD-3) and **pmtiles** (BSD-3) are code-split into the Map route (294 KB
+  gzip lazy chunk; initial JS unchanged at ~149 KB). The style has no glyphs, sprites or remote
+  sources. `transformRequest` rewrites any non-local URL to an empty data URL as a second guard,
+  and cluster counts are HTML markers because text layers would need font glyphs from a server.
+- **Base map off by default.** It is enabled only by pointing Settings at a local `.pmtiles`
+  file, served by `/api/map/tiles.pmtiles` with HTTP ranges. Vector (MVT) tilesets get a generic
+  fill/line style per source layer; raster tilesets are shown as-is. No tile server is ever used.
+- **Cluster -> grid** uses the bounding box of the cluster's points (`/api/media?bbox=`), padded
+  past the 5-decimal rounding of map points. If clusters overlap, the box can include a few
+  neighbouring points; exact id lists would need very long URLs.
+- **i18n**: a tiny in-house module (no dependency), English + Bangla for every new string, with
+  a per-device locale mirrored to `<html lang>`. Existing screens are not translated yet.

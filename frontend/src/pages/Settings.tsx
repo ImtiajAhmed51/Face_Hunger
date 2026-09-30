@@ -21,6 +21,7 @@ import {
   PageHeader,
 } from "../components/ui";
 import { EngineStatus } from "./Home";
+import { LOCALES, getLocale, setLocale, useT, type Locale } from "../i18n";
 
 type AutotuneReport = {
   threshold: number;
@@ -477,6 +478,7 @@ export function Settings() {
             </div>
           </section>
           <ModelRuntime />
+          {resource.data && <MapAndLanguage settings={resource.data} />}
           {resource.data && <Preferences settings={resource.data} />}
           <Exclusions />
         </div>
@@ -608,6 +610,40 @@ function ModelRuntime() {
           )}
         </>
       )}
+    </section>
+  );
+}
+
+/** Map base-map (local PMTiles only, off by default) and interface language. */
+function MapAndLanguage({ settings }: { settings: SettingsData }) {
+  const t = useT();
+  const action = useAction();
+  const extra = settings as SettingsData & { map_tiles_enabled?: boolean; map_pmtiles_path?: string };
+  const [path, setPath] = useState(extra.map_pmtiles_path ?? "");
+  const [lang, setLang] = useState(getLocale());
+  return (
+    <section className="settings-section" aria-labelledby="map-settings-heading">
+      <div className="section-heading"><div><h2 id="map-settings-heading">{t("settings.mapTitle")}</h2><p>{t("settings.mapHelp")}</p></div></div>
+      <label className="check-label">
+        <input type="checkbox" checked={!!extra.map_tiles_enabled} disabled={action.busy}
+          onChange={(event) => void action.run(() => mutate("/settings", { map_tiles_enabled: event.target.checked }, "PATCH"))} />
+        {t("settings.mapTiles")}
+      </label>
+      <form className="inline-actions" onSubmit={(event) => {
+        event.preventDefault();
+        void action.run(() => mutate("/settings", { map_pmtiles_path: path, map_tiles_enabled: true }, "PATCH"), "Map file saved.");
+      }}>
+        <label className="field wide-field">{t("settings.mapPath")}
+          <input value={path} onChange={(event) => setPath(event.target.value)} placeholder="/Users/me/Maps/world.pmtiles" spellCheck={false} />
+        </label>
+        <button className="button small" disabled={!path.trim() || action.busy}>Save</button>
+      </form>
+      <ErrorNotice error={action.error} />
+      <label className="field">{t("common.language")}
+        <select value={lang} onChange={(event) => { const next = event.target.value as Locale; setLang(next); setLocale(next); }}>
+          {LOCALES.map((item) => <option key={item.value} value={item.value} lang={item.value}>{item.label}</option>)}
+        </select>
+      </label>
     </section>
   );
 }

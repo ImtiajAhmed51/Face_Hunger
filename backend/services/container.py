@@ -102,6 +102,13 @@ class Services:
         if self.config.watch:
             self.watcher.start()
         self.schedule_embedding_backfill()
+        self.schedule_metadata_backfill()
+
+    def schedule_metadata_backfill(self) -> None:
+        from ..metadata import META_VERSION
+
+        if self.db.one("SELECT 1 AS x FROM media WHERE deleted_at IS NULL AND meta_version < ? LIMIT 1", (META_VERSION,)):
+            self.jobs.enqueue("metadata_backfill", {}, priority=PRIORITY["normal"] + 10, dedupe_key="metadata_backfill")
 
     def schedule_embedding_backfill(self) -> None:
         for space in self.embedding_spaces_for_backfill():

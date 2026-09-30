@@ -199,8 +199,61 @@ def make_backup_restore(services):
     return handler
 
 
+def make_metadata_backfill(services):
+    """Fill capture date / GPS / camera for media indexed before migration 9 (resumable:
+    progress is the meta_version column, so a restarted job continues where it stopped)."""
+    from .. import metadata as metadata_mod
+
+    def handler(ctx: JobContext):
+        db = services.db
+        total = db.one("SELECT COUNT(*) c FROM media WHERE deleted_at IS NULL")["c"]
+        done = 0
+        while True:
+            ctx.checkpoint()
+            if ctx.should_yield():
+                return {"yielded": True, "processed": total - _pending(db), "total": total}
+            rows = db.all("SELECT id, path, kind, mtime_ns, captured_at FROM media WHERE deleted_at IS NULL "
+                          "AND meta_version < ? ORDER BY id LIMIT 100", (metadata_mod.META_VERSION,))
+            if not rows:
+                break
+            updates = []
+            for row in rows:
+                ctx.checkpoint()
+                path = Path(row["path"])
+                if path.is_file():
+                    try:
+                        meta = metadata_mod.extract(path, row["kind"], mtime_ns=row["mtime_ns"])
+                    except Exception:
+                        meta = None
+                else:
+                    meta = None
+                if meta is None:  # unreadable/missing: keep what we have, never lose an existing date
+                    meta = {k: None for k in metadata_mod.COLUMNS}
+                    meta["meta_version"] = metadata_mod.META_VERSION
+                    if row["captured_at"]:
+                        meta["captured_at"], meta["date_source"] = row["captured_at"], "exif"
+                    elif row["mtime_ns"]:
+                        from datetime import datetime
+                        meta["captured_at"] = datetime.fromtimestamp(row["mtime_ns"] / 1e9).replace(microsecond=0).isoformat()
+                        meta["date_source"] = "mtime"
+                updates.append((*(meta[k] for k in metadata_mod.COLUMNS), row["id"]))
+            with db.connect() as conn:
+                conn.executemany("UPDATE media SET " + ",".join(f"{k}=?" for k in metadata_mod.COLUMNS) + " WHERE id=?",
+                                 updates)
+            done += len(rows)
+            ctx.progress(processed=total - _pending(db), total=total, updated=done)
+        return {"processed": total, "total": total, "updated": done}
+
+    def _pending(db):
+        return db.one("SELECT COUNT(*) c FROM media WHERE deleted_at IS NULL AND meta_version < ?",
+                      (metadata_mod.META_VERSION,))["c"]
+
+    return handler
+
+
 def register_all(services) -> None:
     jobs = services.jobs
+    jobs.register("metadata_backfill", make_metadata_backfill(services))
     jobs.register("integrity_check", make_integrity_check(services))
     jobs.register("backup_export", make_backup_export(services))
     jobs.register("backup_restore", make_backup_restore(services))

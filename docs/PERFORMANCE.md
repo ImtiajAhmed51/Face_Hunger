@@ -90,3 +90,16 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   Aspect-correct requests fixed it.
 - The fixture library with real buffalo_l (6 formats of a 6-person group photo plus 7 RAW files)
   indexes end to end in about 10 s.
+
+## Timeline and map (synthetic 100k library: `scripts/make_synthetic_library.py`)
+
+- **Timeline, 100,000 items** (3.86M px tall, sections from 1,6xx days): 600 frames of
+  programmatic scrolling at 24,000 px/s, **median 16.7 ms, p95 17.5 ms, max 17.7 ms, 0 frames
+  over 33 ms**, ~420 DOM elements. Jumping to 2016 with the scrubber (End) and scrolling back:
+  median 16.7 ms, p95 17.6 ms, no skeletons left after settling.
+- **Map, 50,000 geotagged points**: MapLibre constructed -> clustered and idle in **446-460 ms**
+  (budget 1 s). Cold page load -> idle map, including the 1.28 MB points download (213 ms),
+  in 1.07 s. All requests went to the app's own origin (plus a blob: worker); zero external
+  requests with tiles off.
+- **Metadata backfill on the real library**: 16,076 items in 82 s (~196/s) on CPU; 2,425
+  geotagged; 7,323 dated from file name or mtime.

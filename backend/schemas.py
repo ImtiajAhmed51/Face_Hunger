@@ -72,6 +72,8 @@ class SettingsPatch(BaseModel):
     auto_confirm: Optional[bool] = None
     auto_confirm_threshold: Optional[float] = None
     dino_similarity_threshold: Optional[float] = None
+    map_tiles_enabled: Optional[bool] = None
+    map_pmtiles_path: Optional[str] = None
 
 
 class MaintenanceBody(BaseModel):

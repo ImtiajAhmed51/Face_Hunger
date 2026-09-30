@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import duplicates as dup_mod
 from . import media_processing as media_io
+from . import metadata as metadata_mod
 from .engine import deduplicate, iou
 from .imaging import NON_WEB_SUFFIXES
 from .scanner import authorized_root, resolve_inside, scan
@@ -303,8 +304,9 @@ class Worker:
         min_quality = float(settings.get("min_face_quality", 0.25))
         adaptive = bool(settings.get("adaptive_video", True))
         photo = None
+        capture = metadata_mod.extract(path, kind)
         if kind == "photo":
-            metadata = media_io.image_metadata(path)
+            metadata = {}
             photo = media_io.load_image(path)  # decoded once (RAW: embedded preview), reused below
             frames = iter([(None, photo)])
             metadata["duration"] = None
@@ -313,6 +315,7 @@ class Worker:
                                     if Path(path).suffix.lower() in NON_WEB_SUFFIXES else None)
         else:
             metadata = media_io.video_metadata(path)
+            metadata.pop("captured_at", None)
             frames = media_io.video_frames(
                 path, float(settings["video_interval"]), self._checkpoint, adaptive=adaptive
             )
@@ -405,6 +408,7 @@ class Worker:
         except Exception:
             metadata["phash"] = None
 
+        metadata.update(capture)
         # Visual/text embeddings are computed by the embedding backfill job, not inline.
         metadata["dino_offset"] = None
         metadata["dino_sha"] = None
@@ -577,6 +581,7 @@ class Worker:
             conn.execute(
                 "UPDATE media SET width=?,height=?,duration=?,captured_at=?,thumbnail=?,duplicate_count=?,"
                 "content_hash=?,phash=?,dino_offset=?,dino_sha=?,"
+                "date_source=?,gps_lat=?,gps_lon=?,gps_alt=?,camera_make=?,camera_model=?,lens=?,meta_version=?,"
                 "status='stale',error=NULL,missing=0,indexed_at=CURRENT_TIMESTAMP WHERE id=?",
                 (
                     metadata["width"],
@@ -589,6 +594,8 @@ class Worker:
                     metadata.get("phash"),
                     metadata.get("dino_offset"),
                     metadata.get("dino_sha"),
+                    *(metadata.get(k) for k in ("date_source", "gps_lat", "gps_lon", "gps_alt",
+                                                 "camera_make", "camera_model", "lens", "meta_version")),
                     media_id,
                 ),
             )

@@ -93,10 +93,26 @@ def _m8_job_queue(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS jobs_dedupe ON jobs(dedupe_key, status)")
 
 
+def _m9_media_metadata(conn: sqlite3.Connection) -> None:
+    """Capture metadata for timeline/map; rows are filled by the metadata_backfill job."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(media)")}
+    for name, ddl in (("date_source", "TEXT"), ("gps_lat", "REAL"), ("gps_lon", "REAL"), ("gps_alt", "REAL"),
+                      ("camera_make", "TEXT"), ("camera_model", "TEXT"), ("lens", "TEXT"),
+                      ("meta_version", "INTEGER NOT NULL DEFAULT 0")):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE media ADD COLUMN {name} {ddl}")
+    conn.execute("CREATE INDEX IF NOT EXISTS media_geo ON media(gps_lat, gps_lon) WHERE gps_lat IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS media_meta_version ON media(meta_version)")
+    # Timeline order: the same expression /api/media sorts by.
+    conn.execute("CREATE INDEX IF NOT EXISTS media_timeline ON media(deleted_at, kind, "
+                 "COALESCE(captured_at, indexed_at) DESC, id DESC)")
+
+
 MIGRATIONS = [
     (6, "embedding_stores", _m6_embedding_stores),
     (7, "saved_searches", _m7_saved_searches),
     (8, "job_queue", _m8_job_queue),
+    (9, "media_metadata", _m9_media_metadata),
 ]
 LATEST = MIGRATIONS[-1][0]
 

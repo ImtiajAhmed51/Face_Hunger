@@ -58,6 +58,11 @@ def patch_settings(body: SettingsPatch, request: Request):
         raise HTTPException(400, "min_face_quality must be between 0 and 1")
     if "auto_confirm_threshold" in updates and not (0.3 <= updates["auto_confirm_threshold"] <= 0.95):
         raise HTTPException(400, "auto_confirm_threshold must be between 0.3 and 0.95")
+    if updates.get("map_pmtiles_path"):
+        candidate = Path(updates["map_pmtiles_path"]).expanduser()
+        if candidate.suffix.lower() != ".pmtiles" or not candidate.is_file():
+            raise HTTPException(400, "map_pmtiles_path must be an existing .pmtiles file on this computer")
+        updates["map_pmtiles_path"] = str(candidate.resolve())
     if "dino_similarity_threshold" in updates and not (0.5 <= updates["dino_similarity_threshold"] <= 0.999):
         raise HTTPException(400, "dino_similarity_threshold must be between 0.5 and 0.999")
 
