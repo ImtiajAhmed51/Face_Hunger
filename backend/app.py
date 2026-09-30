@@ -56,7 +56,9 @@ def create_app(config: Optional[Config] = None, services: Optional[Services] = N
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Startup: nothing heavy — engine and worker stay lazy.
+        # Startup: nothing heavy — engine and models stay lazy; the job runner and
+        # watcher are light threads.
+        services.start_background()
         yield
         services.close()
 

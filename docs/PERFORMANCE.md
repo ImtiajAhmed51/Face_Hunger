@@ -44,3 +44,11 @@ Peak RSS with all three sessions loaded: ~700 MB (whole process).
 ## usearch primitives (100k x 768, f16)
 
 top-1000 search 8 ms; fetching 20k vectors 33 ms; save 1.7 s; load 0.12 s.
+
+## Jobs and watcher (`pytest tests/test_jobs.py -s`)
+
+- Copied-in photo -> indexed (thumbnail, hashes, faces with the stub engine): **0.97 s** in 3/3
+  runs (budget 5 s). With the real buffalo_l, the first file after startup also pays the lazy
+  model load (a few seconds on CPU); later files do not.
+- Cancel of a running backfill whose batches take 300 ms: asserted **< 2 s** (every batch
+  boundary is a checkpoint).

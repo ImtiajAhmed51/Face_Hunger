@@ -126,3 +126,9 @@ class SavedSearchBody(BaseModel):
 class SavedSearchRunBody(BaseModel):
     page: int = Field(1, ge=1)
     limit: int = Field(60, ge=1, le=200)
+
+
+class JobBody(BaseModel):
+    kind: str
+    payload: dict = Field(default_factory=dict)
+    priority: int = Field(50, ge=0, le=100)

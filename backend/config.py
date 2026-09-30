@@ -14,6 +14,8 @@ class Config(BaseSettings):
     # Optional ONNX models (scripts/fetch_models.py): unload after this many idle seconds.
     model_idle_seconds: float = 300.0
     dino_variant: str = "small"
+    # Watch library folders and index new files within seconds.
+    watch: bool = True
 
     def prepare(self):
         self.data_dir = self.data_dir.resolve()

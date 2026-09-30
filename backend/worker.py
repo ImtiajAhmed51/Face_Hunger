@@ -33,6 +33,8 @@ class Worker:
         self._errors = []
         # Called as on_indexed(media_id, content_changed) after a media item is published.
         self.on_indexed = None
+        # Called as on_finished(status) when an index/reconcile job ends.
+        self.on_finished = None
         self.data_dir = Path(config.data_dir).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         (self.data_dir / "thumbnails").mkdir(exist_ok=True)
@@ -160,6 +162,11 @@ class Worker:
                                      (status, status, error, self._job_id))
             finally:
                 self._release_guard()
+            if self.on_finished is not None:
+                try:
+                    self.on_finished(status)
+                except Exception:
+                    pass
 
     def _reconcile_progress(self, progress):
         self._update(phase=progress["phase"], processed=progress["processed"], total=progress["total"],

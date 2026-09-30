@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..deps import cluster, config, db
+from ..deps import cluster, config, db, services
 from ..scanner import authorized_root
 from ..schemas import ConfirmBody, LibraryBody, LibraryPatchBody
 from ..services.presenters import _require_csrf
@@ -58,6 +58,7 @@ def add_library(body: LibraryBody, request: Request):
         if "UNIQUE" in str(exc).upper():
             raise HTTPException(400, "Library path already registered") from exc
         raise
+    services().watcher.refresh()
     return {
         "id": lid,
         "name": name,
@@ -102,4 +103,5 @@ def delete_library(library_id: int, body: ConfirmBody, request: Request):
         # cascade deletes media/faces via FK
         conn.execute("DELETE FROM libraries WHERE id=?", (library_id,))
     cluster.invalidate()
+    services().watcher.refresh()
     return {"ok": True}

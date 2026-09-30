@@ -66,3 +66,21 @@ Short log of choices and dependencies. One entry per decision, newest last.
   verified against the identical form before the relaxation.
 - `/api/search/parse` keeps its keys and adds `text`, `filters` and `embedding_query`. It also
   parses dates ("June 2021", "since 2018", "last year") and multi-word names.
+
+## Job system
+- **One queue, one runner.** New job kinds (`ingest`, `embed_backfill`, `rebuild_index`) run one
+  at a time from the existing `jobs` table, lowest `priority` first (10 urgent, 50 normal,
+  80 background). A single runner keeps model RAM and SQLite write contention predictable on
+  a 16 GB laptop. Legacy full scans (`kind='index'`) stay on the existing Worker but share the
+  table, the SSE stream and a lock with `ingest`, so the two never interleave.
+- **Cooperative preemption.** Background jobs check `should_yield()` between batches and go
+  back to the queue with their progress when urgent work arrives. The watcher's ingest therefore
+  never waits for a long backfill.
+- **Crash recovery**: on start, `running` jobs are re-queued (handlers are idempotent). After 3
+  interruptions a job is marked failed. `paused` and `queued` jobs are left as they are.
+- **SSE instead of WebSockets**: `GET /api/jobs/events` works through the Vite proxy and needs no
+  extra dependency. It polls the jobs table every 250 ms, which covers the legacy Worker too.
+- **watchdog** (Apache-2.0, already installed) for file events (FSEvents on macOS, inotify on
+  Linux, ReadDirectoryChangesW on Windows). Paths are debounced for 0.75 s with a stable size, so
+  files still being copied are not indexed. A deleted file only marks its media row `missing`.
+  Disable with `LFS_WATCH=false`.

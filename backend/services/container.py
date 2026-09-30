@@ -14,6 +14,9 @@ from ..config import Config
 from ..db import Database
 from ..embeddings import EmbeddingStore
 from ..engine import Engine
+from ..jobs.handlers import register_all as register_handlers
+from ..jobs.manager import PRIORITY, JobManager
+from ..jobs.watcher import LibraryWatcher
 from ..ml.models import ModelHub
 from ..vectors.spaces import Space, VectorSpaces
 from ..vectors.specs import FACE_ARCFACE
@@ -36,7 +39,14 @@ class Services:
         for spec in self.models.installed_specs():
             self.vectors.register(spec)
         self.worker = self._make_worker()
+        # File-level indexing for ingest jobs (shares the worker lock with full scans).
+        self.ingest_worker = Worker(self.db, config, self.engine, self.store, self.cluster)
+        self.ingest_worker.on_indexed = self.on_media_indexed
         self.search = HybridSearch(self)
+        self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
+        self.jobs = JobManager(self.db)
+        register_handlers(self)
+        self.watcher = LibraryWatcher(self)
         self.models.start()
         self.video_compat = init_video_compat(
             config.data_dir / "video_cache",
@@ -79,12 +89,37 @@ class Services:
     def _make_worker(self) -> Worker:
         worker = Worker(self.db, self.config, self.engine, self.store, self.cluster)
         worker.on_indexed = self.on_media_indexed
+        worker.on_finished = lambda status: self.schedule_embedding_backfill() if status == "completed" else None
         return worker
+
+    def start_background(self) -> None:
+        """Start the job runner and file watcher (called from the app lifespan)."""
+        self.jobs.start()
+        if self.config.watch:
+            self.watcher.start()
+        self.schedule_embedding_backfill()
+
+    def schedule_embedding_backfill(self) -> None:
+        for space in self.embedding_spaces_for_backfill():
+            if self.embedder_for(space.key) is not None and space.pending(1):
+                self.jobs.enqueue("embed_backfill", {}, priority=PRIORITY["background"], dedupe_key="embed_backfill")
+                return
+
+    def embedder_for(self, key: str):
+        if key in self.extra_embedders:
+            return self.extra_embedders[key]
+        for role in ("text_image", "visual"):
+            embedder = self.models.embedder(role)
+            if embedder is not None and embedder.spec.key == key:
+                return embedder
+        return None
 
     # -- embeddings ------------------------------------------------------
     def embedding_spaces_for_backfill(self) -> list[Space]:
-        """Spaces whose model is installed and can compute new vectors."""
-        return [self.vectors.register(spec) for spec in self.models.installed_specs()]
+        """Spaces whose model is installed (or injected) and can compute new vectors."""
+        specs = {s.key: s for s in self.models.installed_specs()}
+        specs.update({k: e.spec for k, e in self.extra_embedders.items()})
+        return [self.vectors.register(spec) for spec in specs.values()]
 
     def visual_space(self):
         """Space used for visual similarity / near-duplicates (newest complete one)."""
@@ -105,8 +140,12 @@ class Services:
         self.vectors.forget(FACE_ARCFACE.key, drop_index=True)
         self.cluster = Clustering(self.db, self.store)
         self.worker = self._make_worker()
+        self.ingest_worker = Worker(self.db, self.config, self.engine, self.store, self.cluster)
+        self.ingest_worker.on_indexed = self.on_media_indexed
 
     def close(self) -> None:
+        self.watcher.stop()
+        self.jobs.stop()
         self.worker.shutdown(timeout=5)
         for closer in (self.store.close, self.vectors.close, self.models.close):
             try:
