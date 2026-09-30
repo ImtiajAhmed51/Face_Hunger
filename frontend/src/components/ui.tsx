@@ -22,10 +22,13 @@ export function ErrorNotice({ error, retry }: { error?: string; retry?: () => vo
 export function Badge({ children, tone = '' }: { children: ReactNode; tone?: 'teal' | 'amber' | 'red' | '' }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
-export function Thumbnail({ src, alt, className = '', icon = 'photo' }: { src: string | null; alt: string; className?: string; icon?: IconName }) {
+export function Thumbnail({ src, alt, className = '', icon = 'photo', placeholder }: { src: string | null; alt: string; className?: string; icon?: IconName; placeholder?: string }) {
   const [state, setState] = useState<{ src: string | null; status: 'loaded' | 'failed' }>({ src: null, status: 'loaded' });
   const status = state.src === src ? state.status : 'loading';
-  return <span className={`thumbnail ${status === 'loading' ? 'thumbnail-loading' : ''} ${className}`}>
+  // Blur-up: a ~400-byte preview paints immediately and the sharp image fades in over it.
+  const blur = placeholder && status === 'loading';
+  return <span className={`thumbnail ${status === 'loading' ? 'thumbnail-loading' : ''} ${blur ? 'thumbnail-blur' : ''} ${className}`}
+    style={placeholder ? { backgroundImage: `url("${placeholder}")` } : undefined}>
     {src && status !== 'failed' ? <img key={src} src={src} alt={alt} loading="lazy" decoding="async"
       onLoad={() => setState({ src, status: 'loaded' })} onError={() => setState({ src, status: 'failed' })} />
       : <span className="thumbnail-fallback" role={alt ? 'img' : undefined} aria-hidden={!alt || undefined} aria-label={alt ? `${alt}: preview unavailable` : undefined}><Icon name={icon} size={30} /></span>}

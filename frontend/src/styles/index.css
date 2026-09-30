@@ -1,0 +1,15 @@
+@charset "UTF-8";
+/* Layer order is declared once here; each file fills its layer. */
+@layer reset, base, components, responsive, compact, appearance, accessibility;
+
+@import "./tokens.css";
+@import "./base.css";
+@import "./components/shell.css";
+@import "./components/collections.css";
+@import "./components/pages.css";
+@import "./components/features.css";
+@import "./components/virtual.css";
+@import "./responsive.css";
+@import "./accessibility.css";
+@import "./compact.css";
+@import "./components/duplicates-motion.css";

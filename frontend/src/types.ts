@@ -91,6 +91,11 @@ export interface Job {
   failed: number;
   current_file: string | null;
   error: string | null;
+  /** Queue metadata (present for jobs from /api/jobs and the SSE stream). */
+  kind?: "index" | "ingest" | "embed_backfill" | "rebuild_index" | string;
+  priority?: number;
+  progress?: Record<string, unknown>;
+  payload?: Record<string, unknown>;
 }
 export interface SoftOriginal {
   media_id: number;
@@ -186,4 +191,43 @@ export interface ParsedSearch {
   date_to?: string;
   kind?: "photo" | "video";
   unmatched: string[];
+  /** Words left for content (SigLIP) search, and whether that model is installed. */
+  text?: string;
+  embedding_query?: { text: string; model: string | null; available: boolean };
+}
+
+export interface SearchSignal { rank: number; similarity: number }
+export interface HybridMedia extends Media {
+  score?: number;
+  signals?: Partial<Record<'text' | 'similar_media' | 'similar_face' | 'recency', SearchSignal>>;
+}
+export interface HybridQuery {
+  text?: string;
+  people?: number[];
+  people_mode?: 'ANY' | 'ALL';
+  exclude_people?: number[];
+  date_from?: string;
+  date_to?: string;
+  kind?: 'photo' | 'video';
+  min_quality?: number;
+  similar_media_id?: number;
+  similar_face_id?: number;
+  name?: string;
+  deleted?: boolean;
+  weights?: Partial<Record<'text' | 'similar_media' | 'similar_face' | 'recency', number>>;
+  page?: number;
+  limit?: number;
+}
+export interface HybridResult extends Page<HybridMedia> {
+  signals: string[];
+  warnings: string[];
+  took_ms: number;
+}
+export interface SavedSearch {
+  id: number;
+  name: string;
+  query: HybridQuery;
+  created_at: string;
+  last_run_at: string | null;
+  run_count: number;
 }

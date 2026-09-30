@@ -52,3 +52,15 @@ top-1000 search 8 ms; fetching 20k vectors 33 ms; save 1.7 s; load 0.12 s.
   model load (a few seconds on CPU); later files do not.
 - Cancel of a running backfill whose batches take 300 ms: asserted **< 2 s** (every batch
   boundary is a checkpoint).
+
+## Frontend
+
+Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
+
+- Virtualized Photos grid, programmatic scroll of 400 px per frame for 600 frames
+  (24,000 px/s): **median frame 16.7 ms, p95 17.6 ms**, 3 of 600 frames over 33 ms. 40 grid
+  cells and ~260 elements in the DOM regardless of library size.
+- `photos 2023` from the command palette: parsed, filtered and returned 1,638 results in
+  **8 ms** server time. "Find similar" on the adopted 16k DINOv2 vectors: 875 ms on first use
+  (builds the HNSW index), then **138 ms**.
+- Bundle: initial JS **141 KB gzip** (budget 250 KB), CSS 22.5 KB gzip.

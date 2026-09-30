@@ -1,0 +1,159 @@
+/* Focus, reduced motion, forced colours. */
+@layer accessibility {
+  @media (hover: none) and (pointer: coarse) {
+    .button,
+    .button.small,
+    .icon-button,
+    .check-label,
+    .segmented button,
+    .tabs > button,
+    .library-actions .button,
+    .face-inspector .button,
+    .dialog-header .icon-button {
+      min-height: 44px;
+    }
+    .icon-button,
+    .dialog-header .icon-button,
+    .library-actions .icon-button {
+      min-width: 44px;
+    }
+    .select-check {
+      width: 36px;
+      height: 36px;
+    }
+    .text-link {
+      min-height: 36px;
+    }
+    .image-button:hover img,
+    .person-card:hover img {
+      transform: none;
+    }
+    .stat-card:hover {
+      transform: none;
+    }
+  }
+  @supports not (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    .sidebar,
+    .topline,
+    .mobile-header,
+    .selection-toolbar,
+    .dialog,
+    .dialog-header,
+    .dialog-footer,
+    .actions-menu > div,
+    .toast {
+      background: var(--surface);
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    :root {
+      --glass: var(--surface);
+      --glass-strong: var(--surface);
+      --sidebar: var(--surface);
+      --input: var(--surface);
+    }
+    .sidebar,
+    .topline,
+    .mobile-header,
+    .selection-toolbar,
+    .dialog,
+    .dialog-header,
+    .dialog-footer,
+    .actions-menu > div,
+    .toast,
+    .dialog::backdrop {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    body {
+      background: var(--paper);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      animation: none !important;
+      transition: none !important;
+    }
+    .spinner {
+      border-color: var(--teal);
+    }
+    .stat-card:hover,
+    .image-button:hover img,
+    .person-card:hover img {
+      transform: none;
+    }
+  }
+  @media (forced-colors: active) {
+    .sidebar,
+    .topline,
+    .mobile-header,
+    .selection-toolbar,
+    .dialog,
+    .dialog-header,
+    .dialog-footer,
+    .actions-menu > div,
+    .toast {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    .button,
+    .icon-button,
+    .person-card,
+    .stat-card,
+    .theme-option {
+      border: 1px solid ButtonText;
+    }
+    .nav-link.active,
+    .tabs > button[aria-pressed="true"],
+    .segmented button[aria-pressed="true"],
+    .viewer-face.active {
+      outline: 2px solid Highlight;
+      outline-offset: -3px;
+    }
+    .face-box {
+      border-color: Highlight;
+    }
+    .face-box.active {
+      border-color: SelectedItemText;
+    }
+    .badge {
+      border-color: currentColor;
+    }
+  }
+  @media print {
+    .sidebar,
+    .mobile-header,
+    .header-actions,
+    .page-footer,
+    .toast-stack,
+    .topline,
+    .button,
+    .selection-toolbar,
+    .select-check,
+    .navigation {
+      display: none !important;
+    }
+    body {
+      background: #fff;
+      color: #000;
+    }
+    .main-content {
+      margin: 0;
+      padding: 0;
+    }
+    .media-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .media-card,
+    .person-card,
+    .face-tile {
+      break-inside: avoid;
+    }
+  }
+}
+

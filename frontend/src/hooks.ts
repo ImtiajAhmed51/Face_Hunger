@@ -1,52 +1,37 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { invalidateResourceRequests, readResource } from './resourceRequests';
+import { useQuery } from '@tanstack/react-query';
+import { invalidateResourceRequests } from './resourceRequests';
+import { apiKey, fetchApi, queryClient } from './queryClient';
 import { reconcileList } from './animatedList';
 import type { AnimatedEntry } from './animatedList';
 export type { AnimPhase, AnimatedEntry } from './animatedList';
 
 export function refreshData(): void {
   invalidateResourceRequests();
+  void queryClient.invalidateQueries({ predicate: query => !query.meta?.noGlobalRefresh });
   window.dispatchEvent(new Event('lfs:refresh'));
 }
 
-type ResourceState<T> = { path: string | null; data?: T; loading: boolean; refreshing: boolean; error: string };
-
+/**
+ * GET an API path through TanStack Query. The return shape predates the query
+ * library and is kept so every page works unchanged: `loading` is the first load
+ * of this path, `refreshing` a background refetch with data already on screen.
+ */
 export function useResource<T>(path: string | null, options?: { globalRefresh?: boolean }) {
-  const globalRefresh = options?.globalRefresh !== false;
-  const [version, setVersion] = useState(0);
-  const [state, setState] = useState<ResourceState<T>>({ path, loading: !!path, refreshing: false, error: '' });
-  const reload = useCallback(() => setVersion(value => value + 1), []);
-  useEffect(() => {
-    if (!globalRefresh) return;
-    window.addEventListener('lfs:refresh', reload);
-    return () => window.removeEventListener('lfs:refresh', reload);
-  }, [reload, globalRefresh]);
-  useEffect(() => {
-    if (!path) {
-      setState({ path, loading: false, refreshing: false, error: '' });
-      return;
-    }
-    const controller = new AbortController();
-    setState(previous => {
-      const data = previous.path === path ? previous.data : undefined;
-      return { path, data, loading: data === undefined, refreshing: data !== undefined, error: '' };
-    });
-    const load = async () => {
-      try {
-        const data = await readResource<T>(path, controller.signal);
-        if (!controller.signal.aborted) setState({ path, data, loading: false, refreshing: false, error: '' });
-      } catch (error) {
-        if (!controller.signal.aborted) setState(previous => ({ ...previous, path, loading: false, refreshing: false, error: error instanceof Error ? error.message : String(error) }));
-      }
-    };
-    void load();
-    return () => controller.abort();
-  }, [path, version]);
+  const query = useQuery({
+    queryKey: apiKey(path ?? ''),
+    queryFn: ({ signal }) => fetchApi<T>(path as string, signal),
+    enabled: path !== null,
+    meta: { noGlobalRefresh: options?.globalRefresh === false },
+  });
+  const { refetch } = query;
+  const reload = useCallback(() => { void refetch(); }, [refetch]);
   return {
-    data: state.path === path ? state.data : undefined,
-    loading: path !== null && (state.path !== path || state.loading),
-    refreshing: state.path === path && state.refreshing,
-    error: state.path === path ? state.error : '', reload,
+    data: path === null ? undefined : query.data,
+    loading: path !== null && query.isPending,
+    refreshing: path !== null && query.isFetching && !query.isPending,
+    error: path !== null && query.error ? (query.error instanceof Error ? query.error.message : String(query.error)) : '',
+    reload,
   };
 }
 

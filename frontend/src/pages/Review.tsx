@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { mutate, number, percent, queryString, timeLabel } from "../api";
-import { useAction } from "../context";
+import { useAction, useApp } from "../context";
 import { useAnimatedList, useResource } from "../hooks";
 import type { Face, Page } from "../types";
 import { MoveFacesDialog } from "../components/FaceActions";
@@ -37,6 +37,7 @@ export function Review() {
     null,
   );
   const action = useAction();
+  const { pushUndo, undoLast, canUndo } = useApp();
   // In-flight review IDs — allow rapid Yes/No without waiting for each HTTP round-trip
   const pendingReviews = useRef<Set<number>>(new Set());
   // Prevent concurrent auto-advance reloads
@@ -90,6 +91,15 @@ export function Review() {
     reloadQueue();
   }, [items.length, dismissed.size, queueTotal, queueLoading, reloadQueue]);
 
+  const restore = useCallback((id: number) => {
+    setDismissed((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
   const dismiss = useCallback((id: number) => {
     setDismissed((current) => {
       if (current.has(id)) return current;
@@ -113,7 +123,11 @@ export function Review() {
       dismiss(id);
       void mutate(`/faces/${id}/review`, { decision })
         .then(() => {
-          // Quiet success — toast on every click is noisy during rapid review
+          // Quiet success — toast on every click is noisy during rapid review. Undo with U / Ctrl+Z.
+          pushUndo(`${decision === "yes" ? "Confirmed" : "Rejected"} face #${id}`, async () => {
+            await mutate(`/faces/${id}/review`, { decision: "reset" });
+            restore(id);
+          }, { silent: true });
         })
         .catch((cause) => {
           // Roll back so the face returns to the queue
@@ -136,7 +150,7 @@ export function Review() {
           pendingReviews.current.delete(id);
         });
     },
-    [dismiss],
+    [dismiss, restore, pushUndo],
   );
 
   // Single keydown listener for the component lifetime — no per-render rebind.
@@ -169,6 +183,7 @@ export function Review() {
       if (key === "n") decide("no");
       if (key === "d") setDialog("delete");
       if (key === "v") setViewer(current);
+      if (key === "u") { event.preventDefault(); void undoLast(); }
       if (key === "arrowright")
         setCursor((value) =>
           Math.min(itemsLenRef.current - 1, value + 1),
@@ -177,7 +192,7 @@ export function Review() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [decide]);
+  }, [decide, undoLast]);
   return (
     <>
       <PageHeader
@@ -345,6 +360,11 @@ export function Review() {
                 <p className="small-text muted">
                   Deleting removes only the indexed face, never the original.
                 </p>
+                <div className="kbd-hints" aria-label="Keyboard shortcuts">
+                  <span><kbd>Y</kbd> yes</span><span><kbd>N</kbd> no</span><span><kbd>D</kbd> delete</span>
+                  <span><kbd>V</kbd> view</span><span><kbd>←</kbd><kbd>→</kbd> move</span><span><kbd>U</kbd> undo</span>
+                  {canUndo && <button className="text-link" onClick={() => void undoLast()}>Undo last decision</button>}
+                </div>
               </div>
             </section>
             <div className="review-navigation">
@@ -438,8 +458,13 @@ export function Review() {
         label="Delete face"
         onConfirm={async () => {
           if (face) {
-            await mutate(`/faces/${face.id}`, undefined, "DELETE");
-            dismiss(face.id);
+            const id = face.id;
+            await mutate(`/faces/${id}`, undefined, "DELETE");
+            dismiss(id);
+            pushUndo(`Deleted face #${id}`, async () => {
+              await mutate(`/faces/${id}/restore`);
+              restore(id);
+            });
           }
         }}
         success="Face soft-deleted."

@@ -84,3 +84,28 @@ Short log of choices and dependencies. One entry per decision, newest last.
   Linux, ReadDirectoryChangesW on Windows). Paths are debounced for 0.75 s with a stable size, so
   files still being copied are not indexed. A deleted file only marks its media row `missing`.
   Disable with `LFS_WATCH=false`.
+
+## Frontend
+- **@tanstack/react-query** (MIT) underlies `useResource`. The hook keeps its old return shape,
+  so every page moved onto the query cache at once without call-site changes; `refreshData()`
+  invalidates queries. **@tanstack/react-virtual** (MIT) virtualizes grids with window
+  scrolling.
+- **Fixed-height rows.** Virtual grids use uniform rows (square tile + fixed caption), so pages
+  streaming in never shift layout. The justified "Mosaic" layout needs every item's aspect ratio
+  up front, so it stays a paged view. "Grid" (virtualized, infinite) is now the default.
+- **Sparse paging.** Only pages overlapping the viewport (+1 ahead) are fetched, 120 items each
+  for media and 96 for people. The remembered total keeps the scrollbar stable.
+  Limit: at 4 columns, ~400k items reaches Chromium's ~33.5M px element height, so libraries
+  over ~400k items need more columns or date sections (timeline, Phase 2).
+- **Blur-up** uses a separate `GET /api/media/lqip?ids=` (<= 240 ids, ~400-byte 16 px JPEG data
+  URLs built from cached thumbnails with DCT-scaled decode, LRU-cached in memory) rather than
+  enlarging every `/api/media` response.
+- **Undo** is a bounded client-side stack. Each entry holds the inverse API calls (restore after
+  soft delete, re-delete after restore, `DELETE /exclusions` after excluding, review
+  `decision: "reset"` after Yes/No, face restore after face delete). Ctrl/Cmd+Z runs the latest,
+  and `U` works in Review. Review decisions are pushed silently so rapid reviewing stays quiet.
+- **Command palette** (Ctrl/Cmd+K) is a combobox/listbox in the existing modal `<dialog>`. The
+  brief referred to an existing palette, but none existed in the repo, so it is new.
+- **Styles** split along the existing `@layer` blocks into `styles/tokens.css` (design tokens),
+  `base.css`, `components/*.css` and breakpoint/a11y layers. The cascade is unchanged; built CSS
+  was byte-for-byte equivalent in size before the new components were added.

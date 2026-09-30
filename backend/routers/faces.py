@@ -56,8 +56,20 @@ def move_faces(body: MoveFacesBody, request: Request):
 def review_face(face_id: int, body: ReviewBody, request: Request):
     _require_csrf(request)
     decision = body.decision.lower()
-    if decision not in ("yes", "no"):
-        raise HTTPException(400, "decision must be 'yes' or 'no'")
+    if decision not in ("yes", "no", "reset"):
+        raise HTTPException(400, "decision must be 'yes', 'no' or 'reset'")
+    if decision == "reset":
+        # Undo a Yes/No: back to the review queue, without the rejection side effects.
+        with db.connect() as conn:
+            face = conn.execute("SELECT * FROM faces WHERE id=?", (face_id,)).fetchone()
+            if not face:
+                raise HTTPException(404, "Face not found")
+            conn.execute("UPDATE faces SET review_state='unreviewed', manual=0 WHERE id=?", (face_id,))
+            if face["person_id"]:
+                conn.execute("DELETE FROM rejections WHERE face_id=? AND person_id=?", (face_id, face["person_id"]))
+                conn.execute("DELETE FROM hard_negatives WHERE face_id=? AND person_id=?", (face_id, face["person_id"]))
+        cluster.invalidate()
+        return {"ok": True}
     # Single connection for the whole mutation — no extra round-trips.
     with db.connect() as conn:
         face = conn.execute("SELECT * FROM faces WHERE id=?", (face_id,)).fetchone()

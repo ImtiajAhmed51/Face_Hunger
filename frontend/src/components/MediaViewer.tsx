@@ -309,7 +309,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
           <div className="viewer-toolbar">
             <span className="muted">
               {position >= 0
-                ? `${position + 1} of ${ids.length} on this page`
+                ? `${position + 1} of ${ids.length} loaded`
                 : "Source media"}
             </span>
             <div className="inline-actions">
@@ -321,6 +321,11 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                 <Icon name="people" size={16} />
                 Face boxes
               </button>
+              <Link className="button small" to={`/search?similar=${id}`} onClick={onClose}
+                title="Find visually similar photos and videos">
+                <Icon name="spark" size={16} />
+                Find similar
+              </Link>
               <button
                 className="icon-button"
                 aria-label="Toggle fullscreen (F)"

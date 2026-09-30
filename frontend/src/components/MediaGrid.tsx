@@ -15,7 +15,7 @@ import {
   queryString,
   timeLabel,
 } from "../api";
-import { useAction } from "../context";
+import { useAction, useApp } from "../context";
 import { collectionFilters } from "../mediaFilters";
 import {
   useAnimatedList,
@@ -39,6 +39,10 @@ import {
 } from "./ui";
 
 import { VideoHoverPreview } from './VideoHoverPreview';
+import { VirtualGrid } from '../virtual/VirtualGrid';
+import { useWindowedPages } from '../virtual/useWindowedPages';
+import { idsBetween } from '../virtual/geometry';
+import { useLqip } from '../lqip';
 import { useConversionStatuses } from '../conversionStatuses';
 
 function getAspectRatio(item: Media): number {
@@ -48,47 +52,27 @@ function getAspectRatio(item: Media): number {
   return item.kind === "video" ? 16 / 9 : 3 / 4;
 }
 
-export function MediaGrid({
-  items,
-  selected,
-  onSelect,
-  onOpen,
-  layout = "grid",
+type SelectMode = "toggle" | "range" | "paint";
+type ConversionMap = ReturnType<typeof useConversionStatuses>;
+
+export function MediaCard({
+  item, selected, onSelect, onOpen, mosaic = false, conversionMap, paintRef, phase = "shown", placeholder,
 }: {
-  items: Media[];
-  selected?: Set<number>;
-  onSelect?: (
-    id: number,
-    event?: ReactMouseEvent,
-    mode?: "toggle" | "range" | "paint",
-  ) => void;
+  item: Media;
+  selected: boolean;
+  onSelect?: (id: number, event?: ReactMouseEvent, mode?: SelectMode) => void;
   onOpen: (id: number) => void;
-  layout?: "grid" | "mosaic";
+  mosaic?: boolean;
+  conversionMap: ConversionMap;
+  paintRef: { current: boolean };
+  phase?: string;
+  placeholder?: string;
 }) {
-  const paintRef = useRef(false);
-  const mosaic = layout === "mosaic";
-  const animated = useAnimatedList(items, (item) => item.id);
-  const conversionMap = useConversionStatuses(items);
-
-  useEffect(() => {
-    const up = () => {
-      paintRef.current = false;
-    };
-    window.addEventListener("mouseup", up);
-    window.addEventListener("blur", up);
-    return () => { window.removeEventListener("mouseup", up); window.removeEventListener("blur", up); };
-  }, []);
-
+  const aspectRatio = getAspectRatio(item);
   return (
-    <div className={mosaic ? "media-grid media-mosaic" : "media-grid"}>
-      {animated.map(({ item, key, phase }) => {
-        const aspectRatio = getAspectRatio(item);
-
-        return (
           <article
-            className={`media-card anim-item anim-${phase} ${selected?.has(item.id) ? "selected" : ""}`}
-            key={key}
-            inert={phase === "exit"}
+            className={`media-card anim-item anim-${phase} ${selected ? "selected" : ""}`}
+                        inert={phase === "exit"}
             onMouseEnter={() => {
               if (paintRef.current && onSelect)
                 onSelect(item.id, undefined, "paint");
@@ -118,6 +102,7 @@ export function MediaGrid({
                     src={`/api/media/${item.id}/thumbnail`}
                     alt={item.name}
                     icon="photo"
+                    placeholder={placeholder}
                   />
                 )}
               </button>
@@ -131,7 +116,7 @@ export function MediaGrid({
                 >
                   <input
                     type="checkbox"
-                    checked={selected?.has(item.id) ?? false}
+                    checked={selected}
                     onChange={() => { /* Click handles keyboard and pointer activation with modifier keys. */ }}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -253,9 +238,84 @@ export function MediaGrid({
               </div>
             )}
           </article>
-        );
-      })}
+  );
+}
+
+export function MediaGrid({
+  items,
+  selected,
+  onSelect,
+  onOpen,
+  layout = "grid",
+}: {
+  items: Media[];
+  selected?: Set<number>;
+  onSelect?: (id: number, event?: ReactMouseEvent, mode?: SelectMode) => void;
+  onOpen: (id: number) => void;
+  layout?: "grid" | "mosaic";
+}) {
+  const paintRef = usePaintSelect();
+  const mosaic = layout === "mosaic";
+  const animated = useAnimatedList(items, (item) => item.id);
+  const conversionMap = useConversionStatuses(items);
+  return (
+    <div className={mosaic ? "media-grid media-mosaic" : "media-grid"}>
+      {animated.map(({ item, key, phase }) => (
+        <MediaCard key={key} item={item} phase={phase} selected={selected?.has(item.id) ?? false}
+          onSelect={onSelect} onOpen={onOpen} mosaic={mosaic} conversionMap={conversionMap} paintRef={paintRef} />
+      ))}
     </div>
+  );
+}
+
+function usePaintSelect() {
+  const paintRef = useRef(false);
+  useEffect(() => {
+    const up = () => { paintRef.current = false; };
+    window.addEventListener("mouseup", up);
+    window.addEventListener("blur", up);
+    return () => { window.removeEventListener("mouseup", up); window.removeEventListener("blur", up); };
+  }, []);
+  return paintRef;
+}
+
+/** Virtualized, keyboard-navigable media grid over sparse pages (smooth at 100k+ items). */
+export function VirtualMediaGrid({
+  windowed, selected, onSelect, onOpen, onSelectAll, onClear, onDelete, label = "Media",
+}: {
+  windowed: ReturnType<typeof useWindowedPages<Media>>;
+  selected: Set<number>;
+  onSelect: (id: number, index: number, mode: SelectMode) => void;
+  onOpen: (id: number) => void;
+  onSelectAll: () => void;
+  onClear: () => void;
+  onDelete?: () => void;
+  label?: string;
+}) {
+  const paintRef = usePaintSelect();
+  const conversionMap = useConversionStatuses(windowed.loaded);
+  const placeholders = useLqip(windowed.loaded.map((item) => item.id));
+  return (
+    <VirtualGrid<Media>
+      label={label}
+      count={windowed.count}
+      getItem={windowed.getItem}
+      onRange={windowed.onRange}
+      minCell={190}
+      gap={14}
+      aspect={1}
+      extra={74}
+      onOpen={(_, item) => onOpen(item.id)}
+      onToggle={(index, item, range) => onSelect(item.id, index, range ? "range" : "toggle")}
+      onSelectAll={onSelectAll}
+      onEscape={onClear}
+      onDelete={onDelete}
+      renderCell={(item, index) => item ? (
+        <MediaCard item={item} selected={selected.has(item.id)} conversionMap={conversionMap} paintRef={paintRef}
+          placeholder={placeholders[item.id]} onOpen={onOpen}
+          onSelect={(id, _event, mode) => onSelect(id, index, mode ?? "toggle")} />
+      ) : <div className="cell-skeleton" aria-hidden="true" />}
+    />
   );
 }
 
@@ -291,7 +351,16 @@ export function MediaCollection({
     useState<(typeof MEDIA_SORT_OPTIONS)[number]["value"]>("date");
   const [excludePeople, setExcludePeople] = useState<number[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [layout, setLayout] = useState<"grid" | "mosaic">("mosaic");
+  // Grid is virtualized (infinite scroll, smooth at 100k items); mosaic keeps paged layout.
+  const [layout, setLayoutState] = useState<"grid" | "mosaic">(() => {
+    try { return localStorage.getItem("lfs-layout") === "mosaic" ? "mosaic" : "grid"; } catch { return "grid"; }
+  });
+  const setLayout = (value: "grid" | "mosaic") => {
+    setLayoutState(value);
+    try { localStorage.setItem("lfs-layout", value); } catch { /* optional */ }
+  };
+  const virtual = layout === "grid";
+  const { pushUndo } = useApp();
 
   const actualFilters = collectionFilters(filters, { tools, deletedOnly, search, excluded, deleted, sort, excludePeople });
   const filterKey = queryString(actualFilters);
@@ -300,7 +369,12 @@ export function MediaCollection({
   useEffect(() => { setPageKey(filterKey); setPage(1); }, [filterKey]);
 
   const path = `/media?${filterKey}&page=${currentPage}&limit=60`;
-  const resource = useResource<Page<Media>>(path);
+  const paged = useResource<Page<Media>>(virtual ? null : path);
+  const windowed = useWindowedPages<Media>(virtual ? `/media?${filterKey}` : null, 120);
+  const resource = virtual
+    ? { data: windowed.count || !windowed.loading ? { items: windowed.loaded, total: windowed.count } : undefined,
+        loading: windowed.loading, refreshing: windowed.refreshing, error: windowed.error, reload: windowed.reload }
+    : paged;
   const selection = useSelection(filterKey);
   const action = useAction();
   const [viewer, setViewer] = useState<number | null>(null);
@@ -325,6 +399,20 @@ export function MediaCollection({
     (item) => !hiddenIds.has(item.id),
   ), [resource.data, hiddenIds]);
   const lastAnchor = useRef<number | null>(null);
+  const lastIndex = useRef<number | null>(null);
+
+  const handleVirtualSelect = (id: number, index: number, mode: "toggle" | "range" | "paint") => {
+    if (mode === "range" && lastIndex.current !== null) {
+      selection.addRange(idsBetween(lastIndex.current, index, windowed.getItem));
+      return;
+    }
+    if (mode === "paint") {
+      selection.addRange([id]);
+      return;
+    }
+    lastIndex.current = index;
+    selection.toggle(id);
+  };
 
   const handleSelect = (
     id: number,
@@ -556,7 +644,7 @@ export function MediaCollection({
                 }
                 onChange={() => selection.all(items.map((item) => item.id))}
               />
-              Select page
+              {virtual ? "Select loaded" : "Select page"}
             </label>
           )}
           <span className="muted small-text">
@@ -631,10 +719,14 @@ export function MediaCollection({
                       ? ids
                       : pageSelected.filter(item => !!item.deleted_at).map(item => item.id);
                     void run(
-                      () => batch(targets, async (mediaId) => {
-                        await mutate(`/media/${mediaId}/restore`);
-                        selection.remove([mediaId]);
-                      }),
+                      async () => {
+                        await batch(targets, async (mediaId) => {
+                          await mutate(`/media/${mediaId}/restore`);
+                          selection.remove([mediaId]);
+                        });
+                        pushUndo(`Restored ${targets.length} item(s)`, () =>
+                          batch(targets, (mediaId) => mutate(`/media/${mediaId}`, undefined, "DELETE")));
+                      },
                       "Media restored.",
                     );
                   }}
@@ -680,6 +772,17 @@ export function MediaCollection({
           title={emptyTitle}
           description={emptyDescription}
         />
+      ) : virtual ? (
+        <VirtualMediaGrid
+          windowed={windowed}
+          selected={selection.selected}
+          onSelect={handleVirtualSelect}
+          onOpen={setViewer}
+          onSelectAll={() => selection.addRange(items.map((item) => item.id))}
+          onClear={selection.clear}
+          onDelete={() => { if (selectedCount && !deletedOnly) setDeleteOpen(true); }}
+          label={deletedOnly ? "Deleted media" : filters.kind === "video" ? "Videos" : "Photos"}
+        />
       ) : (
         <MediaGrid
           items={items}
@@ -691,14 +794,15 @@ export function MediaCollection({
       )}
       {tools && (
         <p className="muted small-text" style={{ marginTop: 8 }}>
-          Tip: hover a video to preview · Shift+click checkboxes for a range ·
-          drag across checkboxes to paint-select
+          Tip: arrow keys move · Space selects (Shift for a range) · Enter opens ·
+          {" "}{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+A selects loaded · Delete removes ·
+          {" "}{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+Z undoes · drag across checkboxes to paint-select
         </p>
       )}
-      {resource.data && (
+      {!virtual && paged.data && (
         <Pagination
           page={currentPage}
-          total={resource.data.total}
+          total={paged.data.total}
           limit={60}
           onPage={setPage}
         />
@@ -731,6 +835,8 @@ export function MediaCollection({
                 await mutate(`/media/${mediaId}`, undefined, "DELETE");
                 selection.remove([mediaId]);
               });
+              pushUndo(`Moved ${target.length} item(s) to Deleted`, () =>
+                batch(target, (mediaId) => mutate(`/media/${mediaId}/restore`)));
             } finally {
               setHiddenIds(new Set());
             }

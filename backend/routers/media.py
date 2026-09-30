@@ -30,6 +30,7 @@ from ..services.soft_originals import (
     _resolve_soft_original,
     _restored_path_from_soft,
 )
+from ..services.thumbnails import lqip_data_url
 
 router = APIRouter()
 
@@ -207,6 +208,28 @@ def media_conversion_statuses(ids: str = Query("", description="Comma-separated 
             "pending", "failed", "completed",
         ) or mid in active_ids:
             out[str(mid)] = st
+    return {"items": out}
+
+@router.get("/api/media/lqip")
+def media_lqip(ids: str = Query("", description="Comma-separated media ids (max 240)")):
+    """Blur-up placeholders: ~400-byte data URLs built from cached thumbnails only."""
+    wanted = []
+    for raw in ids.split(",")[:240]:
+        try:
+            wanted.append(int(raw))
+        except ValueError:
+            continue
+    out: dict[str, str] = {}
+    if wanted:
+        rows = db.all(f"SELECT id, thumbnail FROM media WHERE id IN ({','.join('?' * len(wanted))})", tuple(wanted))
+        thumbs = config.data_dir / "thumbnails"
+        for row in rows:
+            path = thumbs / f"media-{row['id']}.jpg"
+            if not path.is_file() and row.get("thumbnail"):
+                path = Path(row["thumbnail"])
+            url = lqip_data_url(row["id"], path)
+            if url:
+                out[str(row["id"])] = url
     return {"items": out}
 
 @router.get("/api/media/soft-originals")

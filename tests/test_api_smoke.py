@@ -54,3 +54,31 @@ def test_duplicates_endpoints_work_without_dino_model(client):
     assert d["groups"] == [] and d["dino"]["available"] is False
     b = client.post("/api/duplicates/backfill", json={"limit": 5}).json()
     assert b["filled"] == 0 and "fetch_models" in b["errors"][0]
+
+
+def test_lqip_placeholders_from_cached_thumbnails(client, app_services):
+    from PIL import Image
+
+    from tests.helpers.fixtures import add_media
+    ids = add_media(app_services.db, 2)
+    Image.new("RGB", (480, 320), (10, 120, 200)).save(app_services.config.data_dir / "thumbnails" / f"media-{ids[0]}.jpg")
+    items = client.get(f"/api/media/lqip?ids={ids[0]},{ids[1]},x").json()["items"]
+    assert list(items) == [str(ids[0])] and items[str(ids[0])].startswith("data:image/jpeg;base64,")
+    assert len(items[str(ids[0])]) < 1200
+
+
+def test_review_decisions_can_be_undone(client, app_services):
+    from tests.helpers.fixtures import add_media
+    add_media(app_services.db, 1)
+    with app_services.db.connect() as conn:
+        conn.execute("INSERT INTO people(id, name, face_count) VALUES (1, 'A', 1)")
+        conn.execute("INSERT INTO faces(id, media_id, person_id, bbox, detection, embedding_offset, embedding_sha)"
+                     " VALUES (1, 1, 1, '[0,0,1,1]', 0.9, 0, 'x')")
+    assert client.post("/api/faces/1/review", json={"decision": "no"}).json() == {"ok": True}
+    assert app_services.db.one("SELECT COUNT(*) c FROM rejections")["c"] == 1
+    assert client.post("/api/faces/1/review", json={"decision": "reset"}).json() == {"ok": True}
+    face = app_services.db.one("SELECT review_state, person_id FROM faces WHERE id=1")
+    assert face == {"review_state": "unreviewed", "person_id": 1}
+    assert app_services.db.one("SELECT COUNT(*) c FROM rejections")["c"] == 0
+    assert app_services.db.one("SELECT COUNT(*) c FROM hard_negatives")["c"] == 0
+    assert client.post("/api/faces/1/review", json={"decision": "maybe"}).status_code == 400

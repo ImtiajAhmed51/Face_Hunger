@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { exportZip, mutate, number, queryString } from "../api";
 import { useAction, useApp } from "../context";
-import { useAnimatedList, useDebounced, useResource } from "../hooks";
-import type { Page, Person } from "../types";
+import { useDebounced, useResource } from "../hooks";
+import { VirtualGrid } from "../virtual/VirtualGrid";
+import { useWindowedPages } from "../virtual/useWindowedPages";
+import type { Person } from "../types";
 import { Icon } from "../components/Icon";
 import { MediaCollection } from "../components/MediaGrid";
 import { MergeDialog, RenameDialog } from "../components/PersonDialogs";
@@ -16,7 +18,6 @@ import {
   ErrorNotice,
   Loading,
   PageHeader,
-  Pagination,
   Thumbnail,
 } from "../components/ui";
 
@@ -30,14 +31,15 @@ const PEOPLE_SORT_OPTIONS = [
 export function People() {
   const [q, setQ] = useState("");
   const query = useDebounced(q);
-  const [page, setPage] = useState(1);
+  const [, setPage] = useState(1);
   const [sort, setSort] =
     useState<(typeof PEOPLE_SORT_OPTIONS)[number]["value"]>("faces");
-  const resource = useResource<Page<Person>>(
-    `/people?${queryString({ q: query, page, limit: 48, sort })}`,
-  );
-  const people = resource.data?.items ?? [];
-  const animatedPeople = useAnimatedList(people, (person) => person.id);
+  const navigate = useNavigate();
+  const windowed = useWindowedPages<Person>(`/people?${queryString({ q: query, sort })}`, 96);
+  const resource = {
+    data: windowed.count || !windowed.loading ? { items: windowed.loaded, total: windowed.count } : undefined,
+    loading: windowed.loading, error: windowed.error, reload: windowed.reload,
+  };
   return (
     <>
       <PageHeader
@@ -113,57 +115,46 @@ export function People() {
           )}
         </Empty>
       ) : (
-        <div className="people-grid">
-          {animatedPeople.map(({ item: person, key, phase }) => (
-            <Link
-              className={`person-card anim-item anim-${phase}`}
-              key={key}
-              to={`/people/${person.id}`}
-            >
-              <div className="person-portrait">
-                <Thumbnail
-                  src={
-                    person.representative_face_id
-                      ? `/api/faces/${person.representative_face_id}/thumbnail`
-                      : null
-                  }
-                  alt={person.display_name}
-                  icon="people"
-                />
-                {!!person.unreviewed_count && (
-                  <Badge tone="amber">
-                    {person.unreviewed_count} to review
-                  </Badge>
-                )}
-              </div>
-              <div className="person-caption">
-                <h2>{person.display_name}</h2>
-                <span>{number(person.face_count)} faces</span>
-                <div>
-                  <span>
-                    <Icon name="photo" size={14} />
-                    {number(person.photo_count)}
-                  </span>
-                  <span>
-                    <Icon name="video" size={14} />
-                    {number(person.video_count)}
-                  </span>
-                  <Icon name="arrow" size={16} />
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-      {resource.data && (
-        <Pagination
-          page={page}
-          limit={48}
-          total={resource.data.total}
-          onPage={setPage}
+        <VirtualGrid<Person>
+          label="People"
+          className="people-virtual"
+          count={windowed.count}
+          getItem={windowed.getItem}
+          onRange={windowed.onRange}
+          minCell={170}
+          gap={16}
+          aspect={1}
+          extra={108}
+          onOpen={(_, person) => navigate(`/people/${person.id}`)}
+          renderCell={(person) => person ? <PersonCard person={person} /> : <div className="cell-skeleton" aria-hidden="true" />}
         />
       )}
     </>
+  );
+}
+
+function PersonCard({ person }: { person: Person }) {
+  return (
+    <Link className="person-card" to={`/people/${person.id}`} tabIndex={-1}
+      aria-label={`${person.display_name}, ${number(person.face_count)} faces`}>
+      <div className="person-portrait">
+        <Thumbnail
+          src={person.representative_face_id ? `/api/faces/${person.representative_face_id}/thumbnail` : null}
+          alt={person.display_name}
+          icon="people"
+        />
+        {!!person.unreviewed_count && <Badge tone="amber">{person.unreviewed_count} to review</Badge>}
+      </div>
+      <div className="person-caption">
+        <h2>{person.display_name}</h2>
+        <span>{number(person.face_count)} faces</span>
+        <div>
+          <span><Icon name="photo" size={14} />{number(person.photo_count)}</span>
+          <span><Icon name="video" size={14} />{number(person.video_count)}</span>
+          <Icon name="arrow" size={16} />
+        </div>
+      </div>
+    </Link>
   );
 }
 

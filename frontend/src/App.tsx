@@ -13,6 +13,7 @@ import type { Dashboard } from "./types";
 import { Icon } from "./components/Icon";
 import type { IconName } from "./components/Icon";
 import { JobCard } from "./components/JobCard";
+import { CommandPalette } from "./components/CommandPalette";
 import { MediaCollection } from "./components/MediaGrid";
 import { Dialog, Empty, PageHeader } from "./components/ui";
 import { Cleanup } from "./pages/Cleanup";
@@ -189,6 +190,7 @@ export class ErrorBoundary extends Component<
 
 export function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const main = useRef<HTMLElement>(null);
@@ -212,6 +214,11 @@ export function App() {
   }, [location.pathname]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey) && !event.altKey) {
+        event.preventDefault();
+        setPaletteOpen((value) => !value);
+        return;
+      }
       if (
         event.key !== "/" ||
         event.ctrlKey ||
@@ -286,10 +293,17 @@ export function App() {
             <span className="status-dot active" />
             Your private collection
           </span>
-          <Link to="/settings">
-            <Icon name="shield" size={14} />
-            On your device
-          </Link>
+          <span className="inline-actions">
+            <button type="button" className="button ghost small" onClick={() => setPaletteOpen(true)}
+              aria-keyshortcuts="Control+K Meta+K">
+              <Icon name="search" size={14} />
+              Quick actions <kbd>⌘K</kbd>
+            </button>
+            <Link to="/settings">
+              <Icon name="shield" size={14} />
+              On your device
+            </Link>
+          </span>
         </div>
         <div className="page-content" ref={pageContent}>
         <Routes>
@@ -399,6 +413,8 @@ export function App() {
         </footer>
       </main>
       <BottomNav onMore={() => setMobileOpen(true)} expanded={mobileOpen} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)}
+        pages={navigation.map((item) => ({ to: item.to, label: item.label }))} />
     </>
   );
 }
