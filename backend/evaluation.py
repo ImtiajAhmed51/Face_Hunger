@@ -11,7 +11,6 @@ Usage (API or CLI-style):
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -24,7 +23,6 @@ MIN_LABELED_FACES = 20
 
 def _labeled_pairs(db) -> List[Tuple[int, int, np.ndarray]]:
     """Return (face_id, person_id, embedding) for confirmed / named faces."""
-    from .embeddings import EmbeddingStore  # type hint only
 
     rows = db.all(
         """

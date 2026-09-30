@@ -114,8 +114,9 @@ def _ffprobe_bin():
 
 def _capture(path):
     """Open with OpenCV, trying several backends (macOS / ffmpeg / default)."""
-    import cv2
     from pathlib import Path as _Path
+
+    import cv2
 
     path = _Path(path)
     if not path.is_file():
@@ -404,9 +405,10 @@ def frame_at(path, seconds, *, prefer_ffmpeg: bool = False):
     prefer_ffmpeg=True is quieter for thumbnail generation (avoids OpenCV
     matroska demuxer spam on incomplete / odd containers).
     """
-    import cv2
     import subprocess
     from pathlib import Path as _Path
+
+    import cv2
 
     _silence_cv2_logs()
     suffix = _Path(path).suffix.lower()
@@ -468,6 +470,7 @@ def frame_at(path, seconds, *, prefer_ffmpeg: bool = False):
 
 def thumbnail_bytes(bgr, bbox=None, max_size=640):
     from io import BytesIO
+
     from PIL import Image
 
     image = np.asarray(bgr)

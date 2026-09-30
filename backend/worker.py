@@ -8,8 +8,8 @@ import tempfile
 import threading
 from pathlib import Path
 
-from . import media_processing as media_io
 from . import duplicates as dup_mod
+from . import media_processing as media_io
 from .engine import deduplicate, iou
 from .scanner import authorized_root, resolve_inside, scan
 

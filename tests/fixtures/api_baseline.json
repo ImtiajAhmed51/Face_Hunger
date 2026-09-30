@@ -1,0 +1,1302 @@
+{
+ "operations": {
+  "DELETE /api/duplicates/ignore": {
+   "body": "{\"$ref\": \"#/components/schemas/IgnoreDuplicateBody\"}",
+   "params": []
+  },
+  "DELETE /api/exclusions": {
+   "body": null,
+   "params": []
+  },
+  "DELETE /api/faces/{face_id}": {
+   "body": null,
+   "params": [
+    [
+     "face_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "DELETE /api/faces/{face_id}/permanent": {
+   "body": "{\"$ref\": \"#/components/schemas/ConfirmBody\"}",
+   "params": [
+    [
+     "face_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "DELETE /api/libraries/{library_id}": {
+   "body": "{\"$ref\": \"#/components/schemas/ConfirmBody\"}",
+   "params": [
+    [
+     "library_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "DELETE /api/media/{media_id}": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "DELETE /api/media/{media_id}/soft-original": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "DELETE /api/people/{person_id}": {
+   "body": null,
+   "params": [
+    [
+     "person_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/cleanup": {
+   "body": null,
+   "params": []
+  },
+  "GET /api/clusters": {
+   "body": null,
+   "params": [
+    [
+     "limit",
+     "query",
+     false
+    ],
+    [
+     "page",
+     "query",
+     false
+    ],
+    [
+     "q",
+     "query",
+     false
+    ],
+    [
+     "samples",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/dashboard": {
+   "body": null,
+   "params": []
+  },
+  "GET /api/duplicates": {
+   "body": null,
+   "params": [
+    [
+     "limit",
+     "query",
+     false
+    ],
+    [
+     "threshold",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/engine": {
+   "body": null,
+   "params": []
+  },
+  "GET /api/evaluation": {
+   "body": null,
+   "params": [
+    [
+     "threshold",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/exclusions": {
+   "body": null,
+   "params": []
+  },
+  "GET /api/faces/{face_id}/thumbnail": {
+   "body": null,
+   "params": [
+    [
+     "face_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/index/status": {
+   "body": null,
+   "params": []
+  },
+  "GET /api/libraries": {
+   "body": null,
+   "params": []
+  },
+  "GET /api/media": {
+   "body": null,
+   "params": [
+    [
+     "confidence",
+     "query",
+     false
+    ],
+    [
+     "date_from",
+     "query",
+     false
+    ],
+    [
+     "date_to",
+     "query",
+     false
+    ],
+    [
+     "deleted",
+     "query",
+     false
+    ],
+    [
+     "exclude_people",
+     "query",
+     false
+    ],
+    [
+     "excluded",
+     "query",
+     false
+    ],
+    [
+     "kind",
+     "query",
+     false
+    ],
+    [
+     "limit",
+     "query",
+     false
+    ],
+    [
+     "mode",
+     "query",
+     false
+    ],
+    [
+     "no_faces",
+     "query",
+     false
+    ],
+    [
+     "page",
+     "query",
+     false
+    ],
+    [
+     "people",
+     "query",
+     false
+    ],
+    [
+     "q",
+     "query",
+     false
+    ],
+    [
+     "reviewed",
+     "query",
+     false
+    ],
+    [
+     "sort",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/media/conversion-statuses": {
+   "body": null,
+   "params": [
+    [
+     "ids",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/media/soft-originals": {
+   "body": null,
+   "params": []
+  },
+  "GET /api/media/{media_id}": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/media/{media_id}/conversion-status": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/media/{media_id}/file": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/media/{media_id}/hover-preview": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/media/{media_id}/original": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/media/{media_id}/playback": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/media/{media_id}/preview": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/media/{media_id}/thumbnail": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/people": {
+   "body": null,
+   "params": [
+    [
+     "limit",
+     "query",
+     false
+    ],
+    [
+     "page",
+     "query",
+     false
+    ],
+    [
+     "q",
+     "query",
+     false
+    ],
+    [
+     "sort",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/people/{person_id}": {
+   "body": null,
+   "params": [
+    [
+     "person_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/review": {
+   "body": null,
+   "params": [
+    [
+     "deleted",
+     "query",
+     false
+    ],
+    [
+     "limit",
+     "query",
+     false
+    ],
+    [
+     "page",
+     "query",
+     false
+    ],
+    [
+     "person_id",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/settings": {
+   "body": null,
+   "params": []
+  },
+  "GET /{full_path}": {
+   "body": null,
+   "params": [
+    [
+     "full_path",
+     "path",
+     true
+    ]
+   ]
+  },
+  "HEAD /api/media/{media_id}/file": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "PATCH /api/libraries/{library_id}": {
+   "body": "{\"$ref\": \"#/components/schemas/LibraryPatchBody\"}",
+   "params": [
+    [
+     "library_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "PATCH /api/people/{person_id}": {
+   "body": "{\"$ref\": \"#/components/schemas/NameBody\"}",
+   "params": [
+    [
+     "person_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "PATCH /api/settings": {
+   "body": "{\"$ref\": \"#/components/schemas/SettingsPatch\"}",
+   "params": []
+  },
+  "POST /api/cleanup/backfill-hashes": {
+   "body": "{\"$ref\": \"#/components/schemas/BackfillBody\", \"default\": {\"limit\": 150}}",
+   "params": []
+  },
+  "POST /api/cleanup/check": {
+   "body": null,
+   "params": []
+  },
+  "POST /api/cleanup/separate": {
+   "body": "{\"$ref\": \"#/components/schemas/SeparateBody\"}",
+   "params": []
+  },
+  "POST /api/duplicates/backfill": {
+   "body": "{\"$ref\": \"#/components/schemas/BackfillBody\", \"default\": {\"limit\": 150}}",
+   "params": []
+  },
+  "POST /api/duplicates/ignore": {
+   "body": "{\"$ref\": \"#/components/schemas/IgnoreDuplicateBody\"}",
+   "params": []
+  },
+  "POST /api/engine/load": {
+   "body": null,
+   "params": []
+  },
+  "POST /api/exclusions": {
+   "body": "{\"$ref\": \"#/components/schemas/ExclusionBody\"}",
+   "params": []
+  },
+  "POST /api/export": {
+   "body": "{\"$ref\": \"#/components/schemas/ExportBody\"}",
+   "params": []
+  },
+  "POST /api/faces/move": {
+   "body": "{\"$ref\": \"#/components/schemas/MoveFacesBody\"}",
+   "params": []
+  },
+  "POST /api/faces/{face_id}/restore": {
+   "body": null,
+   "params": [
+    [
+     "face_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/faces/{face_id}/review": {
+   "body": "{\"$ref\": \"#/components/schemas/ReviewBody\"}",
+   "params": [
+    [
+     "face_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/index": {
+   "body": "{\"$ref\": \"#/components/schemas/IndexBody\"}",
+   "params": []
+  },
+  "POST /api/index/reconcile": {
+   "body": null,
+   "params": []
+  },
+  "POST /api/index/{job_id}/cancel": {
+   "body": null,
+   "params": [
+    [
+     "job_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/index/{job_id}/pause": {
+   "body": null,
+   "params": [
+    [
+     "job_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/index/{job_id}/resume": {
+   "body": null,
+   "params": [
+    [
+     "job_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/libraries": {
+   "body": "{\"$ref\": \"#/components/schemas/LibraryBody\"}",
+   "params": []
+  },
+  "POST /api/maintenance": {
+   "body": "{\"$ref\": \"#/components/schemas/MaintenanceBody\"}",
+   "params": []
+  },
+  "POST /api/media/converted-backups/delete": {
+   "body": null,
+   "params": []
+  },
+  "POST /api/media/converted-backups/purge": {
+   "body": null,
+   "params": []
+  },
+  "POST /api/media/empty-deleted": {
+   "body": "{\"$ref\": \"#/components/schemas/ConfirmBody\"}",
+   "params": []
+  },
+  "POST /api/media/move": {
+   "body": "{\"$ref\": \"#/components/schemas/MoveMediaBody\"}",
+   "params": []
+  },
+  "POST /api/media/purge": {
+   "body": "{\"$ref\": \"#/components/schemas/PurgeMediaBody\"}",
+   "params": []
+  },
+  "POST /api/media/soft-originals/purge": {
+   "body": null,
+   "params": []
+  },
+  "POST /api/media/soft-originals/restore-all": {
+   "body": null,
+   "params": []
+  },
+  "POST /api/media/{media_id}/convert": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/media/{media_id}/restore": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/media/{media_id}/reveal": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/media/{media_id}/soft-original/restore": {
+   "body": null,
+   "params": [
+    [
+     "media_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/people/{person_id}/export": {
+   "body": null,
+   "params": [
+    [
+     "person_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/people/{person_id}/merge": {
+   "body": "{\"$ref\": \"#/components/schemas/MergeBody\"}",
+   "params": [
+    [
+     "person_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/people/{person_id}/move-media": {
+   "body": "{\"$ref\": \"#/components/schemas/MoveMediaBody\"}",
+   "params": [
+    [
+     "person_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/people/{person_id}/restore": {
+   "body": null,
+   "params": [
+    [
+     "person_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/review/auto-confirm": {
+   "body": null,
+   "params": [
+    [
+     "aggressive",
+     "query",
+     false
+    ],
+    [
+     "threshold",
+     "query",
+     false
+    ]
+   ]
+  },
+  "POST /api/review/dedupe-video": {
+   "body": null,
+   "params": []
+  },
+  "POST /api/search/parse": {
+   "body": "{\"$ref\": \"#/components/schemas/ParseSearchBody\"}",
+   "params": []
+  },
+  "POST /api/settings/autotune": {
+   "body": null,
+   "params": []
+  }
+ },
+ "routes": [
+  {
+   "methods": [
+    "GET",
+    "HEAD"
+   ],
+   "name": "openapi",
+   "path": "/openapi.json"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "dashboard",
+   "path": "/api/dashboard"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "get_engine",
+   "path": "/api/engine"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "load_engine",
+   "path": "/api/engine/load"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "list_people",
+   "path": "/api/people"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "get_person",
+   "path": "/api/people/{person_id}"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "list_clusters",
+   "path": "/api/clusters"
+  },
+  {
+   "methods": [
+    "PATCH"
+   ],
+   "name": "rename_person",
+   "path": "/api/people/{person_id}"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "merge_person",
+   "path": "/api/people/{person_id}/merge"
+  },
+  {
+   "methods": [
+    "DELETE"
+   ],
+   "name": "soft_delete_person",
+   "path": "/api/people/{person_id}"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "restore_person",
+   "path": "/api/people/{person_id}/restore"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "export_person",
+   "path": "/api/people/{person_id}/export"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "move_person_media",
+   "path": "/api/people/{person_id}/move-media"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "move_faces",
+   "path": "/api/faces/move"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "review_face",
+   "path": "/api/faces/{face_id}/review"
+  },
+  {
+   "methods": [
+    "DELETE"
+   ],
+   "name": "soft_delete_face",
+   "path": "/api/faces/{face_id}"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "restore_face",
+   "path": "/api/faces/{face_id}/restore"
+  },
+  {
+   "methods": [
+    "DELETE"
+   ],
+   "name": "permanent_delete_face",
+   "path": "/api/faces/{face_id}/permanent"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "face_thumbnail",
+   "path": "/api/faces/{face_id}/thumbnail"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "list_media",
+   "path": "/api/media"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "media_conversion_statuses",
+   "path": "/api/media/conversion-statuses"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "list_soft_originals",
+   "path": "/api/media/soft-originals"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "purge_soft_originals",
+   "path": "/api/media/soft-originals/purge"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "restore_all_soft_originals",
+   "path": "/api/media/soft-originals/restore-all"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "purge_converted_backups",
+   "path": "/api/media/converted-backups/purge"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "delete_converted_backup",
+   "path": "/api/media/converted-backups/delete"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "get_media",
+   "path": "/api/media/{media_id}"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "media_thumbnail",
+   "path": "/api/media/{media_id}/thumbnail"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "media_preview",
+   "path": "/api/media/{media_id}/preview"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "media_hover_preview",
+   "path": "/api/media/{media_id}/hover-preview"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "media_file",
+   "path": "/api/media/{media_id}/file"
+  },
+  {
+   "methods": [
+    "HEAD"
+   ],
+   "name": "media_file",
+   "path": "/api/media/{media_id}/file"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "media_conversion_status",
+   "path": "/api/media/{media_id}/playback"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "media_conversion_status",
+   "path": "/api/media/{media_id}/conversion-status"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "media_start_convert",
+   "path": "/api/media/{media_id}/convert"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "media_original_file",
+   "path": "/api/media/{media_id}/original"
+  },
+  {
+   "methods": [
+    "DELETE"
+   ],
+   "name": "delete_soft_original",
+   "path": "/api/media/{media_id}/soft-original"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "restore_soft_original",
+   "path": "/api/media/{media_id}/soft-original/restore"
+  },
+  {
+   "methods": [
+    "DELETE"
+   ],
+   "name": "soft_delete_media",
+   "path": "/api/media/{media_id}"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "purge_media",
+   "path": "/api/media/purge"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "restore_media",
+   "path": "/api/media/{media_id}/restore"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "empty_deleted",
+   "path": "/api/media/empty-deleted"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "list_review",
+   "path": "/api/review"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "list_exclusions",
+   "path": "/api/exclusions"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "add_exclusion",
+   "path": "/api/exclusions"
+  },
+  {
+   "methods": [
+    "DELETE"
+   ],
+   "name": "remove_exclusion",
+   "path": "/api/exclusions"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "parse_search",
+   "path": "/api/search/parse"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "get_cleanup",
+   "path": "/api/cleanup"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "backfill_hashes",
+   "path": "/api/cleanup/backfill-hashes"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "list_duplicates",
+   "path": "/api/duplicates"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "backfill_dino_embeddings",
+   "path": "/api/duplicates/backfill"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "ignore_duplicate_group",
+   "path": "/api/duplicates/ignore"
+  },
+  {
+   "methods": [
+    "DELETE"
+   ],
+   "name": "unignore_duplicate_group",
+   "path": "/api/duplicates/ignore"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "reveal_media",
+   "path": "/api/media/{media_id}/reveal"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "move_media_files",
+   "path": "/api/media/move"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "cleanup_check",
+   "path": "/api/cleanup/check"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "cleanup_separate",
+   "path": "/api/cleanup/separate"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "list_libraries",
+   "path": "/api/libraries"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "add_library",
+   "path": "/api/libraries"
+  },
+  {
+   "methods": [
+    "PATCH"
+   ],
+   "name": "patch_library",
+   "path": "/api/libraries/{library_id}"
+  },
+  {
+   "methods": [
+    "DELETE"
+   ],
+   "name": "delete_library",
+   "path": "/api/libraries/{library_id}"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "start_index",
+   "path": "/api/index"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "index_status",
+   "path": "/api/index/status"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "pause_job",
+   "path": "/api/index/{job_id}/pause"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "resume_job",
+   "path": "/api/index/{job_id}/resume"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "cancel_job",
+   "path": "/api/index/{job_id}/cancel"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "start_reconcile",
+   "path": "/api/index/reconcile"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "get_settings",
+   "path": "/api/settings"
+  },
+  {
+   "methods": [
+    "PATCH"
+   ],
+   "name": "patch_settings",
+   "path": "/api/settings"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "autotune_threshold",
+   "path": "/api/settings/autotune"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "run_evaluation",
+   "path": "/api/evaluation"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "dedupe_video_review",
+   "path": "/api/review/dedupe-video"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "auto_confirm_high_confidence",
+   "path": "/api/review/auto-confirm"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "maintenance",
+   "path": "/api/maintenance"
+  },
+  {
+   "methods": [
+    "POST"
+   ],
+   "name": "export_media",
+   "path": "/api/export"
+  },
+  {
+   "methods": [],
+   "name": "assets",
+   "path": "/assets"
+  },
+  {
+   "methods": [
+    "GET"
+   ],
+   "name": "spa",
+   "path": "/{full_path:path}"
+  }
+ ],
+ "schemas": {
+  "BackfillBody": [
+   "limit"
+  ],
+  "ConfirmBody": [
+   "confirm"
+  ],
+  "ExclusionBody": [
+   "media_id",
+   "person_id"
+  ],
+  "ExportBody": [
+   "filters",
+   "media_ids"
+  ],
+  "HTTPValidationError": [
+   "detail"
+  ],
+  "IgnoreDuplicateBody": [
+   "media_ids"
+  ],
+  "IndexBody": [
+   "force",
+   "library_id",
+   "retry_failed"
+  ],
+  "LibraryBody": [
+   "ignored",
+   "path"
+  ],
+  "LibraryPatchBody": [
+   "ignored"
+  ],
+  "MaintenanceBody": [
+   "action",
+   "confirm"
+  ],
+  "MergeBody": [
+   "target_id"
+  ],
+  "MoveFacesBody": [
+   "face_ids",
+   "name",
+   "target_id"
+  ],
+  "MoveMediaBody": [
+   "destination",
+   "media_ids"
+  ],
+  "NameBody": [
+   "name"
+  ],
+  "ParseSearchBody": [
+   "query"
+  ],
+  "PurgeMediaBody": [
+   "confirm",
+   "media_ids"
+  ],
+  "ReviewBody": [
+   "decision"
+  ],
+  "SeparateBody": [
+   "person_a",
+   "person_b"
+  ],
+  "SettingsPatch": [
+   "adaptive_video",
+   "auto_confirm",
+   "auto_confirm_threshold",
+   "detection_size",
+   "dino_similarity_threshold",
+   "matching_threshold",
+   "min_face_quality",
+   "multi_scale",
+   "review_threshold",
+   "theme",
+   "video_interval"
+  ],
+  "ValidationError": [
+   "ctx",
+   "input",
+   "loc",
+   "msg",
+   "type"
+  ]
+ }
+}

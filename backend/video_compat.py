@@ -8,15 +8,12 @@ Original is never permanently deleted; only renamed aside after success.
 from __future__ import annotations
 
 import json
-import sys
 import logging
 import os
-import re
-import shutil
 import subprocess
+import sys
 import threading
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 

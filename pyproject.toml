@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 faiss = ["faiss-cpu>=1.9,<2"]
 test = ["pytest>=8.3,<10", "httpx>=0.28,<1"]
+dev = ["ruff>=0.6,<1"]
 
 [project.scripts]
 face-hunger = "backend.__main__:main"
@@ -27,3 +28,11 @@ include = ["backend*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["ai: uses the real buffalo_l models"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+extend-exclude = ["frontend", "data", "models"]
+
+[tool.ruff.lint]
+select = ["F", "E9", "I"]
