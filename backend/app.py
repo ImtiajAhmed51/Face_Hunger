@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import Config
+from .ops.logging import RequestIdMiddleware
 from .routers import (
     cleanup,
     dashboard,
@@ -18,6 +19,7 @@ from .routers import (
     exclusions,
     export,
     faces,
+    health,
     jobs,
     libraries,
     media,
@@ -46,6 +48,7 @@ ROUTERS = (
     settings.router,
     export.router,
     models.router,
+    health.router,
 )
 
 
@@ -70,6 +73,7 @@ def create_app(config: Optional[Config] = None, services: Optional[Services] = N
         lifespan=lifespan,
     )
     app.state.services = services
+    app.add_middleware(RequestIdMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:8765", "http://localhost:8765", "http://127.0.0.1:5173", "http://localhost:5173"],

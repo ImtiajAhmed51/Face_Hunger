@@ -69,15 +69,22 @@ Your original files never leave the machine. The app only builds a local index (
 ```
 local-face-search/
 ├── backend/
-│   ├── __main__.py      # FastAPI app & API routes
-│   ├── db.py            # SQLite schema & migrations
-│   ├── clustering.py    # Centroids / matching
-│   ├── engine.py        # InsightFace load
-│   ├── scanner.py       # Library scan pipeline
-│   ├── embeddings.py    # Embedding store
-│   ├── worker.py        # Background jobs
-│   ├── threshold_tuning.py
+│   ├── __main__.py      # Entry point (python -m backend)
+│   ├── app.py           # FastAPI app factory
+│   ├── routers/         # One APIRouter per area (media, people, search, jobs, health, ...)
+│   ├── services/        # Service container, presenters, hybrid search
+│   ├── schemas.py       # Pydantic request bodies
+│   ├── migrations.py    # Versioned migrations (automatic backup first)
+│   ├── vectors/         # Multi-model embedding stores + usearch indexes
+│   ├── ml/              # ONNX runtime: SigLIP 2, DINOv2, provider selection
+│   ├── jobs/            # Priority job queue, handlers, file watcher
+│   ├── ops/             # Structured logging, health checks, backup/restore
+│   ├── worker.py        # Full-library scans
 │   └── ...
+├── scripts/fetch_models.py   # One-time manual model download
+├── scripts/bench_search.py   # Hybrid-search latency benchmark
+├── docs/DECISIONS.md, docs/PERFORMANCE.md
+├── tests/               # pytest (pytest -m perf for benchmarks)
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx
@@ -130,6 +137,15 @@ npm install
 npm run build
 ```
 
+### Optional models (text search, visual similarity)
+
+```bash
+python scripts/fetch_models.py   # SigLIP 2 + DINOv2-small into ./models (Apache-2.0)
+```
+
+Nothing is ever downloaded at runtime. Without these models, face search, filters and
+duplicates by hash all keep working.
+
 ### Run
 
 ```bash
@@ -147,6 +163,23 @@ cd frontend && npm run build
 ```
 
 ---
+
+## Checks
+
+```bash
+ruff check backend tests scripts && python -m pytest -q        # backend
+python -m pytest -m perf                                       # 100k search benchmark
+cd frontend && npx tsc -b && npx vitest run && npx vite build  # frontend
+```
+
+## Operations
+
+- `GET /api/health` (liveness), `GET /api/health/library` (storage, integrity), Health page in the app.
+- Backups: Health page, `POST /api/backup/export`, or `python -m backend.ops.backup export`.
+  Restore is verified, staged, and applied on the next start; your current data is moved to
+  `data/backups/pre-restore-*`, never deleted.
+- Logs are JSON lines with a `request_id` (set `LFS_LOG_FORMAT=text` for plain text).
+- `LFS_HOST=127.0.0.1` keeps the server off your local network.
 
 ## Recommended settings (starting point)
 

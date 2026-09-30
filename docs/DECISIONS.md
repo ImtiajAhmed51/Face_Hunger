@@ -109,3 +109,22 @@ Short log of choices and dependencies. One entry per decision, newest last.
 - **Styles** split along the existing `@layer` blocks into `styles/tokens.css` (design tokens),
   `base.css`, `components/*.css` and breakpoint/a11y layers. The cascade is unchanged; built CSS
   was byte-for-byte equivalent in size before the new components were added.
+
+## Health and operations
+- **Logging**: stdlib `logging` with a JSON formatter and a context-var request id, set by a
+  pure-ASGI middleware (streaming-safe for SSE and video). Honours an incoming `X-Request-ID`,
+  echoes it in the response, and replaces uvicorn's access log. No new dependency.
+- **Integrity checks report; they never repair.** A deleted original is reported as "newly
+  missing" and left for the existing Cleanup > Check files action. Checksums are verified on a
+  random sample (default 5,000 per store; `verify_sample` raises it) so a check takes seconds on a
+  real library, not minutes.
+- **Backups exclude originals and derived data** (thumbnails optional; ANN indexes rebuild
+  themselves). The SQLite snapshot uses the online backup API, so the app keeps running. Stores are
+  append-only, so each is copied up to its size at the start of the backup.
+- **Restore is staged and applied on the next start** because the database, open file
+  descriptors and in-memory indexes cannot be swapped safely under a running server. Current files
+  are moved to `data/backups/pre-restore-<time>/`, never deleted. Only archives inside
+  `data/exports/` can be restored via the API (no arbitrary paths); the CLI accepts any path.
+- **Config validation**: pydantic field constraints (port, variants, levels) fail at startup.
+  Environment checks (data dir writable = fatal; low disk, missing roots or models, listening on
+  0.0.0.0 = warnings) show on the Health page.

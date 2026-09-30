@@ -18,6 +18,7 @@ from ..jobs.handlers import register_all as register_handlers
 from ..jobs.manager import PRIORITY, JobManager
 from ..jobs.watcher import LibraryWatcher
 from ..ml.models import ModelHub
+from ..ops.backup import apply_pending_restore
 from ..vectors.spaces import Space, VectorSpaces
 from ..vectors.specs import FACE_ARCFACE
 from ..video_compat import init_video_compat
@@ -29,6 +30,9 @@ class Services:
     def __init__(self, config: Config, engine: Optional[Engine] = None):
         config.prepare()
         self.config = config
+        self.config_warnings = config.validate_runtime()
+        # A restore staged by /api/backup/restore is swapped in before anything opens the files.
+        self.restored = apply_pending_restore(config.data_dir)
         self.db = Database(config.data_dir / "index.sqlite")
         self.store = EmbeddingStore(config.data_dir / "embeddings.bin")
         self.engine = engine if engine is not None else Engine(config)

@@ -64,3 +64,11 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   **8 ms** server time. "Find similar" on the adopted 16k DINOv2 vectors: 875 ms on first use
   (builds the HNSW index), then **138 ms**.
 - Bundle: initial JS **141 KB gzip** (budget 250 KB), CSS 22.5 KB gzip.
+
+## Health (real library: 16,076 media, 141,432 faces, 16,075 legacy DINOv2 vectors)
+
+- Full integrity check: **3.1 s** (stat of every original, 2 x 5,000 checksum samples across
+  365 MB of embeddings, SQLite `quick_check` on a 113 MB database, index load). Result: no errors;
+  one original missing from disk that was not yet flagged.
+- First `GET /api/health/library`: 4.5 s, walking ~2 GB / ~140k thumbnail files. Cached for
+  5 minutes afterwards (67 ms).

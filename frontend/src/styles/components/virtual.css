@@ -163,3 +163,38 @@
     min-height: 0;
   }
 }
+
+@layer components {
+  .health-problems,
+  .health-bars,
+  .health-backups {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .health-problems li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .health-bars li {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(80px, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+  }
+  .health-bars progress,
+  .health-bars meter {
+    width: 100%;
+    accent-color: var(--teal);
+  }
+  .health-backups li {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+}

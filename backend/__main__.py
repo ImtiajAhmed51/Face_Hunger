@@ -23,9 +23,11 @@ import uvicorn
 
 from .app import create_app
 from .config import Config
+from .ops import logging as structured_logging
 
 config = Config()
 config.prepare()
+structured_logging.configure(config.log_level, config.log_format)
 app = create_app(config)
 
 
@@ -35,12 +37,16 @@ def main():
     print(f"  data_dir  = {config.data_dir}")
     print(f"  model_dir = {config.model_dir}")
     print(f"  frontend  = {config.frontend_dir}")
+    for warning in app.state.services.config_warnings:
+        print(f"  warning: {warning}")
     uvicorn.run(
         "backend.__main__:app",
         host=config.host,
         port=config.port,
         reload=False,
-        log_level="info",
+        log_level=config.log_level.lower(),
+        access_log=False,  # replaced by the request-id access log
+        log_config=None,  # keep our structured handlers
     )
 
 

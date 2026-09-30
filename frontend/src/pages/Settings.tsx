@@ -428,8 +428,8 @@ export function Settings() {
             )}
             {active && (
               <p className="small-text muted">
-                Only one job runs at a time. Progress is polled from the local
-                server every 2 seconds.
+                Only one job runs at a time. Progress streams live from the local
+                server.
               </p>
             )}
             <ErrorNotice error={engine.error} retry={engine.reload} />
@@ -476,6 +476,7 @@ export function Settings() {
               </button>
             </div>
           </section>
+          <ModelRuntime />
           {resource.data && <Preferences settings={resource.data} />}
           <Exclusions />
         </div>
@@ -563,5 +564,50 @@ export function Settings() {
         success="Reconciliation started."
       />
     </>
+  );
+}
+
+interface ModelStatus {
+  provider_order: string[];
+  idle_seconds: number;
+  models: { key: string; role: string; installed: boolean; license: string;
+    slots: { name: string; loaded: boolean; provider_label: string | null; failed_providers: string[]; error: string | null }[] }[];
+}
+
+/** Which ONNX models are installed and the execution provider each one runs on. */
+function ModelRuntime() {
+  const status = useResource<ModelStatus>("/models");
+  return (
+    <section className="settings-section" aria-labelledby="models-heading">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">SEARCH & SIMILARITY MODELS</p>
+          <h2 id="models-heading">AI models on this device</h2>
+        </div>
+      </div>
+      <ErrorNotice error={status.error} retry={status.reload} />
+      {status.data && (
+        <>
+          <dl className="metadata provider-metadata">
+            <div><dt>Provider order</dt><dd>{status.data.provider_order.join(" → ") || "CPU"}</dd></div>
+            <div><dt>Unload when idle</dt><dd>{Math.round(status.data.idle_seconds / 60)} min</dd></div>
+            {status.data.models.map((model) => (
+              <div key={model.key}>
+                <dt>{model.key} <span className="muted small-text">({model.role}, {model.license})</span></dt>
+                <dd>
+                  {!model.installed ? "Not installed" : model.slots.map((slot) =>
+                    `${slot.name}: ${slot.loaded ? slot.provider_label ?? "loaded" : "idle"}${slot.failed_providers.length ? ` (fell back from ${slot.failed_providers.join(", ")})` : ""}`).join(" · ")}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {status.data.models.some((model) => !model.installed) && (
+            <p className="small-text muted">
+              Install once with <code>python scripts/fetch_models.py</code>. Nothing is downloaded automatically.
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }

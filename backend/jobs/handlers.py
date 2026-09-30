@@ -164,8 +164,46 @@ def make_rebuild_index(services):
     return handler
 
 
+def make_integrity_check(services):
+    from ..ops.health import integrity_check
+
+    def handler(ctx: JobContext):
+        report = integrity_check(services, checkpoint=ctx.checkpoint, progress=lambda **p: ctx.progress(**p),
+                                 verify_sample=int(ctx.payload.get("verify_sample", 5000)))
+        return {"ok": report["ok"], "problems": len(report["problems"]), "processed": 5, "total": 5}
+
+    return handler
+
+
+def make_backup_export(services):
+    from ..ops.backup import export_backup
+
+    def handler(ctx: JobContext):
+        result = export_backup(services.db, services.config.data_dir,
+                               include_thumbnails=bool(ctx.payload.get("include_thumbnails")),
+                               checkpoint=ctx.checkpoint, progress=lambda **p: ctx.progress(**p))
+        return {"name": result["name"], "bytes": result["bytes"], "current": None}
+
+    return handler
+
+
+def make_backup_restore(services):
+    from ..ops.backup import stage_restore
+
+    def handler(ctx: JobContext):
+        name = ctx.payload["name"]
+        path = services.config.data_dir / "exports" / name
+        result = stage_restore(path, services.config.data_dir, checkpoint=ctx.checkpoint)
+        return {**result, "current": None}
+
+    return handler
+
+
 def register_all(services) -> None:
     jobs = services.jobs
+    jobs.register("integrity_check", make_integrity_check(services))
+    jobs.register("backup_export", make_backup_export(services))
+    jobs.register("backup_restore", make_backup_restore(services))
     jobs.register("ingest", make_ingest(services))
     jobs.register("embed_backfill", make_embed_backfill(services))
     jobs.register("rebuild_index", make_rebuild_index(services))

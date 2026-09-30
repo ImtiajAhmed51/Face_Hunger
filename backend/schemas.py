@@ -132,3 +132,15 @@ class JobBody(BaseModel):
     kind: str
     payload: dict = Field(default_factory=dict)
     priority: int = Field(50, ge=0, le=100)
+
+
+class IntegrityCheckBody(BaseModel):
+    verify_sample: int = Field(5000, ge=100, le=10_000_000)
+
+
+class BackupExportBody(BaseModel):
+    include_thumbnails: bool = False
+
+
+class BackupRestoreBody(BaseModel):
+    name: str

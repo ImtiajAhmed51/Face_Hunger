@@ -24,6 +24,7 @@ import { People, PersonProfile } from "./pages/People";
 import { Review } from "./pages/Review";
 import { Search } from "./pages/Search";
 import { Settings } from "./pages/Settings";
+import { Health } from "./pages/Health";
 
 const navigation: {
   to: string;
@@ -43,6 +44,7 @@ const navigation: {
   { to: "/duplicates", label: "Duplicates", icon: "merge" },
   { to: "/cleanup", label: "Cleanup", icon: "cleanup" },
   { to: "/settings", label: "Settings", icon: "settings", group: true },
+  { to: "/health", label: "Health", icon: "shield" },
 ];
 
 const primaryNav: { to: string; label: string; icon: IconName }[] = [
@@ -388,6 +390,7 @@ export function App() {
           <Route path="/duplicates" element={<Duplicates />} />
           <Route path="/cleanup" element={<Cleanup />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/health" element={<Health />} />
           <Route
             path="*"
             element={
