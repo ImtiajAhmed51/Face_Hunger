@@ -281,7 +281,7 @@ class Worker:
                 staged.execute(
                     "CREATE TABLE detections(id INTEGER PRIMARY KEY,bbox TEXT,timestamp REAL,detection REAL,"
                     "embedding_offset INTEGER,embedding_sha TEXT,jpeg BLOB,face_id INTEGER,"
-                    "quality REAL DEFAULT 0.5,track_id INTEGER)"
+                    "quality REAL DEFAULT 0.5,track_id INTEGER,landmarks TEXT)"
                 )
                 metadata, jpeg, duplicates = self._stage(path, kind, settings, staged)
                 self._checkpoint()
@@ -372,10 +372,11 @@ class Worker:
                                 "last_ts": timestamp,
                             })
                     staged.execute(
-                        "INSERT INTO detections(bbox,timestamp,detection,embedding_offset,embedding_sha,jpeg,quality,track_id) "
-                        "VALUES (?,?,?,?,?,?,?,?)",
+                        "INSERT INTO detections(bbox,timestamp,detection,embedding_offset,embedding_sha,jpeg,quality,track_id,"
+                        "landmarks) VALUES (?,?,?,?,?,?,?,?,?)",
                         (json.dumps(face["bbox"]), timestamp, float(face["detection"]),
-                         offset, sha, jpeg, quality, track_id),
+                         offset, sha, jpeg, quality, track_id,
+                         json.dumps(face["landmarks"]) if face.get("landmarks") is not None else None),
                     )
                     frame_faces.append(face)
                 if timestamp is not None:
@@ -458,19 +459,20 @@ class Worker:
                 quality = float(detection["quality"] if detection["quality"] is not None else 0.5)
                 track_id = detection["track_id"]
                 values = (detection["bbox"], timestamp, detection["detection"],
-                          detection["embedding_offset"], detection["embedding_sha"], quality, track_id)
+                          detection["embedding_offset"], detection["embedding_sha"], quality, track_id,
+                          detection["landmarks"])
                 if match is not None:
                     face_id = match["id"]
                     conn.execute(
                         "UPDATE faces SET bbox=?,timestamp=?,detection=?,embedding_offset=?,embedding_sha=?,"
-                        "quality=?,track_id=?,deleted_at=? WHERE id=?",
+                        "quality=?,track_id=?,landmarks=?,deleted_at=? WHERE id=?",
                         (*values, match["deleted_at"], face_id),
                     )
                     conn.execute("UPDATE prior SET reused=1 WHERE id=?", (face_id,))
                 else:
                     face_id = conn.execute(
                         "INSERT INTO faces(bbox,timestamp,detection,embedding_offset,embedding_sha,"
-                        "quality,track_id,media_id) VALUES (?,?,?,?,?,?,?,?)",
+                        "quality,track_id,landmarks,media_id) VALUES (?,?,?,?,?,?,?,?,?)",
                         (*values, media_id),
                     ).lastrowid
                 staged.execute("UPDATE detections SET face_id=? WHERE id=?", (face_id, detection["id"]))

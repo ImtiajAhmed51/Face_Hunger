@@ -324,6 +324,7 @@ const MEDIA_SORT_OPTIONS = [
   { value: "size_desc", label: "Size · largest" },
   { value: "size_asc", label: "Size · smallest" },
   { value: "name", label: "Name A–Z" },
+  { value: "best", label: "Best shots first" },
 ] as const;
 
 export function MediaCollection({

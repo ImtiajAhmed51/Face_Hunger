@@ -103,3 +103,10 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   requests with tiles off.
 - **Metadata backfill on the real library**: 16,076 items in 82 s (~196/s) on CPU; 2,425
   geotagged; 7,323 dated from file name or mtime.
+
+## Quality scoring
+
+- Burst fixture (50 groups x 5 frames): **94% top-1** (seed 11); mean 93.5% over seeds 0-7, worst
+  88%. Mild degradations: 64% (seed 12 fixture), 69% mean.
+- Real library, CPU, face landmarks re-detected on the fly for pre-existing faces: **14.8 media/s**
+  steady state (16,076 items in about 18 min in the background, lowest priority).

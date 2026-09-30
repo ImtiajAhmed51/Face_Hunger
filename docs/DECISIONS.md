@@ -176,3 +176,34 @@ Short log of choices and dependencies. One entry per decision, newest last.
   neighbouring points; exact id lists would need very long URLs.
 - **i18n**: a tiny in-house module (no dependency), English + Bangla for every new string, with
   a per-device locale mirrored to `<html lang>`. Existing screens are not translated yet.
+
+## Phase 2: quality and best shot
+- **Versioned storage**: raw signals in `quality_signals` (signals version) and composites in
+  `quality_scores` (formula version). A new formula only re-runs arithmetic
+  (`QualityService.rescore`); a new signal definition bumps `SIGNALS_VERSION` and recomputes.
+- **Formula v1 weights**: sharpness 0.28, exposure 0.14, noise 0.10, face quality 0.14, eyes open
+  0.14, smile 0.06, aesthetic 0.14. Missing signals (no faces, no SigLIP vector yet) are dropped
+  and the rest renormalised, so landscapes are not penalised for having no eyes.
+- **Sharpness subtracts the noise contribution** (20 x sigma^2 for the 4-neighbour Laplacian, with
+  sigma from Immerkaer's estimator). Without it, noisy frames won 29 of 50 bursts. **Noise** is the
+  worse of sensor noise and JPEG 8x8 blockiness (measured at native resolution so the block grid
+  stays aligned); without blockiness, heavily compressed frames won.
+- **Exposure** penalises clipping and uses a dead zone around mid-grey, so high-key and low-key
+  photos are not marked down.
+- **Eyes open / smile use the 5-point detector landmarks**, now stored per face (`faces.landmarks`;
+  older faces are re-detected once by the scoring job). No 106-point landmark model is installed,
+  so eye openness is a pixel heuristic on eye patches located by the landmarks (dark iris blob
+  height/width; the less-open eye counts). Smile is mouth-corner width over eye distance. Both are
+  rough on profiles; a small ONNX classifier can replace them later without changing the tables.
+- **Aesthetic** is a zero-shot linear head on stored SigLIP 2 image embeddings: the text-embedding
+  direction "good photo prompts" minus "bad photo prompts" (`scripts/build_aesthetic_head.py`, run
+  automatically by `fetch_models.py`). There was no labelled aesthetics data offline to train a
+  proper head. Without the head or a vector, the signal is simply absent.
+- **Burst fixture: 50 groups, labelled by construction, not by humans.** Each group is one clean
+  frame plus 4 siblings with realistic degradations (Gaussian or motion blur, noise, under/over
+  exposure, heavy JPEG), cropped from the 7 camera RAW samples. The clean frame is the correct
+  pick. Sources that are themselves tiny or JPEG-blocky are excluded, because a degraded copy of a
+  degraded image has no well-defined best. **Result: 94% top-1** on the fixture (seed 11); 93.5%
+  mean over 8 other seeds (worst 88%); **64%** on a "mild degradations" variant (69% mean), where
+  small exposure shifts are genuinely ambiguous. Noise scale (8 grey levels) was calibrated on
+  seeds 0-7 of this synthetic set, which is a bias to keep in mind.

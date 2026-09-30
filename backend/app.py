@@ -26,6 +26,7 @@ from .routers import (
     media,
     models,
     people,
+    quality,
     review,
     search,
     settings,
@@ -51,6 +52,7 @@ ROUTERS = (
     models.router,
     health.router,
     geo.router,
+    quality.router,
 )
 
 

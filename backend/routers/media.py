@@ -11,7 +11,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 
-from .. import imaging
+from .. import imaging, scoring
 from ..deps import cluster, config, db, video_compat
 from ..media_http import hover_clip, media_response
 from ..media_processing import _ffmpeg_bin, load_image
@@ -178,6 +178,9 @@ def list_media(
         order_sql = "m.size ASC, m.id ASC"
     elif sort_key == "name":
         order_sql = "m.name COLLATE NOCASE ASC, m.id ASC"
+    elif sort_key == "best":
+        order_sql = (f"COALESCE((SELECT q.score FROM quality_scores q WHERE q.media_id=m.id "
+                     f"AND q.formula_version={int(scoring.FORMULA_VERSION)}), -1) DESC, m.id DESC")
     else:
         order_sql = "COALESCE(m.captured_at, m.indexed_at) DESC, m.id DESC"
 

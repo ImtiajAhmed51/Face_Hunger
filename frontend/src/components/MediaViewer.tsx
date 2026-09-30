@@ -5,6 +5,8 @@ import { useAction, useApp } from "../context";
 import { useMounted, useResource } from "../hooks";
 import type { Face, MediaDetail } from "../types";
 import { FaceActions } from "./FaceActions";
+import { QualityPanel } from "./QualityPanel";
+import { useT, type MessageKey } from "../i18n";
 import { Icon } from "./Icon";
 import {
   Badge,
@@ -29,6 +31,7 @@ export function MediaViewer(props: ViewerProps) {
 }
 
 function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerProps & { onNavigate: (id: number) => void }) {
+  const t = useT();
   const current = id;
   const mounted = useMounted();
   const convertLock = useRef(false);
@@ -647,6 +650,32 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                     <dt>Captured</dt>
                     <dd>{dateLabel(media.captured_at)}</dd>
                   </div>
+                  {media.date_source && (
+                    <div>
+                      <dt>{t("capture.dateSource")}</dt>
+                      <dd>{t(`capture.source.${media.date_source}` as MessageKey)}</dd>
+                    </div>
+                  )}
+                  {(media.camera_make || media.camera_model) && (
+                    <div>
+                      <dt>{t("capture.camera")}</dt>
+                      <dd>{[media.camera_make, media.camera_model].filter(Boolean).join(" ")}</dd>
+                    </div>
+                  )}
+                  {media.lens && (
+                    <div>
+                      <dt>{t("capture.lens")}</dt>
+                      <dd>{media.lens}</dd>
+                    </div>
+                  )}
+                  {media.gps_lat != null && media.gps_lon != null && (
+                    <div>
+                      <dt>{t("capture.location")}</dt>
+                      <dd>
+                        <Link to="/map" onClick={onClose}>{media.gps_lat.toFixed(5)}, {media.gps_lon.toFixed(5)}</Link>
+                      </dd>
+                    </div>
+                  )}
                   <div>
                     <dt>Dimensions</dt>
                     <dd>
@@ -685,6 +714,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                   )}
                 </dl>
               </section>
+              <QualityPanel mediaId={media.id} />
               <div className="viewer-file-actions">
                 {media.kind === "video" && needsConvert && !converting && !media.missing && (
                   <button

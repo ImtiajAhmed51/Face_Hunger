@@ -23,6 +23,7 @@ from ..vectors.spaces import Space, VectorSpaces
 from ..vectors.specs import FACE_ARCFACE
 from ..video_compat import init_video_compat
 from ..worker import Worker
+from .quality import QualityService
 from .search import HybridSearch
 
 
@@ -47,6 +48,7 @@ class Services:
         self.ingest_worker = Worker(self.db, config, self.engine, self.store, self.cluster)
         self.ingest_worker.on_indexed = self.on_media_indexed
         self.search = HybridSearch(self)
+        self.quality = QualityService(self)
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)
         register_handlers(self)
@@ -93,7 +95,7 @@ class Services:
     def _make_worker(self) -> Worker:
         worker = Worker(self.db, self.config, self.engine, self.store, self.cluster)
         worker.on_indexed = self.on_media_indexed
-        worker.on_finished = lambda status: self.schedule_embedding_backfill() if status == "completed" else None
+        worker.on_finished = lambda status: self.after_indexing() if status == "completed" else None
         return worker
 
     def start_background(self) -> None:
@@ -103,6 +105,17 @@ class Services:
             self.watcher.start()
         self.schedule_embedding_backfill()
         self.schedule_metadata_backfill()
+        self.schedule_quality()
+
+    def after_indexing(self) -> None:
+        self.schedule_embedding_backfill()
+        self.schedule_quality()
+
+    def schedule_quality(self) -> None:
+        # After embeddings (so the aesthetic signal is usually available on the first pass).
+        if self.db.one("SELECT 1 AS x FROM media m LEFT JOIN quality_signals q ON q.media_id=m.id "
+                       "WHERE m.deleted_at IS NULL AND m.status IN ('indexed','stale') AND q.media_id IS NULL LIMIT 1"):
+            self.jobs.enqueue("quality_scoring", {}, priority=PRIORITY["background"] + 5, dedupe_key="quality_scoring")
 
     def schedule_metadata_backfill(self) -> None:
         from ..metadata import META_VERSION

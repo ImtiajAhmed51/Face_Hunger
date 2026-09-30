@@ -36,6 +36,13 @@ export interface Media {
     mode?: string | null;
   };
   error?: string | null;
+  /** Capture metadata: date_source is exif | container | filename | mtime. */
+  date_source?: string | null;
+  camera_make?: string | null;
+  camera_model?: string | null;
+  lens?: string | null;
+  gps_lat?: number | null;
+  gps_lon?: number | null;
   /** Soft-kept pre-conversion original on disk */
   has_original?: boolean;
   original_path?: string | null;
@@ -181,7 +188,7 @@ export interface MediaFilters {
   excluded?: boolean;
   deleted?: boolean;
   no_faces?: boolean;
-  sort?: "date" | "size_desc" | "size_asc" | "name" | "";
+  sort?: "date" | "size_desc" | "size_asc" | "name" | "best" | "";
   q?: string;
 }
 export interface ParsedSearch {
@@ -230,4 +237,14 @@ export interface SavedSearch {
   created_at: string;
   last_run_at: string | null;
   run_count: number;
+}
+
+export interface QualityReport {
+  formula_version: number;
+  weights: Record<string, number>;
+  signals: Record<string, number | null> | null;
+  error: string | null;
+  score: number | null;
+  breakdown: Record<string, number> | null;
+  aesthetic_model: string | null;
 }

@@ -119,7 +119,7 @@ def make_ingest(services):
             worker._release_guard()
             services.cluster.invalidate()
         if indexed:
-            services.schedule_embedding_backfill()
+            services.after_indexing()
         return {"processed": len(done), "total": len(paths), "indexed": indexed, "missing": missing,
                 "failed": failed, "skipped": skipped, "current": None}
 
@@ -251,8 +251,16 @@ def make_metadata_backfill(services):
     return handler
 
 
+def make_quality_scoring(services):
+    def handler(ctx: JobContext):
+        return services.quality.run(ctx.checkpoint, lambda **p: ctx.progress(**p), ctx.should_yield)
+
+    return handler
+
+
 def register_all(services) -> None:
     jobs = services.jobs
+    jobs.register("quality_scoring", make_quality_scoring(services))
     jobs.register("metadata_backfill", make_metadata_backfill(services))
     jobs.register("integrity_check", make_integrity_check(services))
     jobs.register("backup_export", make_backup_export(services))

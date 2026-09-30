@@ -296,6 +296,8 @@ class Engine:
             for detection in result:
                 kps = detection.pop("_kps")
                 box4 = detection.pop("_box4")
+                # 5-point landmarks (eyes, nose, mouth corners) for eyes-open / smile scoring.
+                detection["landmarks"] = [[round(float(x), 2), round(float(y), 2)] for x, y in np.asarray(kps)[:5]]
                 face = Face(bbox=box4, kps=kps, det_score=detection["detection"])
                 self._recognizer.get(image, face)
                 detection["embedding"] = normalize(face.embedding)

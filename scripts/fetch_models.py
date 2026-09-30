@@ -143,6 +143,11 @@ def main(argv=None) -> int:
         print(f"warning: only {free / 1e9:.1f} GB free in {model_dir}")
     for name in args.only or DEFAULT:
         fetch(name, model_dir, args.precision, args.revision, args.force)
+    if "siglip2-base-patch16-224" in (args.only or DEFAULT):
+        # Offline post-step: derive the zero-shot aesthetic head from the text encoder.
+        import subprocess
+        subprocess.run([sys.executable, str(Path(__file__).with_name("build_aesthetic_head.py")),
+                        "--model-dir", str(model_dir)], check=False)
     print("Done. Restart Face Hunger; Settings > Models shows the provider in use.")
     return 0
 

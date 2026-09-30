@@ -108,11 +108,35 @@ def _m9_media_metadata(conn: sqlite3.Connection) -> None:
                  "COALESCE(captured_at, indexed_at) DESC, id DESC)")
 
 
+def _m10_quality(conn: sqlite3.Connection) -> None:
+    """Raw quality signals (by signals version) and composite scores (by formula version)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(faces)")}
+    if "landmarks" not in cols:
+        conn.execute("ALTER TABLE faces ADD COLUMN landmarks TEXT")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS quality_signals (
+          media_id INTEGER PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+          version INTEGER NOT NULL,
+          sharpness REAL, exposure REAL, noise REAL, face_quality REAL, eyes_open REAL, smile REAL,
+          aesthetic REAL, faces INTEGER NOT NULL DEFAULT 0, error TEXT,
+          computed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS quality_scores (
+          media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+          formula_version INTEGER NOT NULL,
+          score REAL NOT NULL, breakdown TEXT NOT NULL,
+          PRIMARY KEY (media_id, formula_version)
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS quality_scores_rank ON quality_scores(formula_version, score DESC)")
+
+
 MIGRATIONS = [
     (6, "embedding_stores", _m6_embedding_stores),
     (7, "saved_searches", _m7_saved_searches),
     (8, "job_queue", _m8_job_queue),
     (9, "media_metadata", _m9_media_metadata),
+    (10, "quality", _m10_quality),
 ]
 LATEST = MIGRATIONS[-1][0]
 
