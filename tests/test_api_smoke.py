@@ -39,3 +39,18 @@ def test_maintenance_index_reset_swaps_store(client, app_services):
     assert r.json() == {"ok": True, "cleared": "index"}
     assert app_services.store is not before
     assert app_services.worker.store is app_services.store
+
+
+def test_model_and_embedding_status_without_models(client):
+    status = client.get("/api/models").json()
+    assert {m["key"] for m in status["models"]} >= {"siglip2-base-patch16-224@1:768", "dinov2-small@1:384"}
+    assert all(not m["installed"] for m in status["models"])
+    keys = {i["key"] for i in client.get("/api/embeddings").json()["items"]}
+    assert "buffalo_l-w600k_r50@1:512" in keys and "dinov2-vitb14-torchhub@1:768" in keys
+
+
+def test_duplicates_endpoints_work_without_dino_model(client):
+    d = client.get("/api/duplicates").json()
+    assert d["groups"] == [] and d["dino"]["available"] is False
+    b = client.post("/api/duplicates/backfill", json={"limit": 5}).json()
+    assert b["filled"] == 0 and "fetch_models" in b["errors"][0]

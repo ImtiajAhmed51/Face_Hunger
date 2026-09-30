@@ -31,6 +31,8 @@ class Worker:
         self._paused = self._cancelled = self._closing = False
         self._guard_fd = None
         self._errors = []
+        # Called as on_indexed(media_id, content_changed) after a media item is published.
+        self.on_indexed = None
         self.data_dir = Path(config.data_dir).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         (self.data_dir / "thumbnails").mkdir(exist_ok=True)
@@ -41,7 +43,7 @@ class Worker:
             return self._thread is not None and self._thread.is_alive()
 
     def latest(self):
-        return self.db.one("SELECT * FROM jobs ORDER BY id DESC LIMIT 1")
+        return self.db.one("SELECT * FROM jobs WHERE kind='index' ORDER BY id DESC LIMIT 1")
 
     def _acquire_guard(self):
         if not _process_guard.acquire(blocking=False):
@@ -188,23 +190,7 @@ class Worker:
         _log.info("Indexing Device: %s", face_label)
         _log.info("Face Embedding Device: %s", face_label)
         _log.info("Face Detection Device: %s", face_label)
-        try:
-            from . import dino as dino_mod
-            if dino_mod.available():
-                st = dino_mod.status()
-                dlabel = st.get("device_label") or st.get("device") or "unknown"
-                _log.info("DINOv2 Device: %s", dlabel)
-                _log.info("Embedding Device: %s", dlabel)
-            else:
-                _log.info("DINOv2 Device: unavailable")
-        except Exception as exc:
-            _log.info("DINOv2 Device: unavailable (%s)", exc)
-        # FAISS / vector index is CPU-only (faiss-cpu); no CUDA on Apple Silicon
-        try:
-            import faiss  # noqa: F401
-            _log.info("Vector Index Device: CPU (faiss-cpu; FAISS GPU requires CUDA)")
-        except ImportError:
-            _log.info("Vector Index Device: CPU (numpy fallback; faiss not installed)")
+        _log.info("Vector Index Device: CPU (usearch HNSW)")
         self._checkpoint()
         self._update(phase="scanning")
         with tempfile.TemporaryDirectory(prefix=".scan-", dir=self.data_dir) as temporary:
@@ -297,7 +283,11 @@ class Worker:
                 if current_path != path or (before.st_size, before.st_mtime_ns, before.st_ino, before.st_dev) != (
                         after.st_size, after.st_mtime_ns, after.st_ino, after.st_dev):
                     raise ValueError("Media changed during indexing; previous faces were retained. Scan again.")
-                return self._publish(media_id, staged, metadata, jpeg, duplicates, settings)
+                outcome = self._publish(media_id, staged, metadata, jpeg, duplicates, settings)
+                if outcome[0] == "indexed" and self.on_indexed is not None:
+                    previous_hash = previous["content_hash"] if previous else None
+                    self.on_indexed(media_id, previous_hash != metadata.get("content_hash"))
+                return outcome
             finally:
                 staged.close()
 
@@ -403,31 +393,9 @@ class Worker:
         except Exception:
             metadata["phash"] = None
 
-        # --- DINOv2 media embedding (best-effort; never fail indexing) ---
+        # Visual/text embeddings are computed by the embedding backfill job, not inline.
         metadata["dino_offset"] = None
         metadata["dino_sha"] = None
-        try:
-            from . import dino as dino_mod
-            from .media_embeddings import MediaEmbeddingStore
-
-            if dino_mod.available():
-                mstore = MediaEmbeddingStore(self.data_dir / "media_embeddings.bin")
-                try:
-                    from .dino_duplicates import embed_media
-
-                    offset, sha = embed_media(
-                        path,
-                        kind,
-                        metadata.get("duration"),
-                        lambda p, t: media_io.frame_at(p, t),
-                        mstore,
-                    )
-                    metadata["dino_offset"] = offset
-                    metadata["dino_sha"] = sha
-                finally:
-                    mstore.close()
-        except Exception:
-            pass
 
         return metadata, media_jpeg, duplicates
 

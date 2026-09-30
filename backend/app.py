@@ -21,6 +21,7 @@ from .routers import (
     jobs,
     libraries,
     media,
+    models,
     people,
     review,
     search,
@@ -44,6 +45,7 @@ ROUTERS = (
     jobs.router,
     settings.router,
     export.router,
+    models.router,
 )
 
 

@@ -3,6 +3,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from . import migrations
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS libraries (
  id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
@@ -108,15 +110,18 @@ class Database:
     def __init__(self, path: Path):
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
+        had_data = path.is_file() and path.stat().st_size > 0
         with self.connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
             self._migrate(conn)
+            self.applied_migrations = migrations.run(conn, path, had_data)
             for key, value in DEFAULTS.items():
                 conn.execute("INSERT OR IGNORE INTO settings VALUES (?,?)", (key, json.dumps(value)))
             conn.execute("UPDATE jobs SET status='interrupted', phase='interrupted', "
                          "error='Application stopped. Start a scan to resume unchanged-file recovery.' "
-                         "WHERE status IN ('running','paused','queued')")
+                         "WHERE status IN ('running','paused','queued') AND kind='index'")
+            # Queue-managed jobs are resumable; the JobManager requeues them on start.
 
     def _migrate(self, conn):
         """Additive migrations for DBs created before quality/variance/hard_negatives."""

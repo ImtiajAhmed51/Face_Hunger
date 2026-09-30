@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from .. import dino as dino_mod
 from .. import dino_duplicates as dino_dup_mod
-from ..deps import db, media_store
+from ..deps import db, models, services
 from ..schemas import BackfillBody, IgnoreDuplicateBody
 from ..services.presenters import _media_row, _require_csrf, _settings
 
@@ -23,19 +23,18 @@ def list_duplicates(
     """Exact (content_hash) + near-duplicate (DINOv2 cosine) media groups."""
     settings = _settings()
     sim = float(threshold if threshold is not None else settings.get("dino_similarity_threshold", 0.92))
+    space = services().visual_space()
     groups = dino_dup_mod.find_duplicate_groups(
         db,
-        media_store,
+        space,
         similarity_threshold=sim,
         limit=limit,
         media_row_fn=_media_row,
     )
-    dino_total = int((db.one(
-        "SELECT COUNT(*) AS c FROM media WHERE deleted_at IS NULL AND missing=0 AND status IN ('indexed','stale')"
-    ) or {}).get("c") or 0)
-    dino_filled = int((db.one(
-        "SELECT COUNT(*) AS c FROM media WHERE deleted_at IS NULL AND missing=0 AND status IN ('indexed','stale') AND dino_offset IS NOT NULL AND dino_sha IS NOT NULL"
-    ) or {}).get("c") or 0)
+    # Coverage of the model new vectors go into (falls back to the space in use).
+    target = services().vectors.register(models.dino.spec) if models.dino.installed else space
+    coverage = target.coverage() if target is not None else {"filled": 0, "total": 0}
+    dino_total, dino_filled = coverage["total"], coverage["filled"]
     return {
         "groups": groups,
         "threshold": sim,
@@ -43,6 +42,7 @@ def list_duplicates(
         "embedding_total": dino_total,
         "embedding_filled": dino_filled,
         "embedding_remaining": max(0, dino_total - dino_filled),
+        "embedding_model": space.key if space is not None else None,
         "group_count": len(groups),
         "item_count": sum(len(g["items"]) for g in groups),
     }
@@ -52,12 +52,10 @@ def list_duplicates(
 def backfill_dino_embeddings(request: Request, body: BackfillBody = BackfillBody()):
     """Incrementally compute DINOv2 embeddings for media missing them."""
     _require_csrf(request)
-    from .media_processing import frame_at
-
     limit = max(1, min(int(body.limit or 40), 200))
-    result = dino_dup_mod.backfill_embeddings(
-        db, media_store, frame_at, limit=limit
-    )
+    embedder = models.embedder("visual")
+    space = services().vectors.register(embedder.spec) if embedder else None
+    result = dino_dup_mod.backfill_embeddings(db, space, embedder, limit=limit)
     return result
 
 @router.post("/api/duplicates/ignore")

@@ -4,13 +4,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Config(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="LFS_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="LFS_", env_file=".env", extra="ignore", protected_namespaces=())
     data_dir: Path = Path("data")
     model_dir: Path = Path("models")
     host: str = "0.0.0.0"
     port: int = 8765
     allowed_roots: str = ""
     frontend_dir: Path = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    # Optional ONNX models (scripts/fetch_models.py): unload after this many idle seconds.
+    model_idle_seconds: float = 300.0
+    dino_variant: str = "small"
 
     def prepare(self):
         self.data_dir = self.data_dir.resolve()
