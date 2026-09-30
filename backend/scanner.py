@@ -5,7 +5,9 @@ import json
 import os
 from pathlib import Path
 
-IMAGE = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".avif"})
+from .imaging import RAW_SUFFIXES
+
+IMAGE = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".avif"}) | RAW_SUFFIXES
 VIDEO = frozenset({
     ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".mts", ".m2ts",
     ".wmv", ".mpg", ".mpeg", ".flv", ".asf", ".rm", ".rmvb", ".vob",

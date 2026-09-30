@@ -11,6 +11,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 
+from .. import imaging
 from ..deps import cluster, config, db, video_compat
 from ..media_http import hover_clip, media_response
 from ..media_processing import _ffmpeg_bin, load_image
@@ -486,7 +487,8 @@ def media_thumbnail(media_id: int):
 
 
 @router.get("/api/media/{media_id}/preview")
-def media_preview(media_id: int):
+def media_preview(media_id: int, full: bool = Query(False, description="RAW: full demosaic instead of the embedded camera preview")):
+    """Upright viewer JPEG (<= 2560 px), cached in data_dir/previews. Originals are never modified."""
     row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
     if not row:
         raise HTTPException(404, "Media not found")
@@ -496,19 +498,10 @@ def media_preview(media_id: int):
     if not path.is_file():
         raise HTTPException(404, "File missing")
     try:
-        import numpy as np
-        from PIL import Image
-
-        bgr = load_image(path)
-        rgb = bgr[:, :, ::-1]
-        img = Image.fromarray(np.ascontiguousarray(rgb))
-        img.thumbnail((2560, 2560))
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=90)
-        buf.seek(0)
-        return Response(content=buf.read(), media_type="image/jpeg")
+        cached = imaging.ensure_preview(path, config.data_dir, media_id, full=full and imaging.is_raw(path))
     except Exception as exc:
         raise HTTPException(500, f"Could not generate preview: {exc}") from exc
+    return FileResponse(cached, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/api/media/{media_id}/hover-preview")

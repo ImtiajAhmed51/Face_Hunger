@@ -89,3 +89,5 @@ htmlcov/
 *.zip
 *.tar
 *.tar.gz
+# Test RAW samples (scripts/fetch_test_fixtures.py)
+tests/fixtures/raw/

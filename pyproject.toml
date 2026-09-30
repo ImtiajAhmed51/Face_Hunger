@@ -12,11 +12,14 @@ dependencies = [
   "numpy>=1.26,<3", "opencv-python-headless>=4.10,<5", "Pillow>=11,<13",
   "pillow-heif>=0.21,<2", "scikit-learn>=1.6,<2", "onnxruntime>=1.20,<2",
   "insightface==0.7.3", "python-multipart>=0.0.20,<1",
-  "usearch>=2.12,<3", "tokenizers>=0.20,<1", "watchdog>=4,<7"
+  "usearch>=2.12,<3", "tokenizers>=0.20,<1", "watchdog>=4,<7",
+  "pillow-avif-plugin>=1.4,<2"
 ]
 
 [project.optional-dependencies]
 faiss = ["faiss-cpu>=1.9,<2"]
+# Camera RAW (CR2/CR3/NEF/ARW/DNG/RAF/ORF...). LibRaw is LGPL-2.1/CDDL, dynamically linked by rawpy.
+raw = ["rawpy>=0.21,<1"]
 test = ["pytest>=8.3,<10", "httpx>=0.28,<1"]
 dev = ["ruff>=0.6,<1"]
 

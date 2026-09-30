@@ -15,6 +15,9 @@ import {
   Thumbnail,
 } from "./ui";
 
+const RAW_EXT = /\.(cr2|cr3|nef|nrw|arw|dng|raf|orf|rw2|pef|srw)$/i;
+const isRaw = (name: string) => RAW_EXT.test(name);
+
 type ViewerProps = { id: number; ids?: number[]; timestamp?: number | null; onClose: () => void };
 
 export function MediaViewer(props: ViewerProps) {
@@ -33,6 +36,8 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
   const media = resource.data;
   const [selected, setSelected] = useState<number | null>(null);
   const [boxes, setBoxes] = useState(true);
+  // RAW: the embedded camera preview shows instantly; the full demosaic is opt-in.
+  const [fullQuality, setFullQuality] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   const [converting, setConverting] = useState(false);
@@ -321,6 +326,13 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                 <Icon name="people" size={16} />
                 Face boxes
               </button>
+              {media && isRaw(media.name) && fullQuality !== media.id && (
+                <button className="button small" onClick={() => setFullQuality(media.id)}
+                  title="Decode the full camera RAW instead of its embedded preview (takes a few seconds)">
+                  <Icon name="expand" size={16} />
+                  Full quality
+                </button>
+              )}
               <Link className="button small" to={`/search?similar=${id}`} onClick={onClose}
                 title="Find visually similar photos and videos">
                 <Icon name="spark" size={16} />
@@ -452,7 +464,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                   {media.kind === "photo" ? (
                     <img
                       className="viewer-photo"
-                      src={`/api/media/${media.id}/preview`}
+                      src={`/api/media/${media.id}/preview${fullQuality === media.id ? "?full=1" : ""}`}
                       alt={media.name}
                       onError={() => setPreviewError(true)}
                     />

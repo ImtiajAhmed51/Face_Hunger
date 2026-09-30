@@ -128,3 +128,27 @@ Short log of choices and dependencies. One entry per decision, newest last.
 - **Config validation**: pydantic field constraints (port, variants, levels) fail at startup.
   Environment checks (data dir writable = fatal; low disk, missing roots or models, listening on
   0.0.0.0 = warnings) show on the Health page.
+
+## Phase 2: formats
+- **rawpy** (MIT; wraps LibRaw, LGPL-2.1/CDDL) is an optional extra (`pip install
+  'face-hunger[raw]'`). The wheel links LibRaw dynamically. Without it RAW files are scanned but
+  fail with a clear "install the raw extra" error instead of crashing a scan.
+- **pillow-avif-plugin** (BSD-2; bundles libavif, dav1d and libaom, all BSD) is a core
+  dependency. Pillow 11.3's built-in AVIF plugin reported support on this machine but had no
+  codec for decoding or encoding.
+- **Progressive RAW decoding**: indexing, thumbnails and the viewer use the embedded camera JPEG
+  (DCT-scaled draft decode, capped at 4096 px for indexing because detection runs at <= 960 px).
+  The full demosaic runs only for the viewer's "Full quality" button (`?full=1`) and is cached
+  separately.
+- **Orientation is applied once, in `backend/imaging.py`**: EXIF for Pillow formats, LibRaw
+  `flip` for RAW. The embedded preview's own EXIF orientation wins when present. Pillow's TIFF
+  and pillow-heif's HEIF readers already return upright images, which `dimensions()` accounts
+  for.
+- **Viewer previews** for formats browsers cannot show (RAW, HEIC, TIFF, BMP) are written to
+  `data/previews/` at index time. Others are generated and cached on first view. Originals are
+  never re-encoded or modified.
+- **Test RAW samples** are CC0 files from raw.pixls.us, fetched by
+  `scripts/fetch_test_fixtures.py` into a git-ignored folder. Tests skip when they are absent.
+- Modern video (HEVC, AV1, VP9 in MP4/MOV) already went through ffmpeg. `.mkv`/`.webm`
+  remain in the scanner's list but are excluded from frame decoding by the existing
+  `SKIP_VIDEO_SUFFIXES` choice, which was left unchanged.

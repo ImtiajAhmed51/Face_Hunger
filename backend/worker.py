@@ -11,6 +11,7 @@ from pathlib import Path
 from . import duplicates as dup_mod
 from . import media_processing as media_io
 from .engine import deduplicate, iou
+from .imaging import NON_WEB_SUFFIXES
 from .scanner import authorized_root, resolve_inside, scan
 
 Job = dict
@@ -301,10 +302,15 @@ class Worker:
     def _stage(self, path, kind, settings, staged):
         min_quality = float(settings.get("min_face_quality", 0.25))
         adaptive = bool(settings.get("adaptive_video", True))
+        photo = None
         if kind == "photo":
             metadata = media_io.image_metadata(path)
-            frames = iter([(None, media_io.load_image(path))])
+            photo = media_io.load_image(path)  # decoded once (RAW: embedded preview), reused below
+            frames = iter([(None, photo)])
             metadata["duration"] = None
+            # Formats a browser cannot display get their viewer preview cached at index time.
+            metadata["_preview"] = (media_io.thumbnail_bytes(photo, max_size=2560)
+                                    if Path(path).suffix.lower() in NON_WEB_SUFFIXES else None)
         else:
             metadata = media_io.video_metadata(path)
             frames = media_io.video_frames(
@@ -389,8 +395,7 @@ class Worker:
 
         try:
             if kind == "photo":
-                bgr = media_io.load_image(path)
-                metadata["phash"] = dup_mod.image_phash(bgr)
+                metadata["phash"] = dup_mod.image_phash(photo)
             else:
                 metadata["phash"] = dup_mod.video_phash(
                     path,
@@ -592,6 +597,8 @@ class Worker:
         staged.commit()
         self._checkpoint()
         media_io.write_thumbnail(thumbnail_dir / f"media-{media_id}.jpg", jpeg)
+        if metadata.get("_preview"):
+            media_io.write_thumbnail(self.data_dir / "previews" / f"media-{media_id}.jpg", metadata["_preview"])
         for detection in staged.execute("SELECT face_id,jpeg FROM detections ORDER BY id"):
             self._checkpoint()
             media_io.write_thumbnail(thumbnail_dir / f"face-{detection['face_id']}.jpg", detection["jpeg"])

@@ -72,3 +72,21 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   one original missing from disk that was not yet flagged.
 - First `GET /api/health/library`: 4.5 s, walking ~2 GB / ~140k thumbnail files. Cached for
   5 minutes afterwards (67 ms).
+
+## Formats (CPU, best of 3)
+
+| Sample | Index decode (<= 4096 px) | Viewer preview, uncached (<= 2560 px) |
+|---|---|---|
+| Nikon Z 7 NEF, 45.7 MP | 157 ms | 219 ms |
+| Canon EOS R5 CR3, 45 MP | 149 ms | 215 ms |
+| Canon 5D III CR2, 22 MP | 408 ms | 120 ms |
+| Sony A7 III ARW (1616 px embedded preview) | 27 ms | 20 ms |
+| Pixel 3a DNG (small preview, half-size demosaic) | 212 ms | 198 ms |
+
+- 45.7 MP NEF after indexing: `GET /api/media/{id}/preview` **max 3.5 ms** over 5 requests (cached at
+  index time; budget 300 ms).
+- The first version decoded 45 MP previews in full (430-900 ms). Pillow's `draft()` needs both
+  dimensions at least the requested size, so a square box disabled DCT scaling for 3:2 images.
+  Aspect-correct requests fixed it.
+- The fixture library with real buffalo_l (6 formats of a 6-person group photo plus 7 RAW files)
+  indexes end to end in about 10 s.

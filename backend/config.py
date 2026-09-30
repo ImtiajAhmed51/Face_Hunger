@@ -62,6 +62,7 @@ class Config(BaseSettings):
             self.data_dir,
             self.model_dir,
             self.data_dir / "thumbnails",
+            self.data_dir / "previews",
             self.data_dir / "exports",
             self.data_dir / "video_cache",
         ):

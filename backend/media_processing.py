@@ -3,7 +3,6 @@
 import math
 import os
 import tempfile
-import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -12,9 +11,6 @@ import numpy as np
 # Quiet FFmpeg / OpenCV demuxer spam (corrupt matroska, partial seeks, etc.)
 os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "8")  # AV_LOG_FATAL
 os.environ.setdefault("AV_LOG_FORCE_NOCOLOR", "1")
-
-_heif_lock = threading.Lock()
-_heif_ready = False
 
 # Incomplete / noisy containers — not scanned or decoded
 _SKIP_VIDEO_SUFFIXES = frozenset({".mkv", ".webm"})
@@ -36,41 +32,30 @@ _silence_cv2_logs()
 
 
 def _image_open(path):
-    global _heif_ready
-    from PIL import Image
+    from . import imaging
 
-    with _heif_lock:
-        if not _heif_ready:
-            try:
-                from pillow_heif import register_heif_opener
-                register_heif_opener()
-                _heif_ready = True
-            except ImportError:
-                if Path(path).suffix.lower() in (".heic", ".heif"):
-                    raise RuntimeError("HEIC/HEIF images require the local pillow-heif dependency")
-    return Image.open(path)
+    return imaging._pil().open(path)
 
 
-def load_image(path):
-    """Return EXIF-oriented uint8 BGR pixels, including registered HEIC support."""
-    from PIL import ImageOps
+def load_image(path, *, max_side=None, full=False):
+    """Return EXIF-oriented uint8 BGR pixels for any supported still format (incl. HEIC, AVIF, RAW)."""
+    from . import imaging
 
-    with _image_open(path) as image:
-        oriented = ImageOps.exif_transpose(image).convert("RGB")
-        return np.ascontiguousarray(np.asarray(oriented)[:, :, ::-1])
+    return imaging.load_bgr(path, max_side=max_side, full=full)
 
 
 def image_metadata(path):
-    with _image_open(path) as image:
-        exif = image.getexif()
-        stamp = exif.get(36867) or exif.get(306)
-        captured = None
-        if stamp:
-            try:
-                captured = datetime.strptime(str(stamp).strip(), "%Y:%m:%d %H:%M:%S").isoformat()
-            except ValueError:
-                pass
-        return {"captured_at": captured}
+    from . import imaging
+
+    tags = imaging.exif(path)
+    stamp = tags.get(36867) or tags.get(306)
+    captured = None
+    if stamp:
+        try:
+            captured = datetime.strptime(str(stamp).strip()[:19], "%Y:%m:%d %H:%M:%S").isoformat()
+        except ValueError:
+            pass
+    return {"captured_at": captured}
 
 
 _FFMPEG_CANDIDATES = (
