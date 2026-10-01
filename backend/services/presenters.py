@@ -164,6 +164,7 @@ def _media_row(row: dict) -> dict:
         "deleted_at": row.get("deleted_at"),
         "face_count": int((face_count or {}).get("c") or 0),
         "people": _media_people(row["id"]),
+        "favorite": bool(db.one("SELECT 1 AS x FROM favorites WHERE media_id=?", (row["id"],))),
         # Capture metadata (Phase 2); None for rows not backfilled yet.
         "date_source": row.get("date_source"),
         "camera_make": row.get("camera_make"),

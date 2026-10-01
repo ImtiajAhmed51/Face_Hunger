@@ -181,6 +181,37 @@ def _m12_video(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS faces_person_time ON faces(person_id, media_id, timestamp)")
 
 
+def _m13_library(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS albums (
+          id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+          cover_media_id INTEGER REFERENCES media(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS album_media (
+          album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+          media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+          position INTEGER NOT NULL, added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (album_id, media_id)
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS album_media_media ON album_media(media_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS favorites (
+          media_id INTEGER PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id INTEGER PRIMARY KEY, at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          action TEXT NOT NULL, summary TEXT NOT NULL, undo TEXT NOT NULL, item_count INTEGER NOT NULL DEFAULT 0,
+          request_id TEXT, undone_at TEXT
+        )""")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(saved_searches)")}
+    if "is_collection" not in cols:
+        conn.execute("ALTER TABLE saved_searches ADD COLUMN is_collection INTEGER NOT NULL DEFAULT 0")
+
+
 MIGRATIONS = [
     (6, "embedding_stores", _m6_embedding_stores),
     (7, "saved_searches", _m7_saved_searches),
@@ -189,6 +220,7 @@ MIGRATIONS = [
     (10, "quality", _m10_quality),
     (11, "events", _m11_events),
     (12, "video", _m12_video),
+    (13, "library", _m13_library),
 ]
 LATEST = MIGRATIONS[-1][0]
 

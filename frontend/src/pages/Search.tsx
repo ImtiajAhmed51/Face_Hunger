@@ -6,6 +6,7 @@ import { useResource, refreshData } from "../hooks";
 import type { HybridQuery, MediaFilters, ParsedSearch, SavedSearch } from "../types";
 import { HybridResults } from "../components/HybridResults";
 import { MomentResults } from "../components/VideoMoments";
+import { useT } from "../i18n";
 import { Icon } from "../components/Icon";
 import { MediaCollection } from "../components/MediaGrid";
 import { PersonPicker, PersonToken } from "../components/PersonPicker";
@@ -51,6 +52,7 @@ function fromHybrid(q: HybridQuery): MediaFilters {
 }
 
 export function Search() {
+  const t = useT();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState(params.get("q") ?? "");
   const [content, setContent] = useState("");
@@ -59,6 +61,7 @@ export function Search() {
   const saved = useResource<{ items: SavedSearch[] }>("/search/saved");
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
+  const [asCollection, setAsCollection] = useState(true);
   const [draft, setDraft] = useState<MediaFilters>(initial);
   const [applied, setApplied] = useState<MediaFilters | null>(null);
   const [unmatched, setUnmatched] = useState<string[]>([]);
@@ -453,13 +456,18 @@ export function Search() {
           if (!hybridQuery || !saveName.trim()) return;
           const { page: _page, limit: _limit, ...rest } = hybridQuery;
           void _page; void _limit;
-          if (await action.run(() => mutate("/search/saved", { name: saveName.trim(), query: rest }), "Search saved.")) {
+          const endpoint = asCollection ? "/collections" : "/search/saved";
+          if (await action.run(() => mutate(endpoint, { name: saveName.trim(), query: rest }), "Search saved.")) {
             setSaveOpen(false);
             refreshData();
           }
         }}>
           <div className="dialog-body">
             <label className="field">Name<input autoFocus value={saveName} onChange={(event) => setSaveName(event.target.value)} required /></label>
+            <label className="check-label">
+              <input type="checkbox" checked={asCollection} onChange={(event) => setAsCollection(event.target.checked)} />
+              {t("library.saveAsCollection")}
+            </label>
           </div>
           <div className="dialog-footer">
             <button type="button" className="button" onClick={() => setSaveOpen(false)}>Cancel</button>

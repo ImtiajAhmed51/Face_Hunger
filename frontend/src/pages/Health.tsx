@@ -4,6 +4,7 @@ import { useAction, useApp } from "../context";
 import { refreshData, useResource } from "../hooks";
 import type { Job } from "../types";
 import { Icon } from "../components/Icon";
+import { ActivityLog } from "../components/Memories";
 import { Badge, ConfirmDialog, Empty, ErrorNotice, Loading, PageHeader } from "../components/ui";
 
 interface Problem { severity: "error" | "warning" | "info"; kind: string; message: string; count: number; sample: (number | string)[] }
@@ -129,6 +130,7 @@ export function Health() {
                 </ul>
               )}
             </section>
+            <ActivityLog />
             <section className="settings-section" aria-labelledby="embeddings-heading">
               <div className="section-heading">
                 <div><h2 id="embeddings-heading">Embeddings</h2><p>Coverage of each model's store</p></div>

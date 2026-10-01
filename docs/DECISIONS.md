@@ -256,3 +256,22 @@ Short log of choices and dependencies. One entry per decision, newest last.
 - **Clips are stream-copied** (`-c copy`, starting at the keyframe before `start`) and only
   re-encoded if stream copy fails or `precise=1` is requested. Originals are only read; clips and
   per-person zips (with a manifest) go to `data/exports/`.
+
+## Phase 2: library organization
+- **One audit log for every batch action** (`audit_log`): album create/add/remove/rename/delete,
+  favorites, batch delete/restore (`/api/batch/*`), face moves, people split and merge. Each row
+  stores exactly the inverse needed (ids that were actually added, previous `deleted_at`
+  values, the merged person's row with its centroid, and snapshots of both people's exclusions,
+  rejections and hard negatives). `POST /api/audit/{id}/undo` replays it in one transaction,
+  once. The UI pushes each audit id onto the shared undo stack (toast, Ctrl/Cmd+Z, `U` in
+  Review), and Health → Activity lists everything with Undo buttons.
+- **Existing endpoints were rerouted, not replaced**: `/api/people/{id}/merge` and
+  `/api/faces/move` keep their responses and add `audit_id`. A split is a face move to a new
+  person, so merge-then-split returns exactly the original faces.
+- **Smart collections are saved searches with `is_collection=1`**, re-run on every read. A file
+  the watcher indexes appears the next time the collection is opened; nothing needs refreshing
+  because the collection is the query.
+- **Merge confidence** compares the two people's quality-ordered mean embeddings (high >= 0.6,
+  medium >= 0.4) and lists the source faces least like the target to check before merging.
+- **Memories**: "N years ago today" from capture dates (files dated only by mtime are skipped),
+  plus events of 5+ items from this week in earlier years, best shots first.

@@ -40,6 +40,8 @@ import {
 
 import { VideoHoverPreview } from './VideoHoverPreview';
 import { VirtualGrid } from '../virtual/VirtualGrid';
+import { OrganizeActions } from './OrganizeActions';
+import { undoAudit, type Audited } from '../audit';
 import { useWindowedPages } from '../virtual/useWindowedPages';
 import { idsBetween } from '../virtual/geometry';
 import { useLqip } from '../lqip';
@@ -689,6 +691,7 @@ export function MediaCollection({
               <Icon name="download" size={16} />
               Export
             </button>
+            {!deletedOnly && <OrganizeActions ids={ids} onDone={selection.clear} />}
             {personId && (
               <button
                 className="button small"
@@ -721,12 +724,9 @@ export function MediaCollection({
                       : pageSelected.filter(item => !!item.deleted_at).map(item => item.id);
                     void run(
                       async () => {
-                        await batch(targets, async (mediaId) => {
-                          await mutate(`/media/${mediaId}/restore`);
-                          selection.remove([mediaId]);
-                        });
-                        pushUndo(`Restored ${targets.length} item(s)`, () =>
-                          batch(targets, (mediaId) => mutate(`/media/${mediaId}`, undefined, "DELETE")));
+                        const result = await mutate<Audited>("/batch/restore", { media_ids: targets });
+                        selection.remove(targets);
+                        pushUndo(`Restored ${targets.length} item(s)`, undoAudit(result.audit_id));
                       },
                       "Media restored.",
                     );
@@ -832,12 +832,9 @@ export function MediaCollection({
               return next;
             });
             try {
-              await batch(target, async (mediaId) => {
-                await mutate(`/media/${mediaId}`, undefined, "DELETE");
-                selection.remove([mediaId]);
-              });
-              pushUndo(`Moved ${target.length} item(s) to Deleted`, () =>
-                batch(target, (mediaId) => mutate(`/media/${mediaId}/restore`)));
+              const result = await mutate<Audited>("/batch/delete", { media_ids: target });
+              selection.remove(target);
+              pushUndo(`Moved ${target.length} item(s) to Deleted`, undoAudit(result.audit_id));
             } finally {
               setHiddenIds(new Set());
             }

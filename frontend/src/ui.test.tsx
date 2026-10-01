@@ -39,7 +39,7 @@ describe('shared UI semantics', () => {
 });
 
 describe('application route rendering', () => {
-  it.each(['/', '/photos', '/videos', '/people', '/clusters', '/review', '/duplicates', '/cleanup', '/search', '/settings', '/health', '/timeline', '/map', '/events', '/deleted', '/no-faces'])('renders %s without React errors', path => {
+  it.each(['/', '/photos', '/videos', '/people', '/clusters', '/review', '/duplicates', '/cleanup', '/search', '/settings', '/health', '/timeline', '/map', '/events', '/albums', '/favorites', '/deleted', '/no-faces'])('renders %s without React errors', path => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const html = renderToStaticMarkup(<MemoryRouter initialEntries={[path]}><AppProvider><App /></AppProvider></MemoryRouter>);

@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from .. import threshold_tuning
-from ..deps import cluster, config, db
+from ..deps import cluster, config, db, services
 from ..media_processing import load_image
 from ..schemas import ConfirmBody, MoveFacesBody, ReviewBody
 from ..services.presenters import _now, _require_csrf
@@ -22,34 +22,11 @@ def move_faces(body: MoveFacesBody, request: Request):
     _require_csrf(request)
     if not body.face_ids:
         raise HTTPException(400, "face_ids required")
-    faces = db.all(
-        f"SELECT * FROM faces WHERE id IN ({','.join('?' * len(body.face_ids))})",
-        tuple(body.face_ids),
-    )
-    if len(faces) != len(set(body.face_ids)):
-        raise HTTPException(404, "One or more faces not found")
-
-    with db.connect() as conn:
-        if body.target_id is not None:
-            target = conn.execute("SELECT id FROM people WHERE id=?", (body.target_id,)).fetchone()
-            if not target:
-                raise HTTPException(404, "Target person not found")
-            person_id = body.target_id
-        else:
-            name = (body.name or "").strip() or None
-            person_id = conn.execute(
-                "INSERT INTO people(name) VALUES (?)", (name,)
-            ).lastrowid
-
-        conn.execute(
-            f"UPDATE faces SET person_id=?, manual=1, review_state='confirmed' WHERE id IN ({','.join('?' * len(body.face_ids))})",
-            (person_id, *body.face_ids),
-        )
-        # collect affected people for refresh
-        old_ids = {f["person_id"] for f in faces if f.get("person_id")}
-        cluster.refresh(conn, list(old_ids | {person_id}))
-    cluster.invalidate()
-    return {"person_id": person_id}
+    try:
+        result = services().library.move_faces(body.face_ids, target_id=body.target_id, name=body.name)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"person_id": result["person_id"], "audit_id": result["audit_id"]}
 
 
 @router.post("/api/faces/{face_id}/review")

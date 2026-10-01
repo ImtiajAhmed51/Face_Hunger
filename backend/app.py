@@ -24,6 +24,7 @@ from .routers import (
     health,
     jobs,
     libraries,
+    library,
     media,
     models,
     people,
@@ -57,6 +58,7 @@ ROUTERS = (
     quality.router,
     events.router,
     video.router,
+    library.router,
 )
 
 

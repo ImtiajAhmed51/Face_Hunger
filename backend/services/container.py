@@ -25,6 +25,7 @@ from ..video.service import VideoService
 from ..video_compat import init_video_compat
 from ..worker import Worker
 from .events import EventService
+from .library import LibraryService
 from .quality import QualityService
 from .search import HybridSearch
 
@@ -53,6 +54,7 @@ class Services:
         self.quality = QualityService(self)
         self.events = EventService(self)
         self.video = VideoService(self)
+        self.library = LibraryService(self)
         self.keyframe_encoder = None  # tests/plugins may inject an image+text encoder
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)

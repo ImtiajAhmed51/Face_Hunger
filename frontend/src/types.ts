@@ -36,6 +36,7 @@ export interface Media {
     mode?: string | null;
   };
   error?: string | null;
+  favorite?: boolean;
   /** Capture metadata: date_source is exif | container | filename | mtime. */
   date_source?: string | null;
   camera_make?: string | null;
@@ -188,6 +189,7 @@ export interface MediaFilters {
   excluded?: boolean;
   deleted?: boolean;
   no_faces?: boolean;
+  favorite?: boolean;
   sort?: "date" | "size_desc" | "size_asc" | "name" | "best" | "";
   q?: string;
 }

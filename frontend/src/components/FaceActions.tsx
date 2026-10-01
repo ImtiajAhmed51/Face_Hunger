@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { batch, mutate, percent, timeLabel } from "../api";
-import { useAction } from "../context";
+import { useAction, useApp } from "../context";
+import { undoAudit } from "../audit";
 import type { Face, Person } from "../types";
 import { Badge, ConfirmDialog, Dialog, ErrorNotice, Thumbnail } from "./ui";
 import { Icon } from "./Icon";
@@ -91,6 +92,7 @@ export function MoveFacesDialog({
   const [target, setTarget] = useState<Person | null>(null);
   const [name, setName] = useState("");
   const action = useAction();
+  const { pushUndo } = useApp();
   return (
     <Dialog
       open={open}
@@ -104,13 +106,15 @@ export function MoveFacesDialog({
           if (mode === "existing" && !target) return;
           let personId = 0;
           const ok = await action.run(async () => {
-            const result = await mutate<{ person_id: number }>("/faces/move", {
+            const result = await mutate<{ person_id: number; audit_id: number }>("/faces/move", {
               face_ids: faces.map((face) => face.id),
               ...(mode === "existing"
                 ? { target_id: target!.id }
                 : { name: name.trim() }),
             });
             personId = result.person_id;
+            pushUndo(mode === "existing" ? `Moved ${faces.length} face(s)` : `Split ${faces.length} face(s) into a new person`,
+              undoAudit(result.audit_id));
           }, `${faces.length} faces moved. Your correction is protected during reconciliation.`);
           if (ok) {
             onClose();

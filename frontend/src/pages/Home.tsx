@@ -5,6 +5,7 @@ import { useAction, useApp } from "../context";
 import { useResource } from "../hooks";
 import type { Dashboard, Engine } from "../types";
 import { Icon } from "../components/Icon";
+import { Memories } from "../components/Memories";
 import type { IconName } from "../components/Icon";
 import { JobCard } from "../components/JobCard";
 import { MediaGrid } from "../components/MediaGrid";
@@ -168,6 +169,7 @@ export function Home() {
                   <kbd>/</kbd>
                 </Link>
               </section>
+              <Memories />
               {data.recent_people.length > 0 && (
                 <section className="home-section">
                   <SectionHeading

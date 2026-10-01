@@ -6,6 +6,7 @@ import { useMounted, useResource } from "../hooks";
 import type { Face, MediaDetail } from "../types";
 import { FaceActions } from "./FaceActions";
 import { QualityPanel } from "./QualityPanel";
+import { undoAudit, type Audited } from "../audit";
 import { VideoInsights } from "./VideoInsights";
 import { useT, type MessageKey } from "../i18n";
 import { Icon } from "./Icon";
@@ -58,7 +59,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
   const stage = useRef<HTMLDivElement>(null);
   const pendingSeek = useRef<number | null>(timestamp ?? null);
   const action = useAction();
-  const { notify } = useApp();
+  const { notify, pushUndo } = useApp();
   const position = ids.indexOf(current);
   useEffect(() => {
     pendingSeek.current = timestamp ?? null;
@@ -335,6 +336,16 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                   title="Decode the full camera RAW instead of its embedded preview (takes a few seconds)">
                   <Icon name="expand" size={16} />
                   Full quality
+                </button>
+              )}
+              {media && (
+                <button className="button small" aria-pressed={!!media.favorite}
+                  onClick={() => void action.run(async () => {
+                    const r = await mutate<Audited>("/favorites", { media_ids: [media.id], favorite: !media.favorite });
+                    pushUndo(media.favorite ? t("library.unfavorite") : t("library.favorite"), undoAudit(r.audit_id));
+                  })}>
+                  <Icon name="spark" size={16} />
+                  {media.favorite ? t("library.unfavorite") : t("library.favorite")}
                 </button>
               )}
               <Link className="button small" to={`/search?similar=${id}`} onClick={onClose}

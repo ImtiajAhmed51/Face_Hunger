@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..deps import cluster, config, db
+from ..deps import cluster, config, db, services
 from ..schemas import MergeBody, MoveMediaBody, NameBody
 from ..services.exporting import _stream_export
 from ..services.presenters import _now, _page, _person_row, _require_csrf
@@ -135,23 +135,11 @@ def merge_person(person_id: int, body: MergeBody, request: Request):
     _require_csrf(request)
     if person_id == body.target_id:
         raise HTTPException(400, "Cannot merge a person into itself")
-    source = db.one("SELECT * FROM people WHERE id=?", (person_id,))
-    target = db.one("SELECT * FROM people WHERE id=?", (body.target_id,))
-    if not source or not target:
-        raise HTTPException(404, "Person not found")
-    with db.connect() as conn:
-        conn.execute("UPDATE faces SET person_id=? WHERE person_id=?", (body.target_id, person_id))
-        conn.execute("UPDATE OR IGNORE exclusions SET person_id=? WHERE person_id=?", (body.target_id, person_id))
-        conn.execute("DELETE FROM exclusions WHERE person_id=?", (person_id,))
-        conn.execute("UPDATE OR IGNORE rejections SET person_id=? WHERE person_id=?", (body.target_id, person_id))
-        conn.execute("DELETE FROM rejections WHERE person_id=?", (person_id,))
-        # transfer name if target has none
-        if not (target.get("name") or "").strip() and (source.get("name") or "").strip():
-            conn.execute("UPDATE people SET name=? WHERE id=?", (source["name"], body.target_id))
-        conn.execute("DELETE FROM people WHERE id=?", (person_id,))
-        cluster.refresh(conn, [body.target_id])
-    cluster.invalidate()
-    return _person_row(db.one("SELECT * FROM people WHERE id=?", (body.target_id,)))
+    try:
+        result = services().library.merge_people(person_id, body.target_id)
+    except KeyError as exc:
+        raise HTTPException(404, "Person not found") from exc
+    return {**_person_row(db.one("SELECT * FROM people WHERE id=?", (body.target_id,))), "audit_id": result["audit_id"]}
 
 
 @router.delete("/api/people/{person_id}")

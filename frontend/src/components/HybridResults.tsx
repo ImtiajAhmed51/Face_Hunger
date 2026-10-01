@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { batch, exportZip, mutate, number, request } from "../api";
+import { exportZip, mutate, number, request } from "../api";
+import { undoAudit, type Audited } from "../audit";
+import { OrganizeActions } from "./OrganizeActions";
 import { useAction, useApp } from "../context";
 import { useSelection } from "../hooks";
 import type { HybridMedia, HybridQuery, HybridResult, Media } from "../types";
@@ -50,6 +52,7 @@ export function HybridResults({ query }: { query: HybridQuery }) {
               onClick={() => void action.run(() => exportZip("/export", { media_ids: ids }), "Selected media downloaded.", false)}>
               <Icon name="download" size={16} />Export
             </button>
+            <OrganizeActions ids={ids} onDone={selection.clear} />
             <button className="button small danger-text" disabled={action.busy} onClick={() => setDeleteOpen(true)}>
               <Icon name="trash" size={16} />Delete
             </button>
@@ -94,9 +97,9 @@ export function HybridResults({ query }: { query: HybridQuery }) {
         label="Delete"
         onConfirm={async () => {
           const target = [...ids];
-          await batch(target, (id) => mutate(`/media/${id}`, undefined, "DELETE"));
+          const result = await mutate<Audited>("/batch/delete", { media_ids: target });
           selection.clear();
-          pushUndo(`Moved ${target.length} item(s) to Deleted`, () => batch(target, (id) => mutate(`/media/${id}/restore`)));
+          pushUndo(`Moved ${target.length} item(s) to Deleted`, undoAudit(result.audit_id));
         }}
       />
     </section>

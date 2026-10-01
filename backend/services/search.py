@@ -302,6 +302,7 @@ def serialize_media(db, ids: list[int]) -> list[dict]:
     counts = {r["media_id"]: r["c"] for r in db.all(
         f"SELECT media_id, COUNT(*) c FROM faces WHERE deleted_at IS NULL AND media_id IN ({ph}) GROUP BY media_id",
         tuple(ids))}
+    favorites = {r["media_id"] for r in db.all(f"SELECT media_id FROM favorites WHERE media_id IN ({ph})", tuple(ids))}
     people: dict[int, list[dict]] = {}
     for r in db.all(
         f"""SELECT DISTINCT f.media_id, p.id, p.name FROM faces f JOIN people p ON p.id = f.person_id
@@ -320,6 +321,6 @@ def serialize_media(db, ids: list[int]) -> list[dict]:
             "captured_at": row["captured_at"], "width": row["width"], "height": row["height"],
             "duration": row["duration"], "size": int(row["size"] or 0), "status": row["status"] or "indexed",
             "missing": bool(row["missing"]), "deleted_at": row["deleted_at"],
-            "face_count": int(counts.get(mid, 0)), "people": people.get(mid, []),
+            "face_count": int(counts.get(mid, 0)), "people": people.get(mid, []), "favorite": mid in favorites,
         })
     return out

@@ -441,3 +441,24 @@
   .person-moments li { display: flex; gap: 10px; align-items: flex-start; }
   .person-moments .thumbnail { width: 44px; height: 44px; border-radius: 10px; flex: none; }
 }
+
+@layer components {
+  .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px; margin: 12px 0 24px; }
+  .album-tile { display: grid; gap: 4px; }
+  .album-cover { display: block; aspect-ratio: 1; border-radius: 16px; overflow: hidden; background: var(--soft); }
+  .album-tile:focus-visible .album-cover { box-shadow: var(--ring-teal); }
+  .album-create { margin-bottom: 8px; align-items: flex-end; }
+  .memories { display: grid; gap: 14px; }
+  .memory h3 { font-size: 15px; margin-bottom: 6px; }
+  .memory-strip { display: flex; gap: 8px; overflow-x: auto; align-items: center; padding-bottom: 4px; }
+  .memory-strip button { flex: none; width: 132px; height: 132px; padding: 0; border: 0; border-radius: 12px; overflow: hidden; cursor: pointer; }
+  .memory-strip button:focus-visible { box-shadow: var(--ring-teal); outline: none; }
+  .memory-more { flex: none; padding: 0 8px; }
+  .merge-confidence { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--soft); }
+  .merge-confidence.tone-low { background: var(--amber-wash); }
+  .merge-confidence.tone-high { background: var(--teal-wash); }
+  .merge-check-faces { display: flex; gap: 6px; flex-wrap: wrap; }
+  .merge-check-faces figure { margin: 0; display: grid; gap: 2px; text-align: center; font-size: 11px; }
+  .merge-check-faces .thumbnail { width: 52px; height: 52px; border-radius: 10px; }
+  .activity-log li { justify-content: space-between; }
+}

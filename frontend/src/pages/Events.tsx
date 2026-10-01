@@ -80,7 +80,7 @@ export function Events() {
             const merged = await mutate<EventItem>("/events/merge", { event_ids: ids });
             selection.clear();
             undoable(t("events.merged"), merged.undo_token);
-          }, t("events.merged"))}>
+          })}>
             <Icon name="merge" size={16} />{t("events.merge", { count: ids.length })}
           </button>
         )}
@@ -135,7 +135,7 @@ export function EventDetail() {
             const renamed = await mutate<EventItem>(`/events/${eventId}`, { name }, "PATCH");
             setName(null);
             undoable(t("events.renamed"), renamed.undo_token);
-          }, t("events.renamed"));
+          });
         }}>
           <label className="field wide-field">{t("events.rename")}
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setName(null); }} />
@@ -151,7 +151,7 @@ export function EventDetail() {
             const result = await mutate<{ undo_token: number }>(`/events/${eventId}/split`, { media_id: firstSelected.id });
             selection.clear();
             undoable(t("events.splitDone"), result.undo_token);
-          }, t("events.splitDone"))}>{t("events.split")}</button>
+          })}>{t("events.split")}</button>
           <button className="button small" disabled={!ids.length || action.busy} onClick={() => setPicking(true)}>{t("events.move")}</button>
         </div>
       </div>
@@ -170,7 +170,7 @@ export function EventDetail() {
         selection.clear();
         undoable(t("events.moved", { count: ids.length }), moved.undo_token);
         refreshData();
-      }, t("events.moved", { count: ids.length }))} />}
+      })} />}
       {viewer !== null && <MediaViewer id={viewer} ids={windowed.loaded.map((m) => m.id)} onClose={() => setViewer(null)} />}
     </>
   );

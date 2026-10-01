@@ -54,6 +54,8 @@ def list_media(
     q: str = "",
     bbox: Optional[str] = Query(None, description="minLon,minLat,maxLon,maxLat: geotagged media inside"),
     event: Optional[int] = Query(None, description="Only media in this event"),
+    album: Optional[int] = Query(None, description="Only media in this album (album order)"),
+    favorite: bool = Query(False, description="Only favorites"),
 ):
     """sort: date (default, newest first) | size_desc | size_asc | name
     people: include media that contain these people
@@ -89,6 +91,11 @@ def list_media(
     if event is not None:
         where.append("EXISTS (SELECT 1 FROM event_media em WHERE em.media_id = m.id AND em.event_id = ?)")
         params.append(event)
+    if album is not None:
+        where.append("EXISTS (SELECT 1 FROM album_media am WHERE am.media_id = m.id AND am.album_id = ?)")
+        params.append(album)
+    if favorite:
+        where.append("EXISTS (SELECT 1 FROM favorites fv WHERE fv.media_id = m.id)")
 
     if bbox:
         try:
@@ -177,12 +184,17 @@ def list_media(
         params.append(confidence)
 
     sort_key = (sort or "date").strip().lower()
+    if album is not None and sort_key == "date":  # albums keep the order items were added in
+        sort_key = "album"
     if sort_key == "size_desc":
         order_sql = "m.size DESC, m.id DESC"
     elif sort_key == "size_asc":
         order_sql = "m.size ASC, m.id ASC"
     elif sort_key == "name":
         order_sql = "m.name COLLATE NOCASE ASC, m.id ASC"
+    elif sort_key == "album":
+        order_sql = (f"(SELECT am.position FROM album_media am WHERE am.media_id = m.id AND am.album_id = {int(album)}) ASC, m.id"
+                     if album is not None else "m.id")
     elif sort_key == "date_asc":
         order_sql = "COALESCE(m.captured_at, m.indexed_at) ASC, m.id ASC"
     elif sort_key == "best":

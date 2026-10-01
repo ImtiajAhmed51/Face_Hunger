@@ -177,3 +177,31 @@ class MomentSearchBody(BaseModel):
 class PersonClipsBody(BaseModel):
     person_id: int
     precise: bool = False
+
+
+class AlbumBody(BaseModel):
+    name: str
+    media_ids: list[int] = Field(default_factory=list)
+
+
+class AlbumItemsBody(BaseModel):
+    media_ids: list[int]
+
+
+class FavoriteBody(BaseModel):
+    media_ids: list[int]
+    favorite: bool = True
+
+
+class MediaBatchBody(BaseModel):
+    media_ids: list[int]
+
+
+class CollectionBody(BaseModel):
+    name: str
+    query: HybridSearchBody
+
+
+class SplitBody(BaseModel):
+    face_ids: list[int]
+    name: Optional[str] = None
