@@ -145,7 +145,7 @@ export function EventDetail() {
       ))}
       {data && data.people.length > 0 && <p className="event-people">{data.people.map((p) => <Link key={p.id} to={`/people/${p.id}`}><Badge>{p.display_name}</Badge></Link>)}</p>}
       <div className="collection-bar">
-        <span className="muted small-text">{ids.length ? `${number(ids.length)} selected` : t("events.splitHelp")}</span>
+        <span className="muted small-text">{ids.length ? t("common.selected", { count: number(ids.length) }) : t("events.splitHelp")}</span>
         <div className="inline-actions">
           <button className="button small" disabled={!firstSelected || action.busy} onClick={() => firstSelected && void action.run(async () => {
             const result = await mutate<{ undo_token: number }>(`/events/${eventId}/split`, { media_id: firstSelected.id });

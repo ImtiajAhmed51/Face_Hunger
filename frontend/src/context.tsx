@@ -145,7 +145,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setJobError("");
       });
       source.onerror = () => setJobError(source.readyState === EventSource.CLOSED ? "Lost connection to the local server." : "");
-      return () => { cancelAnimationFrame(frame); source.close(); };
+      // Close before the page unloads: an open stream cut by navigation logs a network error.
+      const close = () => source.close();
+      window.addEventListener("pagehide", close);
+      window.addEventListener("beforeunload", close);
+      return () => {
+        cancelAnimationFrame(frame);
+        window.removeEventListener("pagehide", close);
+        window.removeEventListener("beforeunload", close);
+        source.close();
+      };
     }
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;

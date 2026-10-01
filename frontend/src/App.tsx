@@ -24,13 +24,21 @@ import { People, PersonProfile } from "./pages/People";
 import { Review } from "./pages/Review";
 import { Search } from "./pages/Search";
 import { Settings } from "./pages/Settings";
-import { Health } from "./pages/Health";
-import { Timeline } from "./pages/Timeline";
-import { EventDetail, Events } from "./pages/Events";
-import { AlbumDetail, Albums, CollectionDetail, Favorites } from "./pages/Albums";
-
-// MapLibre is ~200 KB gzip: load it only when the Map page opens.
+// Phase 2 screens are code-split: each loads on first visit (MapLibre alone is ~290 KB gzip).
 const MapPage = lazy(() => import("./pages/MapPage"));
+const Health = lazy(() => import("./pages/Health").then((m) => ({ default: m.Health })));
+const Timeline = lazy(() => import("./pages/Timeline").then((m) => ({ default: m.Timeline })));
+const Events = lazy(() => import("./pages/Events").then((m) => ({ default: m.Events })));
+const EventDetail = lazy(() => import("./pages/Events").then((m) => ({ default: m.EventDetail })));
+const Albums = lazy(() => import("./pages/Albums").then((m) => ({ default: m.Albums })));
+const AlbumDetail = lazy(() => import("./pages/Albums").then((m) => ({ default: m.AlbumDetail })));
+const CollectionDetail = lazy(() => import("./pages/Albums").then((m) => ({ default: m.CollectionDetail })));
+const Favorites = lazy(() => import("./pages/Albums").then((m) => ({ default: m.Favorites })));
+
+function ScreenLoading() {
+  return <div className="gallery-skeleton" role="status" aria-label="Loading"><span className="sr-only">Loading</span>
+    {Array.from({ length: 8 }, (_, i) => <div key={i} className="skeleton-tile" aria-hidden="true" />)}</div>;
+}
 
 const navigation: {
   to: string;
@@ -318,6 +326,7 @@ export function App() {
           </span>
         </div>
         <div className="page-content" ref={pageContent}>
+        <Suspense fallback={<ScreenLoading />}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/people" element={<People />} />
@@ -408,11 +417,7 @@ export function App() {
           <Route path="/collections/:id" element={<CollectionDetail />} />
           <Route path="/favorites" element={<Favorites />} />
           <Route path="/events/:id" element={<EventDetail />} />
-          <Route path="/map" element={
-            <Suspense fallback={<><PageHeader title="Map" description="Loading the map…" /><div className="gallery-skeleton" role="status" aria-label="Loading the map" /></>}>
-              <MapPage />
-            </Suspense>
-          } />
+          <Route path="/map" element={<MapPage />} />
           <Route
             path="*"
             element={
@@ -428,6 +433,7 @@ export function App() {
             }
           />
         </Routes>
+        </Suspense>
         </div>
         <footer className="page-footer">
           <span>

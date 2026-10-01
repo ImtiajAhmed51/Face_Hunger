@@ -26,7 +26,10 @@ interface DupItem extends Media {
   path?: string;
 }
 
-import { ResolverLauncher, type ResolverGroup } from "../components/DuplicateResolver";
+import type { ResolverGroup } from "../components/DuplicateResolver";
+import { Suspense, lazy } from "react";
+
+const ResolverLauncher = lazy(() => import("../components/DuplicateResolver").then((m) => ({ default: m.ResolverLauncher })));
 
 interface DupGroup {
   type: "exact" | "near" | "burst";
@@ -688,7 +691,7 @@ export function Duplicates() {
       />
 
       {bootError && <ErrorNotice error={bootError} retry={hardRefresh} />}
-      {data && <ResolverLauncher groups={data.groups.filter((g) => g.suggestion) as unknown as ResolverGroup[]} />}
+      {data && <Suspense fallback={null}><ResolverLauncher groups={data.groups.filter((g) => g.suggestion) as unknown as ResolverGroup[]} /></Suspense>}
 
       <section className="dino-toolbar card-panel">
         <div className="dino-toolbar-row">

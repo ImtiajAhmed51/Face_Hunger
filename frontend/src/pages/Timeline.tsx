@@ -115,7 +115,7 @@ export function Timeline() {
           {currentSection && showSticky && (
             <div className="timeline-sticky" aria-hidden="true">{sectionLabel(currentSection)}</div>
           )}
-          <div ref={ref} className="timeline-body" style={{ height }} role="feed" aria-label={t("timeline.title")} aria-busy={windowed.refreshing}>
+          <div ref={ref} className="timeline-body" style={{ height }} role="region" aria-label={t("timeline.title")} aria-busy={windowed.refreshing}>
             {visible.map((v) => {
               const row = rows[v.index];
               const style = { position: "absolute" as const, top: 0, left: 0, right: 0, height: row.height,

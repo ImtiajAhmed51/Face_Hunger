@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { prerenderToNodeStream } from 'react-dom/static';
 import { MemoryRouter } from 'react-router-dom';
 import { App } from './App';
 import { AppProvider } from './context';
@@ -39,10 +40,13 @@ describe('shared UI semantics', () => {
 });
 
 describe('application route rendering', () => {
-  it.each(['/', '/photos', '/videos', '/people', '/clusters', '/review', '/duplicates', '/cleanup', '/search', '/settings', '/health', '/timeline', '/map', '/events', '/albums', '/favorites', '/deleted', '/no-faces'])('renders %s without React errors', path => {
+  it.each(['/', '/photos', '/videos', '/people', '/clusters', '/review', '/duplicates', '/cleanup', '/search', '/settings', '/health', '/timeline', '/map', '/events', '/albums', '/favorites', '/deleted', '/no-faces'])('renders %s without React errors', async path => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const html = renderToStaticMarkup(<MemoryRouter initialEntries={[path]}><AppProvider><App /></AppProvider></MemoryRouter>);
+      // prerender waits for code-split (lazy) screens instead of emitting their skeleton.
+      const { prelude } = await prerenderToNodeStream(<MemoryRouter initialEntries={[path]}><AppProvider><App /></AppProvider></MemoryRouter>);
+      let html = '';
+      for await (const chunk of prelude) html += chunk.toString();
       expect(html).toContain('id="main-content"');
       expect(html).toContain('aria-label="Main navigation"');
       expect(html).toContain('aria-label="Settings"');

@@ -136,3 +136,9 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
 - 20 exact-duplicate groups (27 copies): predicted savings 2,973,000 bytes; after a keyboard-only
   resolve with "free space", the library folders shrank by **exactly 2,973,000 bytes**. Cmd+Z
   restored all 50 files **byte-identical** (SHA-256 of every file compared) and emptied the bin.
+
+## Frontend bundle after Phase 2
+
+- Initial JS **153.4 KB gzip** (budget 250 KB). Lazy chunks: Map 294.5 KB (MapLibre + pmtiles),
+  Timeline 3.1 KB, Health 2.7 KB, Events 2.2 KB, Albums 2.1 KB, duplicates resolver 2.9 KB.
+- Playwright suite (9 tests, fixture build + server start included): ~24 s, 3/3 runs green.

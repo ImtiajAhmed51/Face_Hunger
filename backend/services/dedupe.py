@@ -196,9 +196,13 @@ class DedupeService:
         if folder.exists():
             for root, _dirs, names in os.walk(folder):
                 for name in names:
-                    if name != "manifest.json":
+                    if name == "manifest.json":
+                        continue
+                    try:  # an undo may be moving files back while we count
                         size += os.path.getsize(os.path.join(root, name))
                         files += 1
+                    except OSError:
+                        continue
         return {"bytes": size, "files": files}
 
     def empty_bin(self) -> dict:

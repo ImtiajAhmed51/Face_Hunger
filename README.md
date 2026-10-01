@@ -170,6 +170,7 @@ cd frontend && npm run build
 ruff check backend tests scripts && python -m pytest -q        # backend
 python -m pytest -m perf                                       # 100k search benchmark
 cd frontend && npx tsc -b && npx vitest run && npx vite build  # frontend
+cd frontend && npx playwright install chromium --only-shell && npm run e2e  # browser tests (once: install)
 ```
 
 ## Operations

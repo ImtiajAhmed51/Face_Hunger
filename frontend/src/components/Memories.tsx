@@ -21,12 +21,15 @@ export function Memories() {
       {sections.map((s) => (
         <div key={`${s.kind}-${s.event_id ?? s.year}`} className="memory">
           <h3>
-            {s.event_id ? <Link to={`/events/${s.event_id}`}>{s.title}</Link> : s.title}
+            {s.event_id ? <Link to={`/events/${s.event_id}`}>{s.title}</Link>
+              : (new Date().getFullYear() - s.year === 1 ? t("memories.yearAgo")
+                : t("memories.yearsAgo", { count: number(new Date().getFullYear() - s.year) }))}
             <span className="muted small-text"> · {s.year}</span>
           </h3>
           <div className="memory-strip">
             {s.media_ids.map((id) => (
-              <button key={id} onClick={() => setOpen({ id, ids: s.media_ids })} aria-label={`${s.title}, ${s.year}`}>
+              <button key={id} onClick={() => setOpen({ id, ids: s.media_ids })}
+                aria-label={t("memories.open", { year: s.year })}>
                 <Thumbnail src={`/api/media/${id}/thumbnail`} alt="" />
               </button>
             ))}

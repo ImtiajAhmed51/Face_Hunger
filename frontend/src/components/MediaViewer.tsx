@@ -333,9 +333,9 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
               </button>
               {media && isRaw(media.name) && fullQuality !== media.id && (
                 <button className="button small" onClick={() => setFullQuality(media.id)}
-                  title="Decode the full camera RAW instead of its embedded preview (takes a few seconds)">
+                  title={t("viewer.fullQualityHelp")}>
                   <Icon name="expand" size={16} />
-                  Full quality
+                  {t("viewer.fullQuality")}
                 </button>
               )}
               {media && (
@@ -349,9 +349,9 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                 </button>
               )}
               <Link className="button small" to={`/search?similar=${id}`} onClick={onClose}
-                title="Find visually similar photos and videos">
+                title={t("viewer.findSimilarHelp")}>
                 <Icon name="spark" size={16} />
-                Find similar
+                {t("viewer.findSimilar")}
               </Link>
               <button
                 className="icon-button"

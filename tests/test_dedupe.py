@@ -141,3 +141,20 @@ def test_bursts_group_rapid_similar_shots(client, app_services):
     client.post("/api/duplicates/ignore", json={"media_ids": [1, 2, 3]})
     assert client.get("/api/duplicates/bursts").json()["groups"] == []
     assert json.loads(json.dumps(groups))  # serialisable
+
+
+def test_bin_usage_tolerates_files_vanishing_mid_walk(app_services, monkeypatch):
+    import os as _os
+    folder = app_services.dedupe.bin_dir() / "1"
+    folder.mkdir(parents=True)
+    (folder / "a.jpg").write_bytes(b"x" * 10)
+    (folder / "b.jpg").write_bytes(b"y" * 5)
+    real = _os.path.getsize
+
+    def racy(path):
+        if path.endswith("a.jpg"):
+            raise FileNotFoundError(path)  # moved back by a concurrent undo
+        return real(path)
+
+    monkeypatch.setattr(_os.path, "getsize", racy)
+    assert app_services.dedupe.bin_usage() == {"bytes": 5, "files": 1}

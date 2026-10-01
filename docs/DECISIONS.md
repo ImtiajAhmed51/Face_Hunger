@@ -275,3 +275,23 @@ Short log of choices and dependencies. One entry per decision, newest last.
   medium >= 0.4) and lists the source faces least like the target to check before merging.
 - **Memories**: "N years ago today" from capture dates (files dated only by mtime are skipped),
   plus events of 5+ items from this week in earlier years, best shots first.
+
+## Phase 2: frontend polish
+- **@playwright/test** (Apache-2.0) runs happy paths for Timeline, Map, Events, Albums, Memories,
+  the video viewer and the duplicates keyboard flow, plus reduced-motion and Bangla checks, against
+  a fresh fixture library (`scripts/make_ui_fixture.py`) served from an isolated data dir. Every
+  test fails on any console error or failed request. Only the headless Chromium shell is
+  installed (~200 MB, dev only).
+- **@axe-core/playwright** (MPL-2.0) checks WCAG 2.0/2.1 A + AA on each new screen. It is a dev-only
+  test dependency and never ships in the app, so the weak-copyleft licence does not reach the
+  product. It found one real issue (`role="feed"` on the timeline needs `article` children); the
+  timeline is now a labelled region.
+- **i18n is enforced by a test**: a TypeScript-AST scan of the Phase 2 screens fails on any JSX text
+  or user-facing attribute that is not a translation call, and every English key must exist in
+  Bangla with the same placeholders. Server-generated event names ("With Ada · 3 Mar 2024") are
+  data and stay in English.
+- **Code splitting**: Timeline, Map, Events, Albums (+ collections, favorites), Health and the
+  duplicates resolver load on demand behind one Suspense skeleton. The route render test uses
+  React 19 `prerenderToNodeStream`, which waits for lazy screens.
+- The live-progress EventSource is closed on `pagehide`, so reloads no longer log aborted-stream
+  errors.

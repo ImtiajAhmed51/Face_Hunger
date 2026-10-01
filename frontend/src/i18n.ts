@@ -168,6 +168,16 @@ const en = {
   'dupes.emptyPrompt': "This permanently deletes {size} of duplicate originals from the duplicate bin. It cannot be undone. Type EMPTY to continue.",
   'dupes.emptyConfirm': "Delete permanently",
   'dupes.emptied': "Duplicate bin emptied.",
+  'common.selected': "{count} selected",
+  'common.selectionActions': "Selected media actions",
+  'common.clearSelection': "Clear selection",
+  'viewer.fullQuality': "Full quality",
+  'viewer.fullQualityHelp': "Decode the full camera RAW instead of its embedded preview (takes a few seconds)",
+  'viewer.findSimilar': "Find similar",
+  'viewer.findSimilarHelp': "Find visually similar photos and videos",
+  'memories.yearAgo': "1 year ago today",
+  'memories.yearsAgo': "{count} years ago today",
+  'memories.open': "Open a photo from {year}",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -333,6 +343,16 @@ const bn: Partial<Record<MessageKey, string>> = {
   'dupes.emptyPrompt': "এটি ডুপ্লিকেট বিন থেকে {size} মূল ফাইল স্থায়ীভাবে মুছে ফেলবে। আনডু করা যাবে না। চালিয়ে যেতে EMPTY লিখুন।",
   'dupes.emptyConfirm': "স্থায়ীভাবে মুছুন",
   'dupes.emptied': "ডুপ্লিকেট বিন খালি করা হয়েছে।",
+  'common.selected': "{count}টি নির্বাচিত",
+  'common.selectionActions': "নির্বাচিত মিডিয়ার কাজ",
+  'common.clearSelection': "নির্বাচন মুছুন",
+  'viewer.fullQuality': "পূর্ণ মান",
+  'viewer.fullQualityHelp': "এমবেডেড প্রিভিউর বদলে পুরো ক্যামেরা RAW ডিকোড করুন (কয়েক সেকেন্ড লাগে)",
+  'viewer.findSimilar': "একই রকম খুঁজুন",
+  'viewer.findSimilarHelp': "দেখতে একই রকম ছবি ও ভিডিও খুঁজুন",
+  'memories.yearAgo': "১ বছর আগে আজকের দিনে",
+  'memories.yearsAgo': "{count} বছর আগে আজকের দিনে",
+  'memories.open': "{year} সালের একটি ছবি খুলুন",
 };
 
 export const MESSAGES: Record<Locale, Partial<Record<MessageKey, string>>> = { en, bn };

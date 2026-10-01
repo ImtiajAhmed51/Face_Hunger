@@ -119,14 +119,14 @@ export function AlbumDetail() {
         </form>
       ))}
       {ids.length > 0 && (
-        <div className="selection-toolbar" role="region" aria-label="Selected media actions">
-          <strong>{number(ids.length)} selected</strong>
+        <div className="selection-toolbar" role="region" aria-label={t("common.selectionActions")}>
+          <strong>{t("common.selected", { count: number(ids.length) })}</strong>
           <button className="button small" disabled={action.busy} onClick={() => void action.run(async () => {
             const r = await mutate<Audited & { removed: number }>(`/albums/${id}/items/remove`, { media_ids: ids });
             selection.clear();
             pushUndo(t("library.removed", { count: r.removed }), undoAudit(r.audit_id));
           })}>{t("library.remove")}</button>
-          <button className="button ghost small" onClick={selection.clear}>Clear selection</button>
+          <button className="button ghost small" onClick={selection.clear}>{t("common.clearSelection")}</button>
         </div>
       )}
       <ErrorNotice error={windowed.error || action.error} retry={windowed.reload} />
