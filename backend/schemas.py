@@ -205,3 +205,13 @@ class CollectionBody(BaseModel):
 class SplitBody(BaseModel):
     face_ids: list[int]
     name: Optional[str] = None
+
+
+class DuplicateGroupDecision(BaseModel):
+    keep: list[int] = Field(default_factory=list)
+    remove: list[int]
+
+
+class ResolveDuplicatesBody(BaseModel):
+    groups: list[DuplicateGroupDecision]
+    free_space: bool = False

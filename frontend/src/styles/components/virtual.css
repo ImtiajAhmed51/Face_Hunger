@@ -462,3 +462,26 @@
   .merge-check-faces .thumbnail { width: 52px; height: 52px; border-radius: 10px; }
   .activity-log li { justify-content: space-between; }
 }
+
+@layer components {
+  .resolver-dialog { width: min(1200px, calc(100vw - 32px)); }
+  .resolver { display: grid; gap: 10px; max-height: calc(100vh - 190px); overflow-y: auto; }
+  .resolver-bar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-weight: 600; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .compare-pane { margin: 0; display: grid; gap: 6px; }
+  .compare-stage {
+    position: relative; height: min(42vh, 440px); overflow: hidden; border-radius: 12px; background: var(--soft);
+    cursor: grab; touch-action: none; border: 2px solid transparent;
+  }
+  .compare-pane.keep .compare-stage { border-color: var(--teal); }
+  .compare-pane.remove .compare-stage { border-color: var(--red); }
+  .compare-stage img { width: 100%; height: 100%; object-fit: contain; transform-origin: center; user-select: none; }
+  .compare-badge { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; }
+  .compare-badge.keep { background: var(--teal); }
+  .compare-badge.remove { background: var(--red); }
+  .compare-pane figcaption { display: grid; gap: 2px; font-size: 13px; }
+  .compare-path { overflow-wrap: anywhere; }
+  .resolver-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 140px; overflow-y: auto; }
+  .resolver-launch { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 800px) { .compare { grid-template-columns: 1fr; } .compare-stage { height: 36vh; } }
+}

@@ -58,6 +58,8 @@ class LibraryService:
             row = conn.execute("SELECT * FROM audit_log WHERE id=?", (entry_id,)).fetchone()
             if row is None:
                 raise KeyError("Audit entry not found")
+            if row["undone_at"] == "purged":
+                raise UndoError("The duplicate bin was emptied; these files are gone")
             if row["undone_at"] is not None:
                 raise UndoError("Already undone")
             data = json.loads(row["undo"])
@@ -346,6 +348,11 @@ class LibraryService:
         self.s.cluster.refresh(conn, list(touched))
 
     _undo_faces_move = _undo_people_split
+
+    def _undo_duplicates_resolve(self, conn, d):
+        from .dedupe import undo_hook
+
+        undo_hook(self.s.dedupe, conn, d)
 
     # -- smart collections ------------------------------------------------------------
     def collections(self) -> list[dict]:

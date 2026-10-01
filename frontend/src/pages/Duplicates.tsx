@@ -26,8 +26,11 @@ interface DupItem extends Media {
   path?: string;
 }
 
+import { ResolverLauncher, type ResolverGroup } from "../components/DuplicateResolver";
+
 interface DupGroup {
-  type: "exact" | "near";
+  type: "exact" | "near" | "burst";
+  suggestion?: ResolverGroup["suggestion"];
   key: string;
   similarity?: number;
   fingerprint?: string;
@@ -685,6 +688,7 @@ export function Duplicates() {
       />
 
       {bootError && <ErrorNotice error={bootError} retry={hardRefresh} />}
+      {data && <ResolverLauncher groups={data.groups.filter((g) => g.suggestion) as unknown as ResolverGroup[]} />}
 
       <section className="dino-toolbar card-panel">
         <div className="dino-toolbar-row">

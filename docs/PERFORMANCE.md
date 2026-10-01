@@ -130,3 +130,9 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
 - Real library keyframes (mostly long 1080p/4K files): 9 videos (largest 44 min 1080p) in ~10 min
   in the background. The full 957-video library takes several hours at the lowest priority.
 - Scene detection on the cut test clip finds 0 / 10 / 25 / 40 s exactly.
+
+## Duplicate resolution (UI fixture: `scripts/make_ui_fixture.py`)
+
+- 20 exact-duplicate groups (27 copies): predicted savings 2,973,000 bytes; after a keyboard-only
+  resolve with "free space", the library folders shrank by **exactly 2,973,000 bytes**. Cmd+Z
+  restored all 50 files **byte-identical** (SHA-256 of every file compared) and emptied the bin.
