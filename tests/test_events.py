@@ -1,5 +1,6 @@
 """Event detection: synthetic trips, incremental re-runs, user overrides and undo."""
 
+import time
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -192,3 +193,31 @@ def test_file_time_dates_do_not_form_events(app_services):
     s.events.detect()
     assert len(events(s.db)) == 5
     assert not s.db.one(f"SELECT 1 x FROM event_media WHERE media_id IN ({','.join(map(str, bulk))})")
+
+
+def test_edit_during_detection_never_creates_phantom_events(app_services, monkeypatch):
+    """An edit landing between detection's read and write used to leave an auto event whose
+    item_count claimed photos that the (now locked) membership never received."""
+    import threading
+    s = app_services
+    trip_fixture(s.db)
+    s.events.detect()
+    cox = events(s.db)[1]
+    real = ev.cluster
+    started = threading.Event()
+
+    def slow_cluster(*a, **k):
+        started.set()
+        time.sleep(0.3)
+        return real(*a, **k)
+
+    monkeypatch.setattr(ev, "cluster", slow_cluster)
+    worker = threading.Thread(target=s.events.detect)
+    worker.start()
+    started.wait(5)
+    s.events.rename(cox["id"], "Beach week")  # lands mid-detection
+    worker.join(30)
+    rows = s.db.all("SELECT e.id, e.item_count, (SELECT COUNT(*) FROM event_media em WHERE em.event_id=e.id) AS members "
+                    "FROM events e")
+    assert all(r["item_count"] == r["members"] for r in rows), rows
+    assert len(rows) == 5

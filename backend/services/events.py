@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -244,6 +245,18 @@ def auto_name(start: datetime, end: datetime, centre: Optional[tuple[float, floa
 # Persistence
 # ---------------------------------------------------------------------------
 
+def _serialized(method):
+    """Edits and detection never interleave (detection reads state before it writes)."""
+    import functools
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._detect_lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 def _parse(ts: str) -> Optional[datetime]:
     try:
         return datetime.fromisoformat(ts[:19])
@@ -255,6 +268,8 @@ class EventService:
     def __init__(self, services):
         self.s = services
         self.places = Places(Path(services.config.model_dir) / "geonames" / "cities15000.txt")
+        # Detection reads, clusters and writes; two concurrent runs would both create events.
+        self._detect_lock = threading.RLock()
 
     # -- loading -------------------------------------------------------------
     def _items(self, where: str = "1=1", params: tuple = ()) -> list[Item]:
@@ -313,7 +328,11 @@ class EventService:
 
     # -- detection ---------------------------------------------------------------
     def detect(self, *, since_media_id: Optional[int] = None, checkpoint: Callable[[], None] = lambda: None) -> dict:
-        """Full detection, or incremental around media with id > since_media_id."""
+        """Full detection, or incremental around media with id > since_media_id (serialized)."""
+        with self._detect_lock:
+            return self._detect(since_media_id=since_media_id, checkpoint=checkpoint)
+
+    def _detect(self, *, since_media_id: Optional[int], checkpoint: Callable[[], None]) -> dict:
         db = self.s.db
         home = self._home(recompute=since_media_id is None)
         if since_media_id is None:
@@ -446,6 +465,7 @@ class EventService:
                      (rows[0]["t"], rows[-1]["t"], len(rows), max(rows, key=lambda r: scores.get(r["id"], -1))["id"],
                       *centre, event_id))
 
+    @_serialized
     def rename(self, event_id: int, name: str) -> int:
         with self.s.db.connect() as conn:
             token = self._log(conn, "rename", self._snapshot(conn, [event_id]))
@@ -453,6 +473,7 @@ class EventService:
             conn.execute("UPDATE event_media SET locked=1 WHERE event_id=?", (event_id,))
         return token
 
+    @_serialized
     def merge(self, event_ids: list[int]) -> tuple[int, int]:
         target, *others = event_ids
         with self.s.db.connect() as conn:
@@ -465,6 +486,7 @@ class EventService:
             self._refresh(conn, target)
         return target, token
 
+    @_serialized
     def split(self, event_id: int, first_media_id: int) -> tuple[int, int]:
         """Everything from ``first_media_id`` (in time order) onwards becomes a new event."""
         with self.s.db.connect() as conn:
@@ -487,6 +509,7 @@ class EventService:
             self._refresh(conn, new_id)
         return new_id, token
 
+    @_serialized
     def move(self, media_ids: list[int], event_id: int) -> int:
         with self.s.db.connect() as conn:
             sources = [r[0] for r in conn.execute(
@@ -508,6 +531,7 @@ class EventService:
                 self._refresh(conn, eid)
         return token
 
+    @_serialized
     def undo(self, token: int) -> dict:
         with self.s.db.connect() as conn:
             edit = conn.execute("SELECT * FROM event_edits WHERE id=? AND undone_at IS NULL", (token,)).fetchone()
