@@ -231,3 +231,28 @@ Short log of choices and dependencies. One entry per decision, newest last.
   and links stay stable.
 - **Job queue fix found here**: duplicate queued jobs with the same dedupe key (enqueued while one
   was running) are now merged when the running one is re-queued or recovered.
+
+## Phase 2: video intelligence
+- **Tracker** (`backend/video/tracker.py`): ByteTrack-style two-stage association with Hungarian
+  matching (scipy, BSD, already a dependency) on 0.4 x IoU + 0.6 x ArcFace cosine. Frames are seconds
+  apart, so identity carries the match when faces move: an IoU gate *or* a strong embedding match
+  is enough. Low-confidence faces only extend existing tracks. Tracks of the same person split
+  by cuts or exits are joined by the existing per-track person assignment (each track's best face
+  is matched to people), not by the tracker.
+- **Track edge refinement**: sampling every `video_interval` (3 s) puts a person's first/last
+  sighting up to 3 s from the truth. After the sampling pass, the worker probes 1 s steps just
+  outside every track (at most 2 x (interval - 1) detections per track) and keeps faces that
+  match the track's embedding. This brings moments within +-2 s without dense decoding.
+- **Keyframes**: one ffmpeg pass, `fps=4,scale=480,select=first|scene>0.3 (>=1 s apart)|30 s
+  since the last`, so every shot change plus a floor of one frame per 30 s is captured.
+  `-hwaccel auto` (VideoToolbox on macOS) with a software fallback: on a 4K H.264 file it took
+  12.2 s per minute of video at 1.85 CPU-seconds, versus 18.3 s and 33 CPU-seconds with 2
+  software threads. ffmpeg runs at `nice 10`.
+- **Moments**: SigLIP 2 image vectors of keyframes in their own append-only vector file
+  (`data/vectors/keyframes-*.f32`) and `keyframe_vectors` rows (the `media_vectors` table is one
+  vector per media item). Search is an exact matrix product held in memory and invalidated by row
+  count; at ~30 keyframes per video, 1,000 videos is a 30k x 768 matrix. At most 3 moments per
+  video are returned so one long video does not flood the results.
+- **Clips are stream-copied** (`-c copy`, starting at the keyframe before `start`) and only
+  re-encoded if stream copy fails or `precise=1` is requested. Originals are only read; clips and
+  per-person zips (with a manifest) go to `data/exports/`.

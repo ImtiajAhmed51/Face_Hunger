@@ -31,6 +31,7 @@ from .routers import (
     review,
     search,
     settings,
+    video,
 )
 from .services.container import Services, set_current
 
@@ -55,6 +56,7 @@ ROUTERS = (
     geo.router,
     quality.router,
     events.router,
+    video.router,
 )
 
 

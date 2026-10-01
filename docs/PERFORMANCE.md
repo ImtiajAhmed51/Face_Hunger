@@ -118,3 +118,15 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   in ~1 s.
 - Cover refresh was a correlated subquery per event (5.1 s for 2k events, and it competed with the
   quality-scoring job's writes). It is now one window-function query.
+
+## Video (CPU, buffalo_l at 640 px, `video_interval` 3 s)
+
+- **10-minute 1080p H.264** (synthetic, 2 faces, `pytest -m perf tests/test_video.py`): faces +
+  tracks + edge refinement **49.9 s**, keyframes **5.9 s**, **~56 s total** (budget 300 s).
+  Progress streams over SSE as `video_seconds / video_duration`.
+- Cancel mid-video: the job stops within 2.5 s (asserted) and leaves nothing half-committed.
+- Fixture with 2 known people (60 s, 3 + 1 appearances): 2 people from >= 3 tracklets, every moment
+  within +-2 s of the ground truth.
+- Real library keyframes (mostly long 1080p/4K files): 9 videos (largest 44 min 1080p) in ~10 min
+  in the background. The full 957-video library takes several hours at the lowest priority.
+- Scene detection on the cut test clip finds 0 / 10 / 25 / 40 s exactly.

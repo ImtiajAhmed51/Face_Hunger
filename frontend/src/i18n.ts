@@ -87,6 +87,17 @@ const en = {
   'events.back': "All events",
   'events.select': "Select {name}",
   'events.notFound': "This event no longer exists.",
+  'video.whoAndWhen': "Who appears, and when",
+  'video.exportClips': "Export their clips",
+  'video.clipsSaved': "Clips downloaded.",
+  'video.lane': "Moments with {name}",
+  'video.seek': "Jump to {time}",
+  'video.seekPerson': "Jump to {name} at {time}",
+  'video.scenes': "Scenes",
+  'video.moments': "Video moments",
+  'video.momentsHelp': "Scenes in your videos that match these words.",
+  'video.personMoments': "In videos",
+  'video.noMoments': "Not seen in any video yet.",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -171,6 +182,17 @@ const bn: Partial<Record<MessageKey, string>> = {
   'events.back': "সব ইভেন্ট",
   'events.select': "{name} বেছে নিন",
   'events.notFound': "এই ইভেন্টটি আর নেই।",
+  'video.whoAndWhen': "কে দেখা যায়, কখন",
+  'video.exportClips': "তাঁর ক্লিপগুলো এক্সপোর্ট করুন",
+  'video.clipsSaved': "ক্লিপ ডাউনলোড হয়েছে।",
+  'video.lane': "{name}-এর মুহূর্তগুলো",
+  'video.seek': "{time}-এ যান",
+  'video.seekPerson': "{time}-এ {name}-এর কাছে যান",
+  'video.scenes': "দৃশ্য",
+  'video.moments': "ভিডিওর মুহূর্ত",
+  'video.momentsHelp': "আপনার ভিডিওর যে দৃশ্যগুলো এই শব্দগুলোর সাথে মেলে।",
+  'video.personMoments': "ভিডিওতে",
+  'video.noMoments': "এখনও কোনো ভিডিওতে দেখা যায়নি।",
 };
 
 export const MESSAGES: Record<Locale, Partial<Record<MessageKey, string>>> = { en, bn };

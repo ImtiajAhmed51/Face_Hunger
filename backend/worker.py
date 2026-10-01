@@ -6,6 +6,7 @@ import sqlite3
 import stat
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from . import duplicates as dup_mod
@@ -14,6 +15,7 @@ from . import metadata as metadata_mod
 from .engine import deduplicate, iou
 from .imaging import NON_WEB_SUFFIXES
 from .scanner import authorized_root, resolve_inside, scan
+from .video.tracker import FaceTracker
 
 Job = dict
 _process_guard = threading.Lock()
@@ -35,6 +37,8 @@ class Worker:
         self._errors = []
         # Called as on_indexed(media_id, content_changed) after a media item is published.
         self.on_indexed = None
+        # Called as on_video_progress(path, seconds, duration) for each sampled video frame.
+        self.on_video_progress = self._video_progress
         # Called as on_finished(status) when an index/reconcile job ends.
         self.on_finished = None
         self.data_dir = Path(config.data_dir).resolve()
@@ -103,6 +107,53 @@ class Worker:
             except BaseException:
                 self._release_guard()
                 raise
+
+    def _refine_track_edges(self, path, tracker, staged, min_quality: float, interval: float, duration: float) -> None:
+        """Sampling every ``interval`` s places track edges up to that far from the truth. Probe
+        1 s steps just outside each track's first/last sighting and keep faces that match the
+        track's identity, so moments are accurate to ~1 s without decoding every frame."""
+        if interval <= 1.0:
+            return
+        probes: dict[float, list] = {}
+        for track in tracker.all_tracks():
+            for k in range(1, int(interval)):
+                for ts in (track.first_ts - k, track.history[-1] + k):
+                    if 0 <= ts <= (duration or ts):
+                        probes.setdefault(round(ts, 2), []).append(track)
+        # At most 2 * (interval - 1) extra detections per track.
+        for ts in sorted(probes):
+            self._checkpoint()
+            candidates = probes[ts]
+            try:
+                image = media_io.frame_at(path, ts)
+            except Exception:
+                continue
+            faces = [f for f in self.engine.detect(image) if float(f.get("quality", f["detection"])) >= min_quality]
+            for track in candidates:
+                best = max(faces, key=lambda f: float(f["embedding"] @ track.emb), default=None)
+                if best is None or float(best["embedding"] @ track.emb) < 0.5:
+                    continue
+                faces.remove(best)
+                offset, sha = self.store.append(best["embedding"])
+                staged.execute(
+                    "INSERT INTO detections(bbox,timestamp,detection,embedding_offset,embedding_sha,jpeg,quality,track_id,"
+                    "landmarks) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (json.dumps(best["bbox"]), ts, float(best["detection"]), offset, sha,
+                     media_io.thumbnail_bytes(image, best["bbox"], 256),
+                     float(best.get("quality", best["detection"])), track.id,
+                     json.dumps(best["landmarks"]) if best.get("landmarks") is not None else None))
+        staged.commit()
+
+    def _video_progress(self, path, seconds: float, duration: float) -> None:
+        """Default progress for full scans: per-video position in the job's progress JSON (<= 2/s)."""
+        now = time.monotonic()
+        if now - getattr(self, "_last_video_write", 0.0) < 0.5 or self._job_id is None:
+            return
+        self._last_video_write = now
+        with self.db.connect() as conn:
+            conn.execute("UPDATE jobs SET progress=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                         (json.dumps({"current": str(path), "video_seconds": round(seconds, 1),
+                                      "video_duration": round(duration, 1)}), self._job_id))
 
     def _update(self, **fields):
         allowed = {"status", "phase", "total", "processed", "faces", "people", "skipped", "failed", "current_file", "error"}
@@ -320,74 +371,44 @@ class Worker:
                 path, float(settings["video_interval"]), self._checkpoint, adaptive=adaptive
             )
         media_jpeg, duplicates = None, 0
-        active_tracks = []
-        next_track = 1
+        tracker = FaceTracker(max_gap=max(6.0, float(settings["video_interval"]) * 3))
+        duration = float(metadata.get("duration") or 0)
         try:
             for timestamp, image in frames:
                 self._checkpoint()
+                if timestamp is not None and self.on_video_progress is not None:
+                    self.on_video_progress(path, float(timestamp), duration)
                 if media_jpeg is None:
                     metadata["height"], metadata["width"] = image.shape[:2]
                     media_jpeg = media_io.thumbnail_bytes(image)
                 detections = deduplicate(self.engine.detect(image))
                 duplicates += detections.duplicate_count
-                frame_faces = []
+                kept = []
                 for face in detections:
                     self._checkpoint()
                     quality = float(face.get("quality", face["detection"]))
                     if quality < min_quality:
                         duplicates += 1
                         continue
+                    kept.append({**face, "quality": quality})
+                # ByteTrack-style association across sampled frames (see backend/video/tracker.py).
+                track_ids = tracker.update(float(timestamp), kept) if timestamp is not None else [None] * len(kept)
+                for face, track_id in zip(kept, track_ids):
                     offset, sha = self.store.append(face["embedding"])
                     jpeg = media_io.thumbnail_bytes(image, face["bbox"], 256)
-                    track_id = None
-                    if timestamp is not None:
-                        best_iou, best_idx = 0.0, -1
-                        for i, tr in enumerate(active_tracks):
-                            if timestamp - tr["last_ts"] > float(settings["video_interval"]) * 3:
-                                continue
-                            overlap = iou(face["bbox"], tr["bbox"])
-                            if overlap < 0.3:
-                                continue
-                            sim = float(face["embedding"] @ tr["emb"])
-                            if sim < 0.35:
-                                continue
-                            score = overlap + sim
-                            if score > best_iou:
-                                best_iou, best_idx = score, i
-                        if best_idx >= 0:
-                            track_id = active_tracks[best_idx]["track_id"]
-                            active_tracks[best_idx] = {
-                                "bbox": face["bbox"],
-                                "emb": face["embedding"],
-                                "track_id": track_id,
-                                "last_ts": timestamp,
-                            }
-                        else:
-                            track_id = next_track
-                            next_track += 1
-                            active_tracks.append({
-                                "bbox": face["bbox"],
-                                "emb": face["embedding"],
-                                "track_id": track_id,
-                                "last_ts": timestamp,
-                            })
                     staged.execute(
                         "INSERT INTO detections(bbox,timestamp,detection,embedding_offset,embedding_sha,jpeg,quality,track_id,"
                         "landmarks) VALUES (?,?,?,?,?,?,?,?,?)",
                         (json.dumps(face["bbox"]), timestamp, float(face["detection"]),
-                         offset, sha, jpeg, quality, track_id,
+                         offset, sha, jpeg, face["quality"], track_id,
                          json.dumps(face["landmarks"]) if face.get("landmarks") is not None else None),
                     )
-                    frame_faces.append(face)
-                if timestamp is not None:
-                    active_tracks = [
-                        t for t in active_tracks
-                        if timestamp - t["last_ts"] <= float(settings["video_interval"]) * 3
-                    ]
                 staged.commit()
         finally:
             if hasattr(frames, "close"):
                 frames.close()
+        if kind == "video" and tracker.all_tracks():
+            self._refine_track_edges(path, tracker, staged, min_quality, float(settings["video_interval"]), duration)
         if media_jpeg is None:
             raise ValueError("No decodable image or video frames")
 

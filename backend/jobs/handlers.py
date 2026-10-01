@@ -75,6 +75,8 @@ def make_ingest(services):
                 raise Cancelled("Cancelled before media commit")
 
         worker._cancel_only = cancel_only
+        worker.on_video_progress = lambda path, seconds, duration: ctx.progress(
+            current=str(path), video_seconds=round(seconds, 1), video_duration=round(duration, 1))
         indexed = missing = failed = skipped = 0
         try:
             settings = services.db.settings()
@@ -279,8 +281,16 @@ def make_event_detection(services):
     return handler
 
 
+def make_video_analysis(services):
+    def handler(ctx: JobContext):
+        return services.video.run(ctx.checkpoint, lambda **p: ctx.progress(**p), ctx.should_yield)
+
+    return handler
+
+
 def register_all(services) -> None:
     jobs = services.jobs
+    jobs.register("video_analysis", make_video_analysis(services))
     jobs.register("event_detection", make_event_detection(services))
     jobs.register("quality_scoring", make_quality_scoring(services))
     jobs.register("metadata_backfill", make_metadata_backfill(services))

@@ -21,6 +21,7 @@ from ..ml.models import ModelHub
 from ..ops.backup import apply_pending_restore
 from ..vectors.spaces import Space, VectorSpaces
 from ..vectors.specs import FACE_ARCFACE
+from ..video.service import VideoService
 from ..video_compat import init_video_compat
 from ..worker import Worker
 from .events import EventService
@@ -51,6 +52,8 @@ class Services:
         self.search = HybridSearch(self)
         self.quality = QualityService(self)
         self.events = EventService(self)
+        self.video = VideoService(self)
+        self.keyframe_encoder = None  # tests/plugins may inject an image+text encoder
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)
         register_handlers(self)
@@ -109,11 +112,17 @@ class Services:
         self.schedule_metadata_backfill()
         self.schedule_quality()
         self.schedule_events()
+        self.schedule_video()
 
     def after_indexing(self) -> None:
         self.schedule_embedding_backfill()
         self.schedule_quality()
         self.schedule_events()
+        self.schedule_video()
+
+    def schedule_video(self) -> None:
+        if self.video.pending(1):
+            self.jobs.enqueue("video_analysis", {}, priority=PRIORITY["background"], dedupe_key="video_analysis")
 
     def schedule_events(self, full: bool = False) -> None:
         from .events import EVENTS_VERSION
@@ -185,6 +194,7 @@ class Services:
     def close(self) -> None:
         self.watcher.stop()
         self.jobs.stop()
+        self.video.close()
         self.worker.shutdown(timeout=5)
         for closer in (self.store.close, self.vectors.close, self.models.close):
             try:

@@ -10,6 +10,7 @@ import { Icon } from "../components/Icon";
 import { MediaCollection } from "../components/MediaGrid";
 import { MergeDialog, RenameDialog } from "../components/PersonDialogs";
 import { PersonFaces } from "../components/PersonFaces";
+import { PersonVideoMoments } from "../components/VideoMoments";
 import {
   Badge,
   ConfirmDialog,
@@ -380,6 +381,8 @@ export function PersonProfile() {
           {tab === "faces" ? (
             <PersonFaces key={personId} personId={personId} />
           ) : (
+            <>
+            {tab === "video" && <PersonVideoMoments personId={person.id} />}
             <MediaCollection
               key={`${personId}:${tab}`}
               filters={{
@@ -390,6 +393,7 @@ export function PersonProfile() {
               emptyTitle="No moments in this view"
               emptyDescription="Try another view, include excluded matches, or restore deleted media. Individual faces can be corrected in the Faces tab."
             />
+            </>
           )}
           {dialog === "rename" && (
             <RenameDialog person={person} onClose={() => setDialog(null)} />

@@ -157,6 +157,30 @@ def _m11_events(conn: sqlite3.Connection) -> None:
         )""")
 
 
+def _m12_video(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS video_keyframes (
+          id INTEGER PRIMARY KEY,
+          media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+          t REAL NOT NULL
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS video_keyframes_media ON video_keyframes(media_id, t)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS keyframe_vectors (
+          keyframe_id INTEGER PRIMARY KEY REFERENCES video_keyframes(id) ON DELETE CASCADE,
+          model_key TEXT NOT NULL, offset INTEGER NOT NULL, sha TEXT NOT NULL
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS keyframe_vectors_model ON keyframe_vectors(model_key)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS video_analysis (
+          media_id INTEGER PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+          version INTEGER NOT NULL, keyframes INTEGER NOT NULL DEFAULT 0, model_key TEXT, error TEXT,
+          analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS faces_media_track ON faces(media_id, track_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS faces_person_time ON faces(person_id, media_id, timestamp)")
+
+
 MIGRATIONS = [
     (6, "embedding_stores", _m6_embedding_stores),
     (7, "saved_searches", _m7_saved_searches),
@@ -164,6 +188,7 @@ MIGRATIONS = [
     (9, "media_metadata", _m9_media_metadata),
     (10, "quality", _m10_quality),
     (11, "events", _m11_events),
+    (12, "video", _m12_video),
 ]
 LATEST = MIGRATIONS[-1][0]
 

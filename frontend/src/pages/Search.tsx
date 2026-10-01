@@ -5,6 +5,7 @@ import { useAction } from "../context";
 import { useResource, refreshData } from "../hooks";
 import type { HybridQuery, MediaFilters, ParsedSearch, SavedSearch } from "../types";
 import { HybridResults } from "../components/HybridResults";
+import { MomentResults } from "../components/VideoMoments";
 import { Icon } from "../components/Icon";
 import { MediaCollection } from "../components/MediaGrid";
 import { PersonPicker, PersonToken } from "../components/PersonPicker";
@@ -399,6 +400,7 @@ export function Search() {
               <button className="text-link" onClick={() => setParams({})}>Clear</button>
             </div>
           )}
+          {hybridQuery?.text && <MomentResults text={hybridQuery.text} people={hybridQuery.people} />}
           {hybridQuery ? (
             <HybridResults query={hybridQuery} />
           ) : (

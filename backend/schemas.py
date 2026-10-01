@@ -166,3 +166,14 @@ class EventMoveBody(BaseModel):
 
 class EventDetectBody(BaseModel):
     full: bool = False
+
+
+class MomentSearchBody(BaseModel):
+    text: str
+    limit: int = Field(40, ge=1, le=200)
+    people: list[int] = Field(default_factory=list)
+
+
+class PersonClipsBody(BaseModel):
+    person_id: int
+    precise: bool = False

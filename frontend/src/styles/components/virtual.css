@@ -407,3 +407,37 @@
     overflow-y: auto;
   }
 }
+
+@layer components {
+  .video-insights { display: grid; gap: 12px; }
+  .video-lane { display: grid; gap: 6px; }
+  .video-lane-head { display: flex; align-items: center; gap: 8px; }
+  .video-lane-head .thumbnail { width: 28px; height: 28px; border-radius: 50%; flex: none; }
+  .video-lane-head .text-link { margin-left: auto; }
+  .video-track { position: relative; height: 14px; border-radius: 7px; background: var(--soft); }
+  .video-segment {
+    position: absolute; top: 2px; height: 10px; border: 0; padding: 0; border-radius: 5px;
+    background: var(--teal); cursor: pointer;
+  }
+  .video-segment:focus-visible { box-shadow: var(--ring-teal); outline: none; }
+  .video-playhead { position: absolute; top: -2px; width: 2px; height: 18px; background: var(--ink); pointer-events: none; }
+  .video-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .video-chips .badge { border: 0; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .video-keyframes { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .video-keyframes button {
+    flex: none; display: grid; gap: 2px; padding: 0; border: 0; background: none; cursor: pointer;
+    font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .video-keyframes img { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; }
+  .video-keyframes button.passed img { opacity: 0.6; }
+  .moment-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .moment-card { display: grid; gap: 4px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
+  .moment-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 10px; }
+  .moment-card:focus-visible img { box-shadow: var(--ring-teal); }
+}
+
+@layer components {
+  .person-moments { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .person-moments li { display: flex; gap: 10px; align-items: flex-start; }
+  .person-moments .thumbnail { width: 44px; height: 44px; border-radius: 10px; flex: none; }
+}

@@ -6,6 +6,7 @@ import { useMounted, useResource } from "../hooks";
 import type { Face, MediaDetail } from "../types";
 import { FaceActions } from "./FaceActions";
 import { QualityPanel } from "./QualityPanel";
+import { VideoInsights } from "./VideoInsights";
 import { useT, type MessageKey } from "../i18n";
 import { Icon } from "./Icon";
 import {
@@ -638,6 +639,15 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                   </dl>
                   <FaceActions faces={[face]} allowPermanent />
                 </section>
+              )}
+              {media.kind === "video" && (
+                <VideoInsights mediaId={media.id} duration={media.duration} video={video}
+                  onSeek={(seconds) => {
+                    if (video.current && video.current.readyState >= 1) {
+                      video.current.currentTime = seconds;
+                      void video.current.play().catch(() => {});
+                    } else pendingSeek.current = seconds;
+                  }} />
               )}
               <section className="metadata-section">
                 <h3>File details</h3>
