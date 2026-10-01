@@ -258,8 +258,30 @@ def make_quality_scoring(services):
     return handler
 
 
+def make_event_detection(services):
+    """Full detection the first time (or on request), then incremental from a media-id watermark."""
+    def handler(ctx: JobContext):
+        db = services.db
+        settings = db.settings()
+        watermark = settings.get("events_watermark")
+        top = db.one("SELECT COALESCE(MAX(id), 0) AS m FROM media")["m"]
+        from ..services.events import EVENTS_VERSION
+
+        full = bool(ctx.payload.get("full")) or watermark is None or settings.get("events_version") != EVENTS_VERSION
+        ctx.progress(force=True, phase="full" if full else "incremental", processed=0, total=1)
+        result = services.events.detect(since_media_id=None if full else int(watermark), checkpoint=ctx.checkpoint)
+        with db.connect() as conn:
+            for key, value in (("events_watermark", top), ("events_version", EVENTS_VERSION)):
+                conn.execute("INSERT INTO settings(key, value) VALUES (?, ?) "
+                             "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, json.dumps(value)))
+        return {**{k: v for k, v in result.items() if k != "window"}, "processed": 1, "total": 1, "full": full}
+
+    return handler
+
+
 def register_all(services) -> None:
     jobs = services.jobs
+    jobs.register("event_detection", make_event_detection(services))
     jobs.register("quality_scoring", make_quality_scoring(services))
     jobs.register("metadata_backfill", make_metadata_backfill(services))
     jobs.register("integrity_check", make_integrity_check(services))

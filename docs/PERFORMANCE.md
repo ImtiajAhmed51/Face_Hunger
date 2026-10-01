@@ -110,3 +110,11 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   88%. Mild degradations: 64% (seed 12 fixture), 69% mean.
 - Real library, CPU, face landmarks re-detected on the fly for pre-existing faces: **14.8 media/s**
   steady state (16,076 items in about 18 min in the background, lowest priority).
+
+## Events (real library: 10,684 datable items of 16,076)
+
+- Full detection from scratch: **0.46 s** -> 1,950 events; unchanged re-run 0.19 s; switching
+  rule versions (removing the giant bulk-copy events) 0.19 s. In the live app, the job completes
+  in ~1 s.
+- Cover refresh was a correlated subquery per event (5.1 s for 2k events, and it competed with the
+  quality-scoring job's writes). It is now one window-function query.

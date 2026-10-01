@@ -207,3 +207,27 @@ Short log of choices and dependencies. One entry per decision, newest last.
   mean over 8 other seeds (worst 88%); **64%** on a "mild degradations" variant (69% mean), where
   small exposure shifts are genuinely ambiguous. Noise scale (8 grey levels) was calibrated on
   seeds 0-7 of this synthetic set, which is a bias to keep in mind.
+
+## Phase 2: events
+- **Detection rules** (`backend/services/events.py`): link by time gap (<= 4 h) with a GPS plausibility
+  check (<= 150 km, <= 300 km/h); merge away-from-home segments into trips across nights
+  (<= 36 h, within 400 km); split a segment at a >= 90 min gap when the DINOv2 centroids before and
+  after differ (cos < 0.45); merge same-day segments with overlapping people (Jaccard >= 0.5).
+  "Home" is the ~5 km cell with the most distinct months of photos, so a long trip with many
+  photos never becomes "home". Home is fixed on full runs and reused by incremental ones.
+- **Media dated only by file time are not grouped into events.** On the real library, bulk
+  copies produced fake events of 3,851 and 1,528 items dated by copy time. They still show on
+  the timeline. `EVENTS_VERSION` bumps force a full re-detection when the rules change.
+- **Overrides**: any edit (rename, merge, split, move) locks the affected media and marks the event
+  `user_edited`. Re-detection never touches locked media or edited events. Each edit stores a
+  snapshot in `event_edits`; `POST /api/events/undo/{token}` restores it, and the UI pushes the token
+  onto the shared undo stack (Ctrl/Cmd+Z).
+- **Names**: no cloud geocoding. An optional GeoNames `cities15000.txt` (CC-BY 4.0) in
+  `models/geonames/` gives place names; otherwise coordinates. Events at home are named after the
+  people in them. The cover is the event's best-shot (`quality_scores`), refreshed with one
+  window-function query.
+- **Incremental runs** use a media-id watermark: only the window of +-48 h around new media, widened
+  to the auto events it overlaps, is re-clustered. Event ids are reused by majority vote so edits
+  and links stay stable.
+- **Job queue fix found here**: duplicate queued jobs with the same dedupe key (enqueued while one
+  was running) are now merged when the running one is re-queued or recovered.

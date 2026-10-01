@@ -26,6 +26,7 @@ import { Search } from "./pages/Search";
 import { Settings } from "./pages/Settings";
 import { Health } from "./pages/Health";
 import { Timeline } from "./pages/Timeline";
+import { EventDetail, Events } from "./pages/Events";
 
 // MapLibre is ~200 KB gzip: load it only when the Map page opens.
 const MapPage = lazy(() => import("./pages/MapPage"));
@@ -41,6 +42,7 @@ const navigation: {
   { to: "/clusters", label: "Clusters", icon: "spark" },
   { to: "/photos", label: "Photos", icon: "photo" },
   { to: "/timeline", label: "Timeline", icon: "filter" },
+  { to: "/events", label: "Events", icon: "spark" },
   { to: "/map", label: "Map", icon: "folder" },
   { to: "/videos", label: "Videos", icon: "video" },
   { to: "/no-faces", label: "No faces", icon: "hidden" },
@@ -398,6 +400,8 @@ export function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/health" element={<Health />} />
           <Route path="/timeline" element={<Timeline />} />
+          <Route path="/events" element={<Events />} />
+          <Route path="/events/:id" element={<EventDetail />} />
           <Route path="/map" element={
             <Suspense fallback={<><PageHeader title="Map" description="Loading the map…" /><div className="gallery-skeleton" role="status" aria-label="Loading the map" /></>}>
               <MapPage />

@@ -118,6 +118,14 @@ class JobManager:
                     conn.execute("UPDATE jobs SET status='queued', phase='recovered', attempts=attempts+1, updated_at=? "
                                  "WHERE id=?", (_now(), row["id"]))
                     recovered.append(row["id"])
+        for job_id in recovered:
+            self._absorb_duplicates(self.db.one("SELECT * FROM jobs WHERE id=?", (job_id,)))
+        # Duplicates already sitting in the queue from older versions: keep the oldest per key.
+        with self.db.connect() as conn:
+            conn.execute("""UPDATE jobs SET status='cancelled', phase='merged', finished_at=?, updated_at=?
+                            WHERE status='queued' AND dedupe_key IS NOT NULL AND id NOT IN (
+                              SELECT MIN(id) FROM jobs WHERE status='queued' AND dedupe_key IS NOT NULL
+                              GROUP BY dedupe_key, payload)""", (_now(), _now()))
         return recovered
 
     # -- queue API ------------------------------------------------------------
@@ -213,6 +221,17 @@ class JobManager:
     def _finish(self, job_id: int, status: str, error: Optional[str] = None) -> None:
         self._write(job_id, status=status, phase=status, error=error, current_file=None, finished_at=_now())
 
+    def _absorb_duplicates(self, job: dict) -> None:
+        """A requeued job with a dedupe key resumes all pending work for that key, so other
+        queued copies (enqueued while it was running) are redundant."""
+        key = job.get("dedupe_key")
+        if not key:
+            return
+        with self.db.connect() as conn:
+            conn.execute("UPDATE jobs SET status='cancelled', phase='merged', finished_at=?, updated_at=? "
+                         "WHERE dedupe_key=? AND status='queued' AND id != ? AND payload = ?",
+                         (_now(), _now(), key, job["id"], job.get("payload") or "{}"))
+
     def _checkpoint(self, job_id: int) -> None:
         with self._cond:
             while job_id in self._pause and job_id not in self._cancel and not self._stop:
@@ -275,6 +294,7 @@ class JobManager:
         ctx.progress(force=True, **{k: v for k, v in result.items() if k != "yielded"})
         if result.get("yielded"):
             self._write(job["id"], status="queued", phase="yielded")
+            self._absorb_duplicates(job)
         else:
             self._finish(job["id"], "completed")
 

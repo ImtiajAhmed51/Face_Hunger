@@ -23,6 +23,7 @@ from ..vectors.spaces import Space, VectorSpaces
 from ..vectors.specs import FACE_ARCFACE
 from ..video_compat import init_video_compat
 from ..worker import Worker
+from .events import EventService
 from .quality import QualityService
 from .search import HybridSearch
 
@@ -49,6 +50,7 @@ class Services:
         self.ingest_worker.on_indexed = self.on_media_indexed
         self.search = HybridSearch(self)
         self.quality = QualityService(self)
+        self.events = EventService(self)
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)
         register_handlers(self)
@@ -106,10 +108,23 @@ class Services:
         self.schedule_embedding_backfill()
         self.schedule_metadata_backfill()
         self.schedule_quality()
+        self.schedule_events()
 
     def after_indexing(self) -> None:
         self.schedule_embedding_backfill()
         self.schedule_quality()
+        self.schedule_events()
+
+    def schedule_events(self, full: bool = False) -> None:
+        from .events import EVENTS_VERSION
+
+        settings = self.db.settings()
+        watermark = settings.get("events_watermark")
+        newest = self.db.one("SELECT COALESCE(MAX(id), 0) AS m FROM media")["m"]
+        outdated = settings.get("events_version") != EVENTS_VERSION
+        if full or outdated or watermark is None or newest > int(watermark):
+            self.jobs.enqueue("event_detection", {"full": full}, priority=PRIORITY["normal"] + 20,
+                              dedupe_key="event_detection")
 
     def schedule_quality(self) -> None:
         # After embeddings (so the aesthetic signal is usually available on the first pass).

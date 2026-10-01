@@ -16,6 +16,7 @@ from .routers import (
     cleanup,
     dashboard,
     duplicates,
+    events,
     exclusions,
     export,
     faces,
@@ -53,6 +54,7 @@ ROUTERS = (
     health.router,
     geo.router,
     quality.router,
+    events.router,
 )
 
 

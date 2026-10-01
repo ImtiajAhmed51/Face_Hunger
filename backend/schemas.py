@@ -146,3 +146,23 @@ class BackupExportBody(BaseModel):
 
 class BackupRestoreBody(BaseModel):
     name: str
+
+
+class EventRenameBody(BaseModel):
+    name: str
+
+
+class EventMergeBody(BaseModel):
+    event_ids: list[int]
+
+
+class EventSplitBody(BaseModel):
+    media_id: int
+
+
+class EventMoveBody(BaseModel):
+    media_ids: list[int]
+
+
+class EventDetectBody(BaseModel):
+    full: bool = False

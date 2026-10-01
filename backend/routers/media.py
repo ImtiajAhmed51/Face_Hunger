@@ -53,6 +53,7 @@ def list_media(
     limit: int = 60,
     q: str = "",
     bbox: Optional[str] = Query(None, description="minLon,minLat,maxLon,maxLat: geotagged media inside"),
+    event: Optional[int] = Query(None, description="Only media in this event"),
 ):
     """sort: date (default, newest first) | size_desc | size_asc | name
     people: include media that contain these people
@@ -84,6 +85,10 @@ def list_media(
     if q.strip():
         where.append("m.name LIKE ?")
         params.append(f"%{q.strip()}%")
+
+    if event is not None:
+        where.append("EXISTS (SELECT 1 FROM event_media em WHERE em.media_id = m.id AND em.event_id = ?)")
+        params.append(event)
 
     if bbox:
         try:
@@ -178,6 +183,8 @@ def list_media(
         order_sql = "m.size ASC, m.id ASC"
     elif sort_key == "name":
         order_sql = "m.name COLLATE NOCASE ASC, m.id ASC"
+    elif sort_key == "date_asc":
+        order_sql = "COALESCE(m.captured_at, m.indexed_at) ASC, m.id ASC"
     elif sort_key == "best":
         order_sql = (f"COALESCE((SELECT q.score FROM quality_scores q WHERE q.media_id=m.id "
                      f"AND q.formula_version={int(scoring.FORMULA_VERSION)}), -1) DESC, m.id DESC")

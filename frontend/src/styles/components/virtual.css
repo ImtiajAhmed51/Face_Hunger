@@ -6,9 +6,13 @@
   }
   .virtual-row {
     will-change: transform;
+    /* Cells are exactly one row tall: tall images must never stretch the grid track. */
+    grid-auto-rows: 100%;
   }
   .virtual-cell {
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
     border-radius: var(--radius-md, 14px);
     outline: none;
   }
@@ -16,7 +20,8 @@
     box-shadow: var(--ring-teal);
   }
   .virtual-cell > .media-card,
-  .virtual-cell > .person-card {
+  .virtual-cell > .person-card,
+  .virtual-cell > .event-card {
     height: 100%;
     overflow: hidden;
   }
@@ -350,5 +355,55 @@
   @media (max-width: 800px) {
     .map-layout { grid-template-columns: 1fr; }
     .timeline { padding-right: 40px; }
+  }
+}
+
+@layer components {
+  .event-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--line);
+  }
+  .event-card.selected {
+    box-shadow: 0 0 0 2px var(--teal);
+  }
+  .event-cover {
+    display: block;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .event-card .select-check {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+  }
+  .event-caption {
+    display: grid;
+    gap: 3px;
+    padding: 10px 12px 12px;
+  }
+  .event-caption strong {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .event-people {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-height: 20px;
+  }
+  .event-pick {
+    list-style: none;
+    display: grid;
+    gap: 4px;
+    max-height: 60vh;
+    overflow-y: auto;
   }
 }

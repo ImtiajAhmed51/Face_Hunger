@@ -162,3 +162,17 @@ def test_watcher_indexes_a_copied_in_photo_within_5s(client, app_services, tmp_p
             break
         time.sleep(0.05)
     assert app_services.db.one("SELECT missing FROM media WHERE id=?", (row["id"],))["missing"] == 1
+
+
+def test_requeued_job_absorbs_queued_duplicates(app_services):
+    db = app_services.db
+    m = app_services.jobs
+    first = m.enqueue("embed_backfill", dedupe_key="embed_backfill")
+    with db.connect() as conn:  # first was running when two more were queued (older behaviour)
+        conn.execute("UPDATE jobs SET status='running' WHERE id=?", (first["id"],))
+        conn.execute("INSERT INTO jobs(kind, priority, payload, dedupe_key, status, updated_at) VALUES "
+                     "('embed_backfill', 80, '{}', 'embed_backfill', 'queued', ''), "
+                     "('embed_backfill', 80, '{}', 'embed_backfill', 'queued', '')")
+    JobManager(db)  # restart: the running one is recovered, the copies are merged into it
+    queued = db.all("SELECT id FROM jobs WHERE kind='embed_backfill' AND status='queued'")
+    assert [r["id"] for r in queued] == [first["id"]]

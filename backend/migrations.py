@@ -131,12 +131,39 @@ def _m10_quality(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS quality_scores_rank ON quality_scores(formula_version, score DESC)")
 
 
+def _m11_events(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS events (
+          id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+          start_at TEXT NOT NULL, end_at TEXT NOT NULL,
+          cover_media_id INTEGER REFERENCES media(id) ON DELETE SET NULL,
+          lat REAL, lon REAL, item_count INTEGER NOT NULL DEFAULT 0, people TEXT NOT NULL DEFAULT '[]',
+          user_edited INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS events_time ON events(start_at DESC)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS event_media (
+          media_id INTEGER PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+          event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+          locked INTEGER NOT NULL DEFAULT 0
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS event_media_event ON event_media(event_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS event_edits (
+          id INTEGER PRIMARY KEY, action TEXT NOT NULL, snapshot TEXT NOT NULL,
+          created_events TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, undone_at TEXT
+        )""")
+
+
 MIGRATIONS = [
     (6, "embedding_stores", _m6_embedding_stores),
     (7, "saved_searches", _m7_saved_searches),
     (8, "job_queue", _m8_job_queue),
     (9, "media_metadata", _m9_media_metadata),
     (10, "quality", _m10_quality),
+    (11, "events", _m11_events),
 ]
 LATEST = MIGRATIONS[-1][0]
 
