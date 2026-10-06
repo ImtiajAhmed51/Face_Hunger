@@ -30,4 +30,4 @@ def export_media(body: ExportBody, request: Request):
             tuple(params),
         )
         media_ids = [r["id"] for r in rows]
-    return _stream_export(media_ids, "face-hunger-export.zip")
+    return _stream_export(media_ids, "face-hunger-export.zip", apply_edits=body.apply_edits)

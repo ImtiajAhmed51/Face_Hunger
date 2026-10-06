@@ -6,6 +6,8 @@ import { useMounted, useResource } from "../hooks";
 import type { Face, MediaDetail } from "../types";
 import { FaceActions } from "./FaceActions";
 import { QualityPanel } from "./QualityPanel";
+import { EditCanvas, EditPanel, type EditDetail } from "./PhotoEdits";
+import { hasGeometry, type Aspect, type Crop } from "../editGeometry";
 import { undoAudit, type Audited } from "../audit";
 import { VideoInsights } from "./VideoInsights";
 import { useT, type MessageKey } from "../i18n";
@@ -39,6 +41,10 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
   const convertLock = useRef(false);
   const resource = useResource<MediaDetail>(`/media/${current}`);
   const media = resource.data;
+  const edits = useResource<EditDetail>(media?.kind === "photo" ? `/media/${media.id}/edits` : null);
+  const [cropping, setCropping] = useState(false);
+  const [draft, setDraft] = useState<Crop | null>(null);
+  const [aspect, setAspect] = useState<Aspect>("free");
   const [selected, setSelected] = useState<number | null>(null);
   const [boxes, setBoxes] = useState(true);
   // RAW: the embedded camera preview shows instantly; the full demosaic is opt-in.
@@ -462,6 +468,9 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                 </div>
               ) : media.kind === "video" && !videoReady ? (
                 <Loading label="Checking video playback" />
+              ) : media.kind === "photo" && edits.data && (cropping || hasGeometry(edits.data.edit)) ? (
+                <EditCanvas src={`/api/media/${media.id}/preview`} alt={media.name} edit={edits.data.edit}
+                  cropping={cropping} draft={draft} aspect={aspect} onDraft={setDraft} />
               ) : (
                 <div
                   className="media-surface"
@@ -735,6 +744,10 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                   )}
                 </dl>
               </section>
+              {media.kind === "photo" && edits.data && (
+                <EditPanel mediaId={media.id} detail={edits.data} cropping={cropping} draft={draft} aspect={aspect}
+                  frame={[media.width ?? 4, media.height ?? 3]} onCropping={setCropping} onDraft={setDraft} onAspect={setAspect} />
+              )}
               <QualityPanel mediaId={media.id} />
               <div className="viewer-file-actions">
                 {media.kind === "video" && needsConvert && !converting && !media.missing && (

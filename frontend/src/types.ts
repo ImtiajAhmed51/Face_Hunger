@@ -37,6 +37,11 @@ export interface Media {
   };
   error?: string | null;
   favorite?: boolean;
+  rating?: number;
+  label?: string | null;
+  flag?: "pick" | "reject" | null;
+  edit_version?: number;
+  edited?: boolean;
   /** Capture metadata: date_source is exif | container | filename | mtime. */
   date_source?: string | null;
   camera_make?: string | null;

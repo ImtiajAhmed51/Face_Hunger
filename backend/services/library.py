@@ -349,6 +349,9 @@ class LibraryService:
 
     _undo_faces_move = _undo_people_split
 
+    def _undo_edits_batch(self, conn, d):
+        self.s.edits.undo_batch(conn, d)
+
     def _undo_duplicates_resolve(self, conn, d):
         from .dedupe import undo_hook
 

@@ -288,8 +288,24 @@ def make_video_analysis(services):
     return handler
 
 
+def make_sidecar_sync(services):
+    """A .xmp changed on disk: import it if it is not what we last wrote."""
+    def handler(ctx: JobContext):
+        changed = []
+        for raw in ctx.payload.get("paths", []):
+            ctx.checkpoint()
+            media_id = services.edits.reconcile_path(Path(raw))
+            if media_id is not None:
+                changed.append(media_id)
+        return {"processed": len(ctx.payload.get("paths", [])), "total": len(ctx.payload.get("paths", [])),
+                "changed": changed}
+
+    return handler
+
+
 def register_all(services) -> None:
     jobs = services.jobs
+    jobs.register("sidecar_sync", make_sidecar_sync(services))
     jobs.register("video_analysis", make_video_analysis(services))
     jobs.register("event_detection", make_event_detection(services))
     jobs.register("quality_scoring", make_quality_scoring(services))

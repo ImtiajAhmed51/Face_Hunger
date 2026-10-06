@@ -84,6 +84,7 @@ class MaintenanceBody(BaseModel):
 class ExportBody(BaseModel):
     media_ids: Optional[list[int]] = None
     filters: Optional[dict] = None
+    apply_edits: bool = False  # export edited photos as rendered JPEGs instead of the originals
 
 
 class MoveMediaBody(BaseModel):
@@ -215,3 +216,31 @@ class DuplicateGroupDecision(BaseModel):
 class ResolveDuplicatesBody(BaseModel):
     groups: list[DuplicateGroupDecision]
     free_space: bool = False
+
+
+class CropBody(BaseModel):
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+class EditPatchBody(BaseModel):
+    rotation: Optional[int] = None
+    flip_h: Optional[bool] = None
+    flip_v: Optional[bool] = None
+    crop: Optional[CropBody] = None
+    rating: Optional[int] = None
+    label: Optional[str] = None
+    flag: Optional[str] = None
+
+
+class EditRevertBody(BaseModel):
+    history_id: Optional[int] = None
+
+
+class EditBatchBody(BaseModel):
+    media_ids: list[int]
+    rating: Optional[int] = None
+    label: Optional[str] = None
+    flag: Optional[str] = None

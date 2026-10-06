@@ -133,3 +133,32 @@ test('bangla: new screens switch language', async ({ page, errors, axe }) => {
   await expect(page.getByRole('heading', { level: 1, name: 'অ্যালবাম' })).toBeVisible();
   await axe(page, 'albums (bn)');
 });
+
+test('edit tools: rate, rotate, crop and revert without touching the original', async ({ page, errors, axe }) => {
+  void errors;
+  await go(page, '/photos');
+  await page.getByRole('button', { name: /^Open MEMORY_0/ }).click();
+  const panel = page.locator('.edit-panel');
+  await expect(panel.getByRole('heading', { name: 'Edit' })).toBeVisible();
+  const before = await page.request.get('/api/media?q=MEMORY_0').then((r) => r.json()).then((d) => d.items[0]);
+  const original = await page.request.get(`/api/media/${before.id}/file`).then((r) => r.body());
+  await panel.getByRole('radio', { name: '4 stars' }).click();
+  await expect(panel.getByRole('radio', { name: '4 stars' })).toHaveAttribute('aria-checked', 'true');
+  await panel.getByRole('button', { name: 'Rotate right' }).click();
+  const canvas = page.locator('canvas.edit-canvas');
+  await expect(canvas).toBeVisible();
+  await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => c.height > c.width)).toBe(true); // 4:3 -> 3:4
+  await panel.getByRole('button', { name: 'Crop', exact: true }).click();
+  await panel.getByLabel('Aspect').selectOption('1:1');
+  await panel.getByRole('button', { name: 'Apply crop' }).click();
+  await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => Math.abs(c.width - c.height) <= 1)).toBe(true);
+  const detail = await page.request.get(`/api/media/${before.id}/edits`).then((r) => r.json());
+  expect(detail.edit.rating).toBe(4);
+  expect(detail.edit.rotation).toBe(90);
+  expect(detail.edit.crop).not.toBeNull();
+  await axe(page, 'viewer edit panel');
+  await panel.getByRole('button', { name: 'Revert to original' }).click();
+  await expect(canvas).toHaveCount(0);
+  const after = await page.request.get(`/api/media/${before.id}/file`).then((r) => r.body());
+  expect(after.equals(original)).toBe(true);
+});

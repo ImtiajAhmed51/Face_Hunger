@@ -295,3 +295,32 @@ Short log of choices and dependencies. One entry per decision, newest last.
   React 19 `prerenderToNodeStream`, which waits for lazy screens.
 - The live-progress EventSource is closed on `pagehide`, so reloads no longer log aborted-stream
   errors.
+
+# Phase 3
+
+## Edit tools
+- **Edit model**: rotation (multiples of 90, clockwise) -> flips -> crop as fractions of the oriented
+  frame, plus rating 0-5, colour label and pick/reject flag. Stored in `media_edits` with every
+  change in `edit_history` (before/after), so any step or everything can be reverted. Re-indexing
+  never touches these tables.
+- **XMP sidecar next to the original** as `<file>.<ext>.xmp` (darktable convention; avoids
+  `IMG.jpg` / `IMG.cr2` collisions). An existing `<stem>.xmp` from another tool is reused and updated
+  in place: properties we do not own are preserved. If the folder is read-only the sidecar goes to
+  `data_dir/sidecars/`. Fields: `xmp:Rating`, `xmp:Label`, `tiff:Orientation` (rotation/flip as an
+  EXIF orientation = the orientation override), `crs:HasCrop` + `crs:CropLeft/Top/Right/Bottom`
+  (relative to the oriented frame), and `fh:Flag` in our own namespace because flags have no
+  standard XMP field. No XMP library: ~150 lines on the standard library's ElementTree.
+- **JSON sidecar** (`data_dir/sidecars/<id>.json`) holds the Face Hunger-specific copy (edit, flag,
+  recent history, original content hash). It stays in the data dir so user folders get one extra
+  file per edited photo, not two.
+- **External changes**: we remember the SHA-256 of the sidecar we wrote. The watcher queues a
+  `sidecar_sync` job for any `.xmp` event; a different hash means another application edited it,
+  and its values are imported (external wins) with a history entry. Sidecars are also read when
+  a file is indexed, so ratings from other tools appear on first scan.
+- **Viewer**: a canvas draws the cached preview with rotation/flip/crop applied live; crop is drawn
+  with the pointer under an aspect preset. Grid thumbnails apply geometry server-side from the
+  cached thumbnail (cache-busted by `edit_version`). Exports can render edits to new JPEGs
+  (`apply_edits`); the default remains the untouched originals. Face boxes are hidden on photos
+  with geometric edits (their coordinates refer to the unedited frame).
+- **exiftool** (Perl, GPL/Artistic) is used only by a test, when present, to prove interoperability.
+  It is not a dependency.

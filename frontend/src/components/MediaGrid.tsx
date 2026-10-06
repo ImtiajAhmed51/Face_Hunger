@@ -101,10 +101,10 @@ export function MediaCard({
                   <VideoHoverPreview id={item.id} name={item.name} />
                 ) : (
                   <Thumbnail
-                    src={`/api/media/${item.id}/thumbnail`}
+                    src={`/api/media/${item.id}/thumbnail${item.edit_version ? `?v=${item.edit_version}` : ""}`}
                     alt={item.name}
                     icon="photo"
-                    placeholder={placeholder}
+                    placeholder={item.edited ? undefined : placeholder}
                   />
                 )}
               </button>
@@ -175,6 +175,11 @@ export function MediaCard({
                         : `${Math.round(conversionMap[item.id].progress)}%`}
                     </>
                   )}
+                </span>
+              )}
+              {(!!item.rating || item.label || item.flag) && (
+                <span className={`media-rating ${item.label ? `label-${item.label.toLowerCase()}` : ""}`}>
+                  {item.flag === "reject" ? "✕" : item.flag === "pick" ? "⚑" : ""}{item.rating ? "★".repeat(item.rating) : ""}
                 </span>
               )}
               {!!item.face_count && (

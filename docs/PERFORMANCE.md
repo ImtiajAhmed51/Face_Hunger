@@ -142,3 +142,11 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
 - Initial JS **153.4 KB gzip** (budget 250 KB). Lazy chunks: Map 294.5 KB (MapLibre + pmtiles),
   Timeline 3.1 KB, Health 2.7 KB, Events 2.2 KB, Albums 2.1 KB, duplicates resolver 2.9 KB.
 - Playwright suite (9 tests, fixture build + server start included): ~24 s, 3/3 runs green.
+
+# Phase 3
+
+## Edit tools
+- External sidecar change (another app rewrites the `.xmp`): imported **0.99 s** after the write
+  (budget 5 s), including the watcher's 0.75 s debounce.
+- XMP written by the app: `exiftool 13.55` reads Rating / Label / Orientation / HasCrop /
+  Crop* exactly and `exiftool -validate` reports no warnings.

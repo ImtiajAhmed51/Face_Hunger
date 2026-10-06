@@ -11,8 +11,9 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 
+from .. import edits as edit_model
 from .. import imaging, scoring
-from ..deps import cluster, config, db, video_compat
+from ..deps import cluster, config, db, services, video_compat
 from ..media_http import hover_clip, media_response
 from ..media_processing import _ffmpeg_bin, load_image
 from ..scanner import authorized_root
@@ -55,6 +56,9 @@ def list_media(
     bbox: Optional[str] = Query(None, description="minLon,minLat,maxLon,maxLat: geotagged media inside"),
     event: Optional[int] = Query(None, description="Only media in this event"),
     album: Optional[int] = Query(None, description="Only media in this album (album order)"),
+    rating_min: Optional[int] = Query(None, ge=1, le=5, description="Only media rated at least this"),
+    label: Optional[str] = Query(None, description="Only media with this colour label"),
+    flag: Optional[str] = Query(None, description="pick | reject | unflagged"),
     favorite: bool = Query(False, description="Only favorites"),
 ):
     """sort: date (default, newest first) | size_desc | size_asc | name
@@ -96,6 +100,17 @@ def list_media(
         params.append(album)
     if favorite:
         where.append("EXISTS (SELECT 1 FROM favorites fv WHERE fv.media_id = m.id)")
+    if rating_min is not None:
+        where.append("EXISTS (SELECT 1 FROM media_edits me WHERE me.media_id = m.id AND me.rating >= ?)")
+        params.append(rating_min)
+    if label:
+        where.append("EXISTS (SELECT 1 FROM media_edits me WHERE me.media_id = m.id AND lower(me.label) = lower(?))")
+        params.append(label)
+    if flag in ("pick", "reject"):
+        where.append("EXISTS (SELECT 1 FROM media_edits me WHERE me.media_id = m.id AND me.flag = ?)")
+        params.append(flag)
+    elif flag == "unflagged":
+        where.append("NOT EXISTS (SELECT 1 FROM media_edits me WHERE me.media_id = m.id AND me.flag IS NOT NULL)")
 
     if bbox:
         try:
@@ -471,7 +486,15 @@ def media_thumbnail(media_id: int):
     for path in candidates:
         try:
             if path.is_file() and path.stat().st_size > 0:
-                return FileResponse(path, media_type="image/jpeg")
+                edit = services().edits.get(media_id)
+                if edit_model.is_identity_geometry(edit):
+                    return FileResponse(path, media_type="image/jpeg")
+                # Geometric edits are applied to the cached thumbnail on the fly (a few ms).
+                from PIL import Image
+                with Image.open(path) as thumb_image:
+                    out = io.BytesIO()
+                    edit_model.apply(thumb_image.convert("RGB"), edit).save(out, format="JPEG", quality=86)
+                return Response(out.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "private, no-cache"})
         except OSError:
             continue
 

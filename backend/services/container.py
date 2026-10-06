@@ -6,6 +6,7 @@ container so tests can build an isolated app against a temporary data dir.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -25,11 +26,13 @@ from ..video.service import VideoService
 from ..video_compat import init_video_compat
 from ..worker import Worker
 from .dedupe import DedupeService
+from .edits import EditService
 from .events import EventService
 from .library import LibraryService
 from .quality import QualityService
 from .search import HybridSearch
 
+logger = logging.getLogger(__name__)
 
 class Services:
     def __init__(self, config: Config, engine: Optional[Engine] = None):
@@ -57,6 +60,7 @@ class Services:
         self.video = VideoService(self)
         self.library = LibraryService(self)
         self.dedupe = DedupeService(self)
+        self.edits = EditService(self)
         self.keyframe_encoder = None  # tests/plugins may inject an image+text encoder
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)
@@ -184,6 +188,11 @@ class Services:
                 conn.execute("DELETE FROM media_vectors WHERE media_id=?", (media_id,))
         for space in self.embedding_spaces_for_backfill():
             space.prioritize([media_id], priority=100)
+        # Pick up ratings/crops from a sidecar next to the file (ours or another application's).
+        try:
+            self.edits.reconcile_media(media_id)
+        except Exception:
+            logger.exception("sidecar reconcile failed for media %s", media_id)
 
     def reopen_face_store(self) -> None:
         """Re-create the face embedding store and everything bound to it."""

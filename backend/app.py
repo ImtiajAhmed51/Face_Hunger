@@ -16,6 +16,7 @@ from .routers import (
     cleanup,
     dashboard,
     duplicates,
+    edits,
     events,
     exclusions,
     export,
@@ -59,6 +60,7 @@ ROUTERS = (
     events.router,
     video.router,
     library.router,
+    edits.router,
 )
 
 

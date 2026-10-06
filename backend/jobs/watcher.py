@@ -94,6 +94,10 @@ class LibraryWatcher:
 
     def notice(self, raw: str) -> None:
         path = Path(raw)
+        if path.suffix.lower() == ".xmp" and not path.name.startswith("."):
+            with self._lock:  # sidecar edited by us or by another application
+                self._pending[str(path)] = (time.monotonic(), path.stat().st_size if path.is_file() else -1)
+            return
         if ignorable(path):
             return
         try:
@@ -126,8 +130,13 @@ class LibraryWatcher:
                     continue
                 ready.append(raw)
                 del self._pending[raw]
-        if ready:
-            self.s.jobs.enqueue("ingest", {"paths": ready}, priority=PRIORITY["urgent"],
+        sidecars = [r for r in ready if r.lower().endswith(".xmp")]
+        media = [r for r in ready if not r.lower().endswith(".xmp")]
+        if sidecars:
+            self.s.jobs.enqueue("sidecar_sync", {"paths": sidecars}, priority=PRIORITY["urgent"],
+                                dedupe_key="sidecar_sync", merge=merge_paths)
+        if media:
+            self.s.jobs.enqueue("ingest", {"paths": media}, priority=PRIORITY["urgent"],
                                 dedupe_key="ingest", merge=merge_paths)
         return ready
 

@@ -144,6 +144,16 @@ def _media_people(media_id: int) -> list[dict]:
     return [{"id": r["id"], "display_name": _display_name(r["name"], r["id"])} for r in rows]
 
 
+def _edit_fields(media_id: int) -> dict:
+    """Rating / label / flag and the edit version (cache-buster for edited thumbnails)."""
+    e = db.one("SELECT rating, label, flag, version, rotation, flip_h, flip_v, crop FROM media_edits WHERE media_id=?",
+               (media_id,))
+    if not e:
+        return {"rating": 0, "label": None, "flag": None, "edit_version": 0, "edited": False}
+    return {"rating": e["rating"], "label": e["label"], "flag": e["flag"], "edit_version": e["version"],
+            "edited": bool(e["rotation"] or e["flip_h"] or e["flip_v"] or e["crop"])}
+
+
 def _media_row(row: dict) -> dict:
     face_count = db.one(
         "SELECT COUNT(*) AS c FROM faces WHERE media_id=? AND deleted_at IS NULL",
@@ -165,6 +175,7 @@ def _media_row(row: dict) -> dict:
         "face_count": int((face_count or {}).get("c") or 0),
         "people": _media_people(row["id"]),
         "favorite": bool(db.one("SELECT 1 AS x FROM favorites WHERE media_id=?", (row["id"],))),
+        **_edit_fields(row["id"]),
         # Capture metadata (Phase 2); None for rows not backfilled yet.
         "date_source": row.get("date_source"),
         "camera_make": row.get("camera_make"),

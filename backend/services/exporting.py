@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from ..deps import db
 
 
-def _stream_export(media_ids: list[int], filename: str):
+def _stream_export(media_ids: list[int], filename: str, apply_edits: bool = False):
     if len(media_ids) > 5000:
         raise HTTPException(400, "At most 5000 media items per export")
     if not media_ids:
@@ -37,9 +37,24 @@ def _stream_export(media_ids: list[int], filename: str):
                 while arcname in {m["archive"] for m in manifest}:
                     arcname = f"{row['kind']}s/{base}_{counter}{ext}"
                     counter += 1
+                edited = False
                 try:
-                    zf.write(path, arcname)
+                    if apply_edits and row["kind"] == "photo":
+                        from .. import edits as edit_model
+                        from ..deps import services
+
+                        edit = services().edits.get(mid)
+                        if not edit_model.is_identity_geometry(edit):
+                            image = services().edits.rendered(mid, max_side=None)
+                            out = io.BytesIO()
+                            image.save(out, format="JPEG", quality=95)
+                            arcname = str(Path(arcname).with_suffix("")) + "-edited.jpg"
+                            zf.writestr(arcname, out.getvalue())
+                            edited = True
+                    if not edited:
+                        zf.write(path, arcname)
                     manifest.append({
+                        "edited": edited,
                         "id": mid,
                         "name": row["name"],
                         "kind": row["kind"],

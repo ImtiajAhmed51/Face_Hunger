@@ -212,6 +212,27 @@ def _m13_library(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE saved_searches ADD COLUMN is_collection INTEGER NOT NULL DEFAULT 0")
 
 
+def _m14_edits(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS media_edits (
+          media_id INTEGER PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+          rotation INTEGER NOT NULL DEFAULT 0, flip_h INTEGER NOT NULL DEFAULT 0, flip_v INTEGER NOT NULL DEFAULT 0,
+          crop TEXT, rating INTEGER NOT NULL DEFAULT 0, label TEXT, flag TEXT,
+          version INTEGER NOT NULL DEFAULT 0, sidecar_path TEXT, sidecar_sha TEXT,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS media_edits_rating ON media_edits(rating)")
+    conn.execute("CREATE INDEX IF NOT EXISTS media_edits_sidecar ON media_edits(sidecar_path)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS edit_history (
+          id INTEGER PRIMARY KEY,
+          media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+          at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, source TEXT NOT NULL, summary TEXT NOT NULL,
+          before TEXT NOT NULL, after TEXT NOT NULL
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS edit_history_media ON edit_history(media_id, id)")
+
+
 MIGRATIONS = [
     (6, "embedding_stores", _m6_embedding_stores),
     (7, "saved_searches", _m7_saved_searches),
@@ -221,6 +242,7 @@ MIGRATIONS = [
     (11, "events", _m11_events),
     (12, "video", _m12_video),
     (13, "library", _m13_library),
+    (14, "edits", _m14_edits),
 ]
 LATEST = MIGRATIONS[-1][0]
 
