@@ -332,8 +332,27 @@ def make_package_import(services):
     return handler
 
 
+def make_album_generate(services):
+    def handler(ctx: JobContext):
+        return services.assistant.generate_album(ctx.payload["prompt"], size=int(ctx.payload.get("size", 30)),
+                                                 captions=int(ctx.payload.get("captions", 8)), checkpoint=ctx.checkpoint,
+                                                 progress=lambda **p: ctx.progress(**p))
+
+    return handler
+
+
+def make_caption_backfill(services):
+    def handler(ctx: JobContext):
+        return services.assistant.caption_many(ctx.payload.get("media_ids"), int(ctx.payload.get("limit", 200)),
+                                               ctx.checkpoint, lambda **p: ctx.progress(**p))
+
+    return handler
+
+
 def register_all(services) -> None:
     jobs = services.jobs
+    jobs.register("album_generate", make_album_generate(services))
+    jobs.register("caption_backfill", make_caption_backfill(services))
     jobs.register("package_export", make_package_export(services))
     jobs.register("package_import", make_package_import(services))
     jobs.register("share_export", make_share_export(services))

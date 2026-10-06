@@ -104,6 +104,8 @@ DEFAULTS = {
     # DINOv2 media near-duplicate cosine similarity (0–1). Higher = stricter.
     "dino_similarity_threshold": 0.92,
     # Map basemap: off by default. Only a user-supplied local PMTiles file is ever used.
+    # Optional local vision-language model: never loaded unless the user turns this on.
+    "vlm_enabled": False,
     "map_tiles_enabled": False,
     "map_pmtiles_path": "",
 }

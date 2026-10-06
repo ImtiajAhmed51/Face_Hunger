@@ -14,6 +14,8 @@ Models (all Apache-2.0):
   siglip2-base-patch16-224  text<->image embeddings (768-D)   google/siglip2-base-patch16-224
   dinov2-small              visual similarity (384-D)          facebook/dinov2-small
   dinov2-base               visual similarity (768-D)          facebook/dinov2-base
+  smolvlm2-500m             optional local VLM (~375 MB)       HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+                            (only with --only smolvlm2-500m; enable it in Settings afterwards)
 
 buffalo_l (face detection/recognition) is NOT fetched here: its weights are
 licensed for non-commercial research only; install them yourself into
@@ -68,6 +70,27 @@ MODELS = {
             "model.onnx": {"int8": "onnx/model_quantized.onnx", "fp16": "onnx/model_fp16.onnx", "fp32": "onnx/model.onnx"},
             "preprocessor_config.json": "preprocessor_config.json",
             "config.json": "config.json",
+        },
+    },
+    # Optional local vision-language model (album titles/captions, query rewriting). Never part of
+    # the default set: the app works fully without it and only loads it when enabled in Settings.
+    # Licence verified on the model card (Apache-2.0) on 2026-10-07, revision 7b375e1b.
+    "smolvlm2-500m": {
+        "repo": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+        "license": "Apache-2.0",
+        "files": {
+            "vision_encoder.onnx": {"int8": "onnx/vision_encoder_quantized.onnx", "fp16": "onnx/vision_encoder_fp16.onnx",
+                                    "fp32": "onnx/vision_encoder.onnx"},
+            "embed_tokens.onnx": {"int8": "onnx/embed_tokens_quantized.onnx", "fp16": "onnx/embed_tokens_fp16.onnx",
+                                  "fp32": "onnx/embed_tokens.onnx"},
+            "decoder.onnx": {"int8": "onnx/decoder_model_merged_q4.onnx", "fp16": "onnx/decoder_model_merged_fp16.onnx",
+                             "fp32": "onnx/decoder_model_merged.onnx"},
+            "tokenizer.json": "tokenizer.json",
+            "config.json": "config.json",
+            "generation_config.json": "generation_config.json",
+            "preprocessor_config.json": "preprocessor_config.json",
+            "processor_config.json": "processor_config.json",
+            "chat_template.json": "chat_template.json",
         },
     },
 }

@@ -62,6 +62,7 @@ export function Search() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [asCollection, setAsCollection] = useState(true);
+  const [expansions, setExpansions] = useState<string[]>([]);
   const [draft, setDraft] = useState<MediaFilters>(initial);
   const [applied, setApplied] = useState<MediaFilters | null>(null);
   const [unmatched, setUnmatched] = useState<string[]>([]);
@@ -102,6 +103,11 @@ export function Search() {
         setUnmatched(parsed.embedding_query?.available ? [] : parsed.unmatched);
         setExpanded(true);
         setValidation("");
+        setExpansions([]);
+        // Optional local VLM: adds alternative visual phrasings (shown below, removable). Rules-only otherwise.
+        void mutate<{ expansions: string[]; source: string }>("/search/rewrite", { query: text })
+          .then((rewritten) => setExpansions(rewritten.expansions ?? []))
+          .catch(() => {});
       },
       undefined,
       false,
@@ -134,8 +140,13 @@ export function Search() {
     setExpanded(true);
   }, [savedId, saved.data]);
   const hybridQuery = useMemo(
-    () => (applied && !usesLegacyFilters(applied) ? toHybrid(applied, appliedContent, similar) : null),
-    [applied, appliedContent, similar],
+    () => {
+      if (!applied || usesLegacyFilters(applied)) return null;
+      const q = toHybrid(applied, appliedContent, similar);
+      if (expansions.length && appliedContent.trim()) q.expansions = expansions;
+      return q;
+    },
+    [applied, appliedContent, similar, expansions],
   );
   return (
     <>
@@ -188,6 +199,15 @@ export function Search() {
         </button>
       </div>
       <ErrorNotice error={action.error} />
+      {expansions.length > 0 && (
+        <div className="search-expansions" role="group" aria-label={t("vlm.expansions")}>
+          <span className="muted small-text">{t("vlm.expansions")}</span>
+          {expansions.map((phrase) => (
+            <button key={phrase} className="badge" onClick={() => setExpansions((list) => list.filter((p) => p !== phrase))}
+              aria-label={t("vlm.removeExpansion", { phrase })}>{phrase} ×</button>
+          ))}
+        </div>
+      )}
       {unmatched.length > 0 && (
         <div className="search-unmatched" role="status">
           <Icon name="alert" size={18} />

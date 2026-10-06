@@ -372,3 +372,29 @@ Short log of choices and dependencies. One entry per decision, newest last.
 - Imported originals go to `data_dir/imported/<stamp>/` as a new library. Without originals, the
   items arrive marked missing: people, albums and edits are kept, and the photos appear in
   search once the same files are indexed (they match by hash).
+
+## Local VLM (optional)
+- **SmolVLM2-500M-Video-Instruct**, Apache-2.0 (verified on the Hugging Face model card on
+  2026-10-07, revision 7b375e1b). It runs on the ONNX Runtime the app already uses, with the
+  `tokenizers` package for text: no new runtime dependency and no `transformers`. Files:
+  int8 vision encoder (99 MB), int8 token embedder (47 MB), 4-bit decoder (229 MB) = ~375 MB,
+  fetched only with `python scripts/fetch_models.py --only smolvlm2-500m`.
+- **One global 512 px image, no tiling** (64 image tokens). That is enough for one-line captions
+  and keeps a caption under 2 s on CPU. Decoding is greedy (most likely answer, reproducible).
+- **Never loaded unless enabled**: `vlm_enabled` defaults to false, and `backend.ml.vlm` is imported
+  only inside `Assistant.model()`. A subprocess test asserts the module is absent after startup
+  and a set of search/assistant requests. Turning the setting off unloads it at once; otherwise it
+  unloads after `LFS_MODEL_IDLE_SECONDS` (5 min) without use.
+- **Rules decide the filters; the model only adds.** At this size, free-form "rewrite to JSON" was
+  unreliable in testing, while "what would photos of X show?" gives usable phrases. So the
+  rule-based parser (now with seasons: "last summer", "winter 2023") always produces people, dates
+  and kind, and the VLM adds up to 3 visual expansions (fused at weight 0.5, shown as removable
+  chips), an album title, and captions. Seasons are northern-hemisphere meteorological; the app
+  does not guess a hemisphere from GPS.
+- **Album generation**: rewrite -> hybrid search (top 200) -> greedy maximal-marginal-relevance pick
+  (0.6 x rank + 0.4 x best-shot, minus 0.3 x visual similarity to already picked items; spread
+  over days when no visual vectors) -> title -> captions for the first 8. The result is created
+  through the normal album service, so it is editable and undoable like any other album.
+- **Captions** live in `media_captions` with an FTS5 index (`caption_fts`, built into SQLite) used
+  as an extra `caption` search signal. Tags are the caption's content words: the model's own
+  keyword lists repeated themselves.

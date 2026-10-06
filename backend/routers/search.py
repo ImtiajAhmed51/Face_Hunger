@@ -27,6 +27,16 @@ def _year(token: str) -> Optional[int]:
     return None
 
 
+# Northern-hemisphere meteorological seasons (documented in DECISIONS: no location-based guess).
+SEASONS = {"spring": (3, 5), "summer": (6, 8), "autumn": (9, 11), "fall": (9, 11), "winter": (12, 2)}
+
+
+def _season_range(season: str, year: int) -> tuple[str, str]:
+    start, end = SEASONS[season]
+    end_year = year + 1 if end < start else year  # winter 2023 = Dec 2023 - Feb 2024
+    return f"{year:04d}-{start:02d}-01", f"{end_year:04d}-{end:02d}-{calendar.monthrange(end_year, end)[1]:02d}"
+
+
 def _month_range(year: int, month: int) -> tuple[str, str]:
     last = calendar.monthrange(year, month)[1]
     return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last:02d}"
@@ -69,6 +79,16 @@ def parse_dates(tokens: list[str], today: date) -> tuple[Optional[str], Optional
                 start = monday - timedelta(days=7) if word == "last" else monday
                 span(start.isoformat(), (start + timedelta(days=6)).isoformat(), prep)
             matched = 2
+        elif word in ("last", "this") and nxt in SEASONS:
+            year = today.year - (word == "last")
+            span(*_season_range(nxt, year), prep)
+            matched = 2
+        elif word in SEASONS:
+            y = _year(nxt)
+            # A bare season means the most recent one that has started.
+            year = y or (today.year if date.fromisoformat(_season_range(word, today.year)[0]) <= today else today.year - 1)
+            span(*_season_range(word, year), prep)
+            matched = 2 if y else 1
         elif word in MONTHS and len(word) >= 3:
             y = _year(nxt)
             month = MONTHS[word]
@@ -89,8 +109,9 @@ def parse_dates(tokens: list[str], today: date) -> tuple[Optional[str], Optional
     return date_from, date_to, used
 
 
-def _match_people(tokens: list[str], used: list[bool]) -> tuple[list[int], list[bool]]:
+def _match_people(tokens: list[str], used: list[bool], database=None) -> tuple[list[int], list[bool]]:
     """Greedy longest-phrase match of person names (up to 3 words), then single-word partials."""
+    database = database if database is not None else db
     people: list[int] = []
     i = 0
     while i < len(tokens):
@@ -102,14 +123,14 @@ def _match_people(tokens: list[str], used: list[bool]) -> tuple[list[int], list[
             if i + width > len(tokens) or any(used[i:i + width]):
                 continue
             phrase = " ".join(tokens[i:i + width]).lower()
-            row = db.one("SELECT id FROM people WHERE lower(name)=? AND face_count>0 LIMIT 1", (phrase,))
+            row = database.one("SELECT id FROM people WHERE lower(name)=? AND face_count>0 LIMIT 1", (phrase,))
             if row:
                 hit = (row["id"], width)
                 break
         if hit is None:
             lower = tokens[i].lower()
             if len(lower) > 2 and lower not in STOPWORDS:
-                rows = db.all(
+                rows = database.all(
                     "SELECT id FROM people WHERE face_count>0 AND lower(name) LIKE ? ORDER BY face_count DESC LIMIT 3",
                     (f"%{lower}%",),
                 )
@@ -126,7 +147,7 @@ def _match_people(tokens: list[str], used: list[bool]) -> tuple[list[int], list[
     return people, used
 
 
-def parse_query(query: str, today: Optional[date] = None) -> dict:
+def parse_query(query: str, today: Optional[date] = None, database=None) -> dict:
     tokens = query.strip().split()
     mode = "ANY"
     kind = None
@@ -143,7 +164,7 @@ def parse_query(query: str, today: Optional[date] = None) -> dict:
             kind, used[i] = "photo", True
         elif lower in ("video", "videos"):
             kind, used[i] = "video", True
-    people, used = _match_people(tokens, used)
+    people, used = _match_people(tokens, used, database)
     unmatched = [t for t, u in zip(tokens, used) if not u]
     text = " ".join(t for t in unmatched if t.lower() not in STOPWORDS or len(unmatched) > 1).strip()
     return {
@@ -201,6 +222,8 @@ def create_saved_search(body: SavedSearchBody, request: Request):
     if not name:
         raise HTTPException(400, "name required")
     query = body.query.model_dump(exclude={"page", "limit"}, exclude_none=True)
+    if not query.get("expansions"):
+        query.pop("expansions", None)
     with db.connect() as conn:
         sid = conn.execute("INSERT INTO saved_searches(name, query) VALUES (?,?)", (name, json.dumps(query))).lastrowid
     return _saved_row(db.one("SELECT * FROM saved_searches WHERE id=?", (sid,)))

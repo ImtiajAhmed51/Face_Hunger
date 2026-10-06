@@ -203,3 +203,17 @@ test('encrypted package: export the library, then import it back with the passph
   await section.getByRole('button', { name: 'Verify and import' }).click();
   await expect(section.getByText(/Imported: 0 new item\(s\), \d+ already here/)).toBeVisible({ timeout: 30_000 });
 });
+
+test('assistant off: album from a description uses rules; settings card shows the model is not installed', async ({ page, errors, axe }) => {
+  void errors;
+  await go(page, '/albums');
+  await page.getByLabel('Create an album from a description').fill('photos from 2023');
+  await page.getByRole('button', { name: 'Create album' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Photos from 2023' })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[role=gridcell]').first()).toBeVisible();
+  await go(page, '/settings');
+  const card = page.locator('section', { has: page.getByRole('heading', { name: 'Local assistant model' }) });
+  await expect(card.getByText('Not installed')).toBeVisible();
+  await expect(card.getByLabel('Use the local assistant model')).toBeDisabled();
+  await axe(page, 'settings');
+});

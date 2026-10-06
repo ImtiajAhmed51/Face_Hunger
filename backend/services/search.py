@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 
 RRF_K = 60
 EXACT_LIMIT = 5000  # filtered sets up to this size are scored exactly
-DEFAULT_WEIGHTS = {"text": 1.0, "similar_media": 1.0, "similar_face": 1.0, "recency": 0.0}
+DEFAULT_WEIGHTS = {"text": 1.0, "similar_media": 1.0, "similar_face": 1.0, "recency": 0.0,
+                   "expansion": 0.5, "caption": 0.7}
 MIN_TEXT_SIM = 0.0  # SigLIP similarities are low in absolute terms; ranking matters, not the value
 
 
@@ -196,7 +197,7 @@ class HybridSearch:
         text = (q.get("text") or "").strip()
         sim_media = q.get("similar_media_id")
         sim_face = q.get("similar_face_id")
-        vector_signals = bool(text) or sim_media is not None or sim_face is not None
+        vector_signals = bool(text) or sim_media is not None or sim_face is not None or bool(q.get("expansions"))
         has_filters = len(where) > 2 or bool(q.get("deleted"))
 
         if not vector_signals:
@@ -219,6 +220,15 @@ class HybridSearch:
                 warnings.append(warn)
             else:
                 ranked["text"] = self._ranked_from_space(space, vec, allowed, max(want * 3, 300), broad)
+        # Alternative phrasings (from the optional query rewriter): extra, lower-weight text signals.
+        for index, phrase in enumerate([e.strip() for e in (q.get("expansions") or []) if e and e.strip()][:4]):
+            space, vec, warn = self._text_vector(phrase)
+            if not warn:
+                ranked[f"expansion_{index}"] = self._ranked_from_space(space, vec, allowed, max(want * 3, 300), broad)
+        if text:
+            caption_hits = self._caption_ranked(text, allowed, max(want * 3, 300))
+            if caption_hits:
+                ranked["caption"] = caption_hits
         if sim_media is not None:
             space, vec, warn = self._media_vector(int(sim_media))
             if warn:
@@ -253,7 +263,7 @@ class HybridSearch:
         scores: dict[int, float] = {}
         detail: dict[int, dict] = {}
         for name, pairs in ranked.items():
-            w = weights.get(name, 1.0)
+            w = weights.get("expansion" if name.startswith("expansion_") else name, 1.0)
             if w <= 0:
                 continue
             for rank, (mid, sim) in enumerate(pairs, start=1):
@@ -271,6 +281,21 @@ class HybridSearch:
         return {"items": items, "total": len(ordered), "page": page, "limit": limit,
                 "signals": sorted(ranked), "weights": weights, "warnings": warnings,
                 "took_ms": round((time.perf_counter() - started) * 1000, 1)}
+
+    def _caption_ranked(self, text: str, allowed: Optional[np.ndarray], want: int) -> list[tuple[int, float]]:
+        """Full-text match on generated captions/tags (only exists when the VLM has written some)."""
+        import re
+
+        words = [w for w in re.findall(r"[\w']+", text.lower()) if len(w) > 2][:8]
+        if not words:
+            return []
+        try:
+            rows = self.s.db.all("SELECT rowid AS media_id, bm25(caption_fts) AS score FROM caption_fts WHERE caption_fts MATCH ? "
+                                 "ORDER BY score LIMIT ?", (" OR ".join(f'"{w}"' for w in words), want * 2))
+        except Exception:
+            return []
+        keep = set(allowed.tolist()) if allowed is not None else None
+        return [(r["media_id"], float(-r["score"])) for r in rows if keep is None or r["media_id"] in keep][:want]
 
     def _alive(self, ids, where_sql, params) -> set[int]:
         ids = list(ids)

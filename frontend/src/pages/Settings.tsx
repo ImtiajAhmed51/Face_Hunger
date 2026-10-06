@@ -478,6 +478,7 @@ export function Settings() {
             </div>
           </section>
           <ModelRuntime />
+          <VlmCard />
           {resource.data && <MapAndLanguage settings={resource.data} />}
           {resource.data && <Preferences settings={resource.data} />}
           <Exclusions />
@@ -644,6 +645,48 @@ function MapAndLanguage({ settings }: { settings: SettingsData }) {
           {LOCALES.map((item) => <option key={item.value} value={item.value} lang={item.value}>{item.label}</option>)}
         </select>
       </label>
+    </section>
+  );
+}
+
+interface VlmStatus {
+  enabled: boolean; model: string; license: string; installed: boolean; loaded: boolean; disk_bytes: number;
+  ram_bytes: number; ram_cap_bytes: number; device: string | null; idle_seconds: number; install_hint: string;
+}
+
+/** Optional local vision-language model: off by default, never loaded unless enabled here. */
+function VlmCard() {
+  const t = useT();
+  const status = useResource<VlmStatus>("/vlm");
+  const action = useAction();
+  const s = status.data;
+  return (
+    <section className="settings-section" aria-labelledby="vlm-heading">
+      <div className="section-heading"><div><p className="eyebrow">{t("vlm.eyebrow")}</p><h2 id="vlm-heading">{t("vlm.title")}</h2><p>{t("vlm.help")}</p></div></div>
+      <ErrorNotice error={status.error || action.error} retry={status.reload} />
+      {s && (
+        <>
+          <label className="check-label">
+            <input type="checkbox" checked={s.enabled} disabled={action.busy || (!s.installed && !s.enabled)}
+              onChange={(event) => void action.run(() => mutate("/settings", { vlm_enabled: event.target.checked }, "PATCH"))} />
+            {t("vlm.enable")}
+          </label>
+          <dl className="metadata provider-metadata">
+            <div><dt>{t("vlm.model")}</dt><dd>{s.model} · {s.license}</dd></div>
+            <div><dt>{t("vlm.size")}</dt><dd>{s.installed ? bytes(s.disk_bytes) : t("vlm.notInstalled")}</dd></div>
+            <div><dt>{t("vlm.memory")}</dt><dd>{s.loaded ? `${bytes(s.ram_bytes)} / ${bytes(s.ram_cap_bytes)}` : t("vlm.notLoaded")}</dd></div>
+            <div><dt>{t("vlm.device")}</dt><dd>{s.device ?? "–"}</dd></div>
+          </dl>
+          {!s.installed && <p className="small-text muted">{t("vlm.install")} <code>{s.install_hint}</code></p>}
+          {s.enabled && s.installed && (
+            <div className="inline-actions">
+              <button className="button small" disabled={action.busy || s.loaded} onClick={() => void action.run(() => mutate("/vlm/load"))}>{t("vlm.load")}</button>
+              <button className="button small" disabled={action.busy || !s.loaded} onClick={() => void action.run(() => mutate("/vlm/unload"))}>{t("vlm.unload")}</button>
+              <span className="small-text muted">{t("vlm.idle", { minutes: Math.round(s.idle_seconds / 60) })}</span>
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 }

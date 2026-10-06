@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import Config
 from .ops.logging import RequestIdMiddleware
 from .routers import (
+    assistant,
     cleanup,
     dashboard,
     duplicates,
@@ -65,6 +66,7 @@ ROUTERS = (
     edits.router,
     sharing.router,
     packages.router,
+    assistant.router,
 )
 
 

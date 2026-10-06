@@ -106,6 +106,8 @@ def create_collection(body: CollectionBody, request: Request):
     if not body.name.strip():
         raise HTTPException(400, "name required")
     query = body.query.model_dump(exclude={"page", "limit"}, exclude_none=True)
+    if not query.get("expansions"):
+        query.pop("expansions", None)
     with db.connect() as conn:
         sid = conn.execute("INSERT INTO saved_searches(name, query, is_collection) VALUES (?,?,1)",
                            (body.name.strip(), json.dumps(query))).lastrowid

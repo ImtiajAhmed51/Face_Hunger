@@ -42,6 +42,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
   const resource = useResource<MediaDetail>(`/media/${current}`);
   const media = resource.data;
   const edits = useResource<EditDetail>(media?.kind === "photo" ? `/media/${media.id}/edits` : null);
+  const caption = useResource<{ caption: string | null }>(media ? `/media/${media.id}/caption` : null);
   const [cropping, setCropping] = useState(false);
   const [draft, setDraft] = useState<Crop | null>(null);
   const [aspect, setAspect] = useState<Aspect>("free");
@@ -680,6 +681,12 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                     <dt>Captured</dt>
                     <dd>{dateLabel(media.captured_at)}</dd>
                   </div>
+                  {caption.data?.caption && (
+                    <div>
+                      <dt>{t("vlm.caption")}</dt>
+                      <dd>{caption.data.caption}</dd>
+                    </div>
+                  )}
                   {media.date_source && (
                     <div>
                       <dt>{t("capture.dateSource")}</dt>

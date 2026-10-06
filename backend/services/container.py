@@ -25,6 +25,7 @@ from ..vectors.specs import FACE_ARCFACE
 from ..video.service import VideoService
 from ..video_compat import init_video_compat
 from ..worker import Worker
+from .assistant import Assistant
 from .dedupe import DedupeService
 from .edits import EditService
 from .events import EventService
@@ -65,6 +66,7 @@ class Services:
         self.edits = EditService(self)
         self.sharing = SharingService(self)
         self.packages = PackageService(self)
+        self.assistant = Assistant(self)
         self.keyframe_encoder = None  # tests/plugins may inject an image+text encoder
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)
@@ -212,6 +214,7 @@ class Services:
         self.watcher.stop()
         self.jobs.stop()
         self.video.close()
+        self.assistant.close()
         self.worker.shutdown(timeout=5)
         for closer in (self.store.close, self.vectors.close, self.models.close):
             try:

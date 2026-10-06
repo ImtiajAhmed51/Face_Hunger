@@ -226,6 +226,7 @@ export interface HybridQuery {
   min_quality?: number;
   similar_media_id?: number;
   similar_face_id?: number;
+  expansions?: string[];
   name?: string;
   deleted?: boolean;
   weights?: Partial<Record<'text' | 'similar_media' | 'similar_face' | 'recency', number>>;

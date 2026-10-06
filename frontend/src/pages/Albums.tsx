@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { mutate, number, request } from "../api";
 import { undoAudit, type Audited } from "../audit";
@@ -53,6 +53,7 @@ export function Albums() {
         </label>
         <button className="button primary" disabled={!name.trim() || action.busy}><Icon name="plus" size={16} />{t("library.create")}</button>
       </form>
+      <GenerateAlbum />
       <ErrorNotice error={albums.error || collections.error} retry={() => { albums.reload(); collections.reload(); }} />
       {albums.loading ? <GallerySkeleton /> : (
         <div className="album-grid">
@@ -76,6 +77,41 @@ export function Albums() {
         </div>
       </section>
     </>
+  );
+}
+
+/** "Best moments with my family last summer" -> an ordinary album (uses the local VLM only if enabled). */
+function GenerateAlbum() {
+  const t = useT();
+  const { jobs, pushUndo } = useApp();
+  const action = useAction();
+  const navigate = useNavigate();
+  const [prompt, setPrompt] = useState("");
+  const [jobId, setJobId] = useState<number | null>(null);
+  const [handled, setHandled] = useState<number | null>(null);
+  const job = jobId === null ? undefined : jobs.find((j) => j.id === jobId);
+  const result = (job?.progress ?? {}) as { album_id?: number; audit_id?: number; title?: string; phase?: string };
+  useEffect(() => {
+    if (job?.status === "completed" && result.album_id && handled !== job.id) {
+      setHandled(job.id);
+      if (result.audit_id) pushUndo(t("library.created", { name: result.title ?? "" }), undoAudit(result.audit_id));
+      navigate(`/albums/${result.album_id}`);
+    }
+  }, [job, result.album_id, result.audit_id, result.title, handled, navigate, pushUndo, t]);
+  const running = !!job && !["completed", "failed", "cancelled"].includes(job.status);
+  return (
+    <form className="inline-actions album-create" onSubmit={(e) => {
+      e.preventDefault();
+      if (!prompt.trim()) return;
+      void action.run(async () => { setJobId((await mutate<{ id: number }>("/albums/generate", { prompt: prompt.trim() })).id); }, undefined, false);
+    }}>
+      <label className="field wide-field">{t("vlm.generate")}
+        <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t("vlm.generatePlaceholder")} />
+      </label>
+      <button className="button" disabled={!prompt.trim() || action.busy || running}><Icon name="spark" size={16} />{t("vlm.generateButton")}</button>
+      {job && <span role="status" className="small-text muted">
+        {job.status === "failed" ? job.error : running ? t("vlm.generating", { phase: result.phase ?? "" }) : ""}</span>}
+    </form>
   );
 }
 

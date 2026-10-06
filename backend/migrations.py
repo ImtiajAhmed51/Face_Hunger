@@ -233,6 +233,17 @@ def _m14_edits(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS edit_history_media ON edit_history(media_id, id)")
 
 
+def _m15_captions(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS media_captions (
+          media_id INTEGER PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+          caption TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '[]', model TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+    # rowid = media_id; maintained by the caption service (an index beside the embeddings).
+    conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS caption_fts USING fts5(caption, tags, tokenize='porter unicode61')")
+
+
 MIGRATIONS = [
     (6, "embedding_stores", _m6_embedding_stores),
     (7, "saved_searches", _m7_saved_searches),
@@ -243,6 +254,7 @@ MIGRATIONS = [
     (12, "video", _m12_video),
     (13, "library", _m13_library),
     (14, "edits", _m14_edits),
+    (15, "captions", _m15_captions),
 ]
 LATEST = MIGRATIONS[-1][0]
 

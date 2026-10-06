@@ -72,6 +72,7 @@ class SettingsPatch(BaseModel):
     auto_confirm: Optional[bool] = None
     auto_confirm_threshold: Optional[float] = None
     dino_similarity_threshold: Optional[float] = None
+    vlm_enabled: Optional[bool] = None
     map_tiles_enabled: Optional[bool] = None
     map_pmtiles_path: Optional[str] = None
 
@@ -117,6 +118,7 @@ class HybridSearchBody(BaseModel):
     similar_media_id: Optional[int] = None
     similar_face_id: Optional[int] = None
     weights: dict[str, float] = Field(default_factory=dict)
+    expansions: list[str] = Field(default_factory=list)  # alternative phrasings, fused at lower weight
     page: int = Field(1, ge=1)
     limit: int = Field(60, ge=1, le=200)
 
@@ -296,3 +298,19 @@ class PackageImportBody(BaseModel):
     source: str
     passphrase: str
     conflict: Literal["skip", "keep_both", "overwrite"] = "keep_both"
+
+
+class RewriteBody(BaseModel):
+    query: str
+    use_model: bool = True
+
+
+class AlbumGenerateBody(BaseModel):
+    prompt: str
+    size: int = Field(30, ge=1, le=200)
+    captions: int = Field(8, ge=0, le=40)
+
+
+class CaptionBody(BaseModel):
+    media_ids: Optional[list[int]] = None
+    limit: int = Field(200, ge=1, le=5000)

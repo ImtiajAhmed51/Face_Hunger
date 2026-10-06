@@ -58,6 +58,8 @@ def patch_settings(body: SettingsPatch, request: Request):
         raise HTTPException(400, "min_face_quality must be between 0 and 1")
     if "auto_confirm_threshold" in updates and not (0.3 <= updates["auto_confirm_threshold"] <= 0.95):
         raise HTTPException(400, "auto_confirm_threshold must be between 0.3 and 0.95")
+    if updates.get("vlm_enabled") is False:
+        services().assistant.close()  # turning the VLM off frees its memory immediately
     if updates.get("map_pmtiles_path"):
         candidate = Path(updates["map_pmtiles_path"]).expanduser()
         if candidate.suffix.lower() != ".pmtiles" or not candidate.is_file():

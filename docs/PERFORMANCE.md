@@ -164,3 +164,10 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
 - 671 MB export with originals: ~2 s on this machine (AES-GCM is hardware accelerated).
 - Round trip onto a clean data dir (12 photos, 8 faces, 2 people, album, edits, text vectors):
   people, albums, favourites, edits and 4 search queries identical.
+
+## Local VLM (SmolVLM2-500M, int8/q4, CPU)
+- Load: **0.7-0.8 s**; memory when loaded: **406-462 MB** (cap 4 GB); disk 379 MB.
+- One-line caption of a photo: ~1.9 s; album title: ~0.6 s; 3 search expansions: ~1.5 s.
+- **Album from a prompt on a 10,000-item library** (retrieval, diversity pick of 30, title,
+  8 captions): **19.3 s** (budget 120 s). Unloads after the idle period (asserted with 5 s).
+- With the VLM disabled, the same album flow (rules only, no captions) completes in well under 1 s.
