@@ -303,8 +303,18 @@ def make_sidecar_sync(services):
     return handler
 
 
+def make_share_export(services):
+    """Anonymized copies for sharing; resumable from the job's saved progress."""
+    def handler(ctx: JobContext):
+        return services.sharing.run(ctx.id, ctx.payload, ctx.progress_state, checkpoint=ctx.checkpoint,
+                                    progress=ctx.progress)
+
+    return handler
+
+
 def register_all(services) -> None:
     jobs = services.jobs
+    jobs.register("share_export", make_share_export(services))
     jobs.register("sidecar_sync", make_sidecar_sync(services))
     jobs.register("video_analysis", make_video_analysis(services))
     jobs.register("event_detection", make_event_detection(services))

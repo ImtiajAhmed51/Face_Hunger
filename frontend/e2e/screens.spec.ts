@@ -162,3 +162,23 @@ test('edit tools: rate, rotate, crop and revert without touching the original', 
   const after = await page.request.get(`/api/media/${before.id}/file`).then((r) => r.body());
   expect(after.equals(original)).toBe(true);
 });
+
+test('share safely: preview, export a zip of new files', async ({ page, errors, axe }) => {
+  void errors;
+  await go(page, '/photos');
+  const boxes = page.locator('.virtual-cell input[type=checkbox]');
+  await boxes.nth(0).check();
+  await boxes.nth(1).check();
+  await page.getByRole('button', { name: 'Share safely' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Share safely' });
+  await expect(dialog.getByAltText('After')).toBeVisible();
+  await dialog.getByRole('radio', { name: 'Pixelate' }).click();
+  await expect(dialog.getByLabel('Remove camera data and location (EXIF/GPS)')).toBeChecked();
+  await axe(page, 'share dialog');
+  await dialog.getByRole('button', { name: 'Export 2 item(s)' }).click();
+  await expect(dialog.getByText(/Exported 2 file\(s\)/)).toBeVisible({ timeout: 20_000 });
+  const href = await dialog.getByRole('link', { name: 'Download zip' }).getAttribute('href');
+  const zip = await page.request.get(href!);
+  expect(zip.status()).toBe(200);
+  expect(zip.headers()['content-type']).toBe('application/zip');
+});

@@ -244,3 +244,37 @@ class EditBatchBody(BaseModel):
     rating: Optional[int] = None
     label: Optional[str] = None
     flag: Optional[str] = None
+
+
+class ShareDestination(BaseModel):
+    type: Literal["zip", "folder"] = "zip"
+    path: Optional[str] = None
+
+
+class ShareOptions(BaseModel):
+    mode: Literal["all_except_kept", "only_selected"] = "all_except_kept"
+    keep_people: list[int] = Field(default_factory=list)
+    anonymize_people: list[int] = Field(default_factory=list)
+    anonymize_unknown: bool = True
+    method: Literal["blur", "pixelate", "mask"] = "blur"
+    strength: float = Field(0.7, ge=0, le=1)
+    strip_metadata: bool = True
+    strip_gps: bool = True
+    apply_edits: bool = True
+    include_videos: bool = False
+    verify: bool = True
+    destination: ShareDestination = Field(default_factory=ShareDestination)
+
+
+class SharePeopleBody(BaseModel):
+    media_ids: list[int]
+
+
+class SharePreviewBody(BaseModel):
+    media_id: int
+    options: ShareOptions = Field(default_factory=ShareOptions)
+
+
+class ShareBody(BaseModel):
+    media_ids: list[int]
+    options: ShareOptions = Field(default_factory=ShareOptions)

@@ -31,6 +31,7 @@ from .events import EventService
 from .library import LibraryService
 from .quality import QualityService
 from .search import HybridSearch
+from .sharing import SharingService
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class Services:
         self.library = LibraryService(self)
         self.dedupe = DedupeService(self)
         self.edits = EditService(self)
+        self.sharing = SharingService(self)
         self.keyframe_encoder = None  # tests/plugins may inject an image+text encoder
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)

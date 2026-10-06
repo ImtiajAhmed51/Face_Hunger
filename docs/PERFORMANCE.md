@@ -150,3 +150,9 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   (budget 5 s), including the watcher's 0.75 s debounce.
 - XMP written by the app: `exiftool 13.55` reads Rating / Label / Orientation / HasCrop /
   Crop* exactly and `exiftool -validate` reports no warnings.
+
+## Safe sharing (real buffalo_l, CPU)
+- Fixture of 3 photos with 14 faces: **14/14 targeted faces below the 0.48 match threshold** in
+  the outputs for blur, pixelate and mask at the weakest slider position (detection re-run on
+  every output). A kept person still matches. Outputs contain no EXIF/GPS/XMP (exiftool).
+- Export of 2 photos (8 faces, with fresh detection and verification): 0.3 s once the engine is loaded.

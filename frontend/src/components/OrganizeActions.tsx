@@ -6,6 +6,7 @@ import { useResource } from "../hooks";
 import { useT } from "../i18n";
 import { Icon } from "./Icon";
 import { Dialog, ErrorNotice } from "./ui";
+import { ShareDialog } from "./ShareDialog";
 
 interface Album { id: number; name: string; item_count: number }
 
@@ -15,6 +16,7 @@ export function OrganizeActions({ ids, onDone }: { ids: number[]; onDone?: () =>
   const action = useAction();
   const { pushUndo } = useApp();
   const [open, setOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
   return (
     <>
       <button className="button small" disabled={action.busy || !ids.length} onClick={() => void action.run(async () => {
@@ -27,6 +29,10 @@ export function OrganizeActions({ ids, onDone }: { ids: number[]; onDone?: () =>
       <button className="button small" disabled={action.busy || !ids.length} onClick={() => setOpen(true)}>
         <Icon name="plus" size={16} />{t("library.addToAlbum")}
       </button>
+      <button className="button small" disabled={!ids.length} onClick={() => setSharing(true)}>
+        <Icon name="shield" size={16} />{t("share.button")}
+      </button>
+      {sharing && <ShareDialog ids={ids} onClose={() => setSharing(false)} />}
       {open && <AddToAlbumDialog ids={ids} onClose={() => setOpen(false)} onDone={() => { setOpen(false); onDone?.(); }} />}
     </>
   );

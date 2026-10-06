@@ -324,3 +324,22 @@ Short log of choices and dependencies. One entry per decision, newest last.
   with geometric edits (their coordinates refer to the unedited frame).
 - **exiftool** (Perl, GPL/Artistic) is used only by a test, when present, to prove interoperability.
   It is not a dependency.
+
+## Safe sharing
+- **Default is "hide everyone except the people I keep"**, with unknown faces hidden too. It is the
+  safest reading of "share safely": a face the index never identified is still a person.
+- **Three sources of face regions**: stored boxes (+ landmarks for a tilted ellipse), a fresh
+  detection on the exported image (covers faces skipped or deleted at index time), and a
+  verification pass on the output. Anything in the output that still matches a targeted identity
+  at or above the matching threshold is covered with a solid mask. The ellipse extends 35% beyond
+  the box on each side.
+- **Strength has a floor** (0.35): the slider changes the look, never whether a face is hidden.
+- **Metadata**: outputs are re-encoded from pixels, so by default they carry no EXIF, GPS, XMP or
+  thumbnails. Keeping EXIF is opt-in and still drops the GPS block.
+- **Videos are not anonymized.** Faces between sampled frames cannot be guaranteed, so videos are
+  skipped with a reason. `include_videos` copies (stream copy, metadata removed) only videos that
+  show nobody who should be hidden.
+- **Outputs are always new files**: a zip in `data_dir/exports/` or a user folder that must lie
+  outside every library and the data dir; existing files there are never overwritten (`-1`, `-2`).
+- The `share_export` job keeps finished items in its saved progress, so cancel/crash + resume never
+  renders an item twice.
