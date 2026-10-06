@@ -27,6 +27,7 @@ import { Settings } from "./pages/Settings";
 // Phase 2 screens are code-split: each loads on first visit (MapLibre alone is ~290 KB gzip).
 const MapPage = lazy(() => import("./pages/MapPage"));
 const Health = lazy(() => import("./pages/Health").then((m) => ({ default: m.Health })));
+const Storage = lazy(() => import("./pages/Storage").then((m) => ({ default: m.Storage })));
 const Timeline = lazy(() => import("./pages/Timeline").then((m) => ({ default: m.Timeline })));
 const Events = lazy(() => import("./pages/Events").then((m) => ({ default: m.Events })));
 const EventDetail = lazy(() => import("./pages/Events").then((m) => ({ default: m.EventDetail })));
@@ -61,6 +62,7 @@ const navigation: {
   { to: "/review", label: "Review", icon: "review" },
   { to: "/duplicates", label: "Duplicates", icon: "merge" },
   { to: "/cleanup", label: "Cleanup", icon: "cleanup" },
+  { to: "/storage", label: "Storage", icon: "download" },
   { to: "/settings", label: "Settings", icon: "settings", group: true },
   { to: "/health", label: "Health", icon: "shield" },
 ];
@@ -410,6 +412,7 @@ export function App() {
           <Route path="/cleanup" element={<Cleanup />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/health" element={<Health />} />
+          <Route path="/storage" element={<Storage />} />
           <Route path="/timeline" element={<Timeline />} />
           <Route path="/events" element={<Events />} />
           <Route path="/albums" element={<Albums />} />

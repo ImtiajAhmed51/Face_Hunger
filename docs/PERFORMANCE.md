@@ -171,3 +171,10 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
 - **Album from a prompt on a 10,000-item library** (retrieval, diversity pick of 30, title,
   8 captions): **19.3 s** (budget 120 s). Unloads after the idle period (asserted with 5 s).
 - With the VLM disabled, the same album flow (rules only, no captions) completes in well under 1 s.
+
+## Storage and model upgrade
+- Savings estimate vs. bytes actually freed on the fixture (`tests/test_storage.py`): **equal to
+  the byte** (budget 2%). The estimate stats the files on disk, the same files the cleanup moves.
+- Storage dashboard (all six categories) on a 100,000-item synthetic library: **545-600 ms**.
+- Model upgrade on the fixture: the build is killed half-way and resumed from the stored state;
+  after switch and rollback the previous index file has the **same SHA-256** as before.

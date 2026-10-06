@@ -217,3 +217,24 @@ test('assistant off: album from a description uses rules; settings card shows th
   await expect(card.getByLabel('Use the local assistant model')).toBeDisabled();
   await axe(page, 'settings');
 });
+
+test('storage: preview a category, clean up the selection, undo restores it', async ({ page, errors, axe }) => {
+  void errors;
+  await go(page, '/storage');
+  await expect(page.getByRole('heading', { level: 1, name: 'Storage' })).toBeVisible();
+  const before = await page.request.get('/api/storage').then((r) => r.json());
+  await page.getByRole('button', { name: /Largest files/ }).click();
+  const grid = page.locator('.storage-grid');
+  await expect(grid.locator('li').first()).toBeVisible();
+  await expect(page.getByText(/^0 selected/)).toBeVisible(); // large files are never pre-selected
+  await grid.getByRole('checkbox').first().check();
+  await expect(page.getByText(/^1 selected · saves /)).toBeVisible();
+  await axe(page, 'storage');
+  await page.getByRole('button', { name: 'Move to Deleted' }).click();
+  await expect(page.locator('.toast').filter({ hasText: 'Storage cleanup: 1 item(s)' })).toBeVisible();
+  await expect.poll(async () => (await page.request.get('/api/storage').then((r) => r.json())).library.items).toBe(before.library.items - 1);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => (await page.request.get('/api/storage').then((r) => r.json())).library).toEqual(before.library);
+  await go(page, '/health');
+  await expect(page.getByRole('heading', { name: 'Re-index with another model' })).toBeVisible();
+});

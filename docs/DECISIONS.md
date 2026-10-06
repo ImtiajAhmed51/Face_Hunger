@@ -398,3 +398,17 @@ Short log of choices and dependencies. One entry per decision, newest last.
 - **Captions** live in `media_captions` with an FTS5 index (`caption_fts`, built into SQLite) used
   as an extra `caption` search signal. Tags are the caption's content words: the model's own
   keyword lists repeated themselves.
+
+## Storage dashboard and model upgrade
+- **Clutter rules are explicit and conservative**: screenshots = screenshot-like name, or a PNG with
+  no camera EXIF at a known screen size; blurry = sharpness < 0.25; very dark = exposure < 0.2
+  (stored quality signals); old low-quality video = older than 2 years and under 720p or scored
+  under 0.4. "Largest files" is a list, not clutter, and is never pre-selected.
+- **Cleanup reuses the duplicate bin**: items are soft-deleted and, optionally, the originals are
+  moved (never erased) into `data_dir/duplicate-bin/<audit id>/` with a checksum. One audit entry,
+  one undo. The estimate reads the on-disk size, so it matches what is freed.
+- **Model upgrade = a second vector store plus a pin**. Each model already has its own store, so the
+  "upgrade" backfills the new one with the existing resumable `embed_backfill` job and records the
+  flow in settings (`model_upgrade`). Switching only writes `active_models[role]`; rollback clears
+  it. Neither store is modified or deleted by switch, rollback or "Done". A/B compare runs the same
+  query against both stores. No new dependency.

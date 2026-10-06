@@ -36,6 +36,7 @@ from .routers import (
     search,
     settings,
     sharing,
+    storage,
     video,
 )
 from .services.container import Services, set_current
@@ -67,6 +68,7 @@ ROUTERS = (
     sharing.router,
     packages.router,
     assistant.router,
+    storage.router,
 )
 
 

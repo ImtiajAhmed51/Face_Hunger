@@ -102,8 +102,8 @@ class HybridSearch:
                     self._text_cache.popitem(last=False)
         return space, vec, None
 
-    def _media_vector(self, media_id: int):
-        space = self.s.vectors.active("visual")
+    def _media_vector(self, media_id: int, key: Optional[str] = None):
+        space = self.s.vectors.get(key) if key else self.s.vectors.active("visual")
         if space is None:
             return None, None, "Visual similarity needs DINOv2 embeddings"
         vec = space.vector(int(media_id))
@@ -230,7 +230,7 @@ class HybridSearch:
             if caption_hits:
                 ranked["caption"] = caption_hits
         if sim_media is not None:
-            space, vec, warn = self._media_vector(int(sim_media))
+            space, vec, warn = self._media_vector(int(sim_media), (q.get("space_overrides") or {}).get("visual"))
             if warn:
                 warnings.append(warn)
             else:

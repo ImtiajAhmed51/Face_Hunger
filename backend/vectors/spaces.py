@@ -316,6 +316,12 @@ class VectorSpaces:
         candidates = [s for s in self.by_role(role) if allowed is None or s.key in allowed]
         if not candidates:
             return None
+        # A model the user pinned (model-upgrade flow: build side by side, switch or roll back explicitly).
+        pinned = (self.db.settings().get("active_models") or {}).get(role)
+        if pinned:
+            for space in candidates:
+                if space.key == pinned:
+                    return space
         covered = [(s, s.coverage()) for s in candidates]
         ready = [s for s, c in covered if c["total"] and c["ratio"] >= min_ratio]
         if ready:

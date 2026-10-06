@@ -314,3 +314,22 @@ class AlbumGenerateBody(BaseModel):
 class CaptionBody(BaseModel):
     media_ids: Optional[list[int]] = None
     limit: int = Field(200, ge=1, le=5000)
+
+
+class StorageCleanupBody(BaseModel):
+    media_ids: list[int]
+    free_space: bool = True
+
+
+class UpgradeStartBody(BaseModel):
+    to_key: str
+
+
+class UpgradeSwitchBody(BaseModel):
+    force: bool = False
+
+
+class UpgradeCompareBody(BaseModel):
+    similar_media_id: Optional[int] = None
+    text: Optional[str] = None
+    limit: int = Field(12, ge=1, le=60)

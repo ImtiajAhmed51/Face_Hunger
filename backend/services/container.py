@@ -34,6 +34,7 @@ from .packages import PackageService
 from .quality import QualityService
 from .search import HybridSearch
 from .sharing import SharingService
+from .storage import StorageService
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ class Services:
         self.sharing = SharingService(self)
         self.packages = PackageService(self)
         self.assistant = Assistant(self)
+        self.storage = StorageService(self)
         self.keyframe_encoder = None  # tests/plugins may inject an image+text encoder
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)
@@ -123,6 +125,7 @@ class Services:
         if self.config.watch:
             self.watcher.start()
         self.schedule_embedding_backfill()
+        self.storage.resume_upgrade()
         self.schedule_metadata_backfill()
         self.schedule_quality()
         self.schedule_events()

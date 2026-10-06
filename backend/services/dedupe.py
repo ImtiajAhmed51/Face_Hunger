@@ -17,6 +17,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 
@@ -124,7 +125,7 @@ class DedupeService:
         return self.annotate(out)
 
     # -- resolve / undo ------------------------------------------------------------
-    def resolve(self, groups: list[dict], *, free_space: bool = False) -> dict:
+    def resolve(self, groups: list[dict], *, free_space: bool = False, label: Optional[str] = None) -> dict:
         """groups: [{"keep": [ids], "remove": [ids]}]. One audit entry for the whole batch."""
         remove = sorted({int(m) for g in groups for m in g.get("remove", [])} - {int(m) for g in groups for m in g.get("keep", [])})
         if not remove:
@@ -154,7 +155,7 @@ class DedupeService:
                 stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
                 conn.executemany("UPDATE media SET deleted_at=? WHERE id=?", [(stamp, r["id"]) for r in rows])
                 freed = sum(m["bytes"] for m in moved)
-                summary = (f"Resolved {len(groups)} duplicate group(s): {len(rows)} item(s) to Deleted"
+                summary = ((label or f"Resolved {len(groups)} duplicate group(s)") + f": {len(rows)} item(s) to Deleted"
                            + (f", {freed / 1e6:.1f} MB moved to the duplicate bin" if moved else ""))
                 conn.execute("UPDATE audit_log SET summary=?, undo=? WHERE id=?",
                              (summary, json.dumps({"rows": [{"id": r["id"], "deleted_at": None} for r in rows], "moved": moved}),
