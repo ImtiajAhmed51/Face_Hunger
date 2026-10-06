@@ -156,3 +156,11 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   the outputs for blur, pixelate and mask at the weakest slider position (detection re-run on
   every output). A kept person still matches. Outputs contain no EXIF/GPS/XMP (exiftool).
 - Export of 2 photos (8 faces, with fresh detection and verification): 0.3 s once the engine is loaded.
+
+## Encrypted packages
+- Export peak memory above baseline (subprocess, `ru_maxrss`): **49 MB for a 67 MB package,
+  38 MB for a 671 MB package**: 10x the data, no growth. The cost is scrypt (32 MB), one 1 MiB
+  chunk and I/O buffers, so a 50 GB export needs the same memory.
+- 671 MB export with originals: ~2 s on this machine (AES-GCM is hardware accelerated).
+- Round trip onto a clean data dir (12 photos, 8 faces, 2 people, album, edits, text vectors):
+  people, albums, favourites, edits and 4 search queries identical.

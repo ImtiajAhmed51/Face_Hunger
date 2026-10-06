@@ -7,6 +7,7 @@ import { useT } from "../i18n";
 import { Icon } from "./Icon";
 import { Dialog, ErrorNotice } from "./ui";
 import { ShareDialog } from "./ShareDialog";
+import { PackageExportDialog } from "./Packages";
 
 interface Album { id: number; name: string; item_count: number }
 
@@ -17,6 +18,7 @@ export function OrganizeActions({ ids, onDone }: { ids: number[]; onDone?: () =>
   const { pushUndo } = useApp();
   const [open, setOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [packing, setPacking] = useState(false);
   return (
     <>
       <button className="button small" disabled={action.busy || !ids.length} onClick={() => void action.run(async () => {
@@ -32,7 +34,9 @@ export function OrganizeActions({ ids, onDone }: { ids: number[]; onDone?: () =>
       <button className="button small" disabled={!ids.length} onClick={() => setSharing(true)}>
         <Icon name="shield" size={16} />{t("share.button")}
       </button>
+      <button className="button small" disabled={!ids.length} onClick={() => setPacking(true)}>{t("pack.button")}</button>
       {sharing && <ShareDialog ids={ids} onClose={() => setSharing(false)} />}
+      {packing && <PackageExportDialog scope={{ type: "selection", media_ids: ids }} onClose={() => setPacking(false)} />}
       {open && <AddToAlbumDialog ids={ids} onClose={() => setOpen(false)} onDone={() => { setOpen(false); onDone?.(); }} />}
     </>
   );

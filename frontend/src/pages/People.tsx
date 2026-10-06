@@ -10,6 +10,7 @@ import { Icon } from "../components/Icon";
 import { MediaCollection } from "../components/MediaGrid";
 import { MergeDialog, RenameDialog } from "../components/PersonDialogs";
 import { PersonFaces } from "../components/PersonFaces";
+import { PackageExportDialog } from "../components/Packages";
 import { PersonVideoMoments } from "../components/VideoMoments";
 import {
   Badge,
@@ -260,7 +261,7 @@ export function PersonProfile() {
   const navigate = useNavigate();
   const action = useAction();
   const [dialog, setDialog] = useState<
-    "rename" | "merge" | "delete" | "restore" | "move" | null
+    "rename" | "merge" | "delete" | "restore" | "move" | "pack" | null
   >(null);
   const [tab, setTab] = useState<"all" | "photo" | "video" | "faces">("all");
   const person = resource.data;
@@ -319,6 +320,10 @@ export function PersonProfile() {
               <button className="button" onClick={() => setDialog("rename")}>
                 <Icon name="edit" size={16} />
                 Rename
+              </button>
+              <button className="button" onClick={() => setDialog("pack")}>
+                <Icon name="shield" size={16} />
+                Encrypted export
               </button>
               <button className="button" onClick={() => setDialog("merge")}>
                 <Icon name="merge" size={16} />
@@ -397,6 +402,9 @@ export function PersonProfile() {
           )}
           {dialog === "rename" && (
             <RenameDialog person={person} onClose={() => setDialog(null)} />
+          )}
+          {dialog === "pack" && (
+            <PackageExportDialog scope={{ type: "person", person_id: person.id }} onClose={() => setDialog(null)} />
           )}
           {dialog === "merge" && (
             <MergeDialog

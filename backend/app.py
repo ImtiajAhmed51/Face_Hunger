@@ -28,6 +28,7 @@ from .routers import (
     library,
     media,
     models,
+    packages,
     people,
     quality,
     review,
@@ -63,6 +64,7 @@ ROUTERS = (
     library.router,
     edits.router,
     sharing.router,
+    packages.router,
 )
 
 

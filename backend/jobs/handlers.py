@@ -312,8 +312,30 @@ def make_share_export(services):
     return handler
 
 
+def make_package_export(services):
+    def handler(ctx: JobContext):
+        passphrase = services.packages.take(ctx.payload["secret"])
+        return services.packages.export(ctx.payload["scope"], passphrase, include_media=bool(ctx.payload.get("include_media")),
+                                        include_thumbnails=bool(ctx.payload.get("include_thumbnails", True)),
+                                        checkpoint=ctx.checkpoint, progress=lambda **p: ctx.progress(**p))
+
+    return handler
+
+
+def make_package_import(services):
+    def handler(ctx: JobContext):
+        passphrase = services.packages.take(ctx.payload["secret"])
+        source = services.packages.resolve(ctx.payload["source"])
+        return services.packages.import_package(source, passphrase, conflict=ctx.payload.get("conflict", "keep_both"),
+                                                checkpoint=ctx.checkpoint, progress=lambda **p: ctx.progress(**p))
+
+    return handler
+
+
 def register_all(services) -> None:
     jobs = services.jobs
+    jobs.register("package_export", make_package_export(services))
+    jobs.register("package_import", make_package_import(services))
     jobs.register("share_export", make_share_export(services))
     jobs.register("sidecar_sync", make_sidecar_sync(services))
     jobs.register("video_analysis", make_video_analysis(services))

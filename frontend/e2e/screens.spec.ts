@@ -182,3 +182,24 @@ test('share safely: preview, export a zip of new files', async ({ page, errors, 
   expect(zip.status()).toBe(200);
   expect(zip.headers()['content-type']).toBe('application/zip');
 });
+
+test('encrypted package: export the library, then import it back with the passphrase', async ({ page, errors, axe }) => {
+  await go(page, '/health');
+  const section = page.locator('section', { has: page.getByRole('heading', { name: 'Encrypted packages' }) });
+  await section.getByRole('button', { name: 'Export the whole library' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Encrypted export' });
+  await dialog.getByLabel('Passphrase', { exact: true }).fill('correct horse battery');
+  await dialog.getByLabel('Passphrase again').fill('correct horse battery');
+  await axe(page, 'package export dialog');
+  await dialog.getByRole('button', { name: 'Create package' }).click();
+  await expect(dialog.getByText(/Saved face-hunger-library-.*\.fhpack/)).toBeVisible({ timeout: 30_000 });
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await section.getByRole('button', { name: 'Import this' }).first().click();
+  await section.getByLabel('Passphrase').fill('wrong passphrase');
+  await section.getByRole('button', { name: 'Verify and import' }).click();
+  await expect(page.locator('.toast-error').filter({ hasText: 'Wrong passphrase' })).toBeVisible();
+  errors.length = 0; // the 403 for the deliberately wrong passphrase is expected
+  await section.getByLabel('Passphrase').fill('correct horse battery');
+  await section.getByRole('button', { name: 'Verify and import' }).click();
+  await expect(section.getByText(/Imported: 0 new item\(s\), \d+ already here/)).toBeVisible({ timeout: 30_000 });
+});

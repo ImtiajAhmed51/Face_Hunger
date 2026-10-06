@@ -343,3 +343,32 @@ Short log of choices and dependencies. One entry per decision, newest last.
   outside every library and the data dir; existing files there are never overwritten (`-1`, `-2`).
 - The `share_export` job keeps finished items in its saved progress, so cancel/crash + resume never
   renders an item twice.
+
+## Encrypted packages (.fhpack)
+- **cryptography** (Apache-2.0 / BSD-3) provides AES-256-GCM and scrypt. It was already installed
+  as a transitive dependency; it is now declared. scrypt (n = 2^15, r = 8, p = 1, ~32 MB, ~0.1 s)
+  rather than Argon2id because Argon2 would need another package.
+- **Container**: header (JSON, authenticated) + 1 MiB chunks, each sealed with AES-256-GCM. The
+  nonce is a random 4-byte prefix + chunk counter; the associated data binds every chunk to the
+  header hash, its position and a "final" flag, so flipping, dropping, reordering, truncating or
+  appending anything is detected. A sealed constant in the header separates "wrong passphrase"
+  (clear message, before any payload is read) from "integrity failure at block N". KDF cost
+  parameters from the header are range-checked before use.
+- **Payload** is a plain tar of JSON-lines records (media, people, faces with their vectors,
+  per-space media vectors, albums, edits, favourites, saved searches, exclusions) plus optional
+  thumbnails and originals. Logical records, not a raw SQLite copy, so packages merge into an
+  existing library and survive schema changes.
+- **Import verifies the whole package into a private staging folder first**, then merges in one
+  transaction. Failure at any point deletes the staging folder; nothing else was touched.
+  Members must match a fixed set of names (regular files only), so path traversal, links and
+  oversized payloads are rejected.
+- **Matching and conflicts**: media match by content hash (name + size + kind when a hash is
+  missing), so the same file is never duplicated. Same-named people and albums, and photos that
+  already have different edits, follow the policy: `keep_both` (default: "Name (imported)"; an
+  imported edit is added to the history), `skip`, `overwrite`. Faces are imported only for media
+  that have none here, unless overwriting.
+- **Passphrases are held in memory only** (a one-time token in the job payload). After a restart a
+  queued export/import fails with a clear message instead of reading a stored secret.
+- Imported originals go to `data_dir/imported/<stamp>/` as a new library. Without originals, the
+  items arrive marked missing: people, albums and edits are kept, and the photos appear in
+  search once the same files are indexed (they match by hash).

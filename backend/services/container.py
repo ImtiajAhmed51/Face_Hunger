@@ -29,6 +29,7 @@ from .dedupe import DedupeService
 from .edits import EditService
 from .events import EventService
 from .library import LibraryService
+from .packages import PackageService
 from .quality import QualityService
 from .search import HybridSearch
 from .sharing import SharingService
@@ -63,6 +64,7 @@ class Services:
         self.dedupe = DedupeService(self)
         self.edits = EditService(self)
         self.sharing = SharingService(self)
+        self.packages = PackageService(self)
         self.keyframe_encoder = None  # tests/plugins may inject an image+text encoder
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)

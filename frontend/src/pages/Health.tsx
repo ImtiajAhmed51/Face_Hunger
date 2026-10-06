@@ -5,6 +5,7 @@ import { refreshData, useResource } from "../hooks";
 import type { Job } from "../types";
 import { Icon } from "../components/Icon";
 import { ActivityLog } from "../components/Memories";
+import { PackagesPanel } from "../components/Packages";
 import { Badge, ConfirmDialog, Empty, ErrorNotice, Loading, PageHeader } from "../components/ui";
 
 interface Problem { severity: "error" | "warning" | "info"; kind: string; message: string; count: number; sample: (number | string)[] }
@@ -130,6 +131,7 @@ export function Health() {
                 </ul>
               )}
             </section>
+            <PackagesPanel />
             <ActivityLog />
             <section className="settings-section" aria-labelledby="embeddings-heading">
               <div className="section-heading">

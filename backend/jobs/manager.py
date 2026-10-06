@@ -322,7 +322,7 @@ def job_row(row: Optional[dict]) -> Optional[dict]:
         "failed": int(row.get("failed") or 0),
         "current_file": row.get("current_file"),
         "error": row.get("error"),
-        "payload": json.loads(row.get("payload") or "{}"),
+        "payload": {k: v for k, v in json.loads(row.get("payload") or "{}").items() if k != "secret"},
         "progress": json.loads(row.get("progress") or "{}"),
         "attempts": int(row.get("attempts") or 0),
         "created_at": row.get("created_at"),

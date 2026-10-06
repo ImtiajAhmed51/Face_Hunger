@@ -278,3 +278,21 @@ class SharePreviewBody(BaseModel):
 class ShareBody(BaseModel):
     media_ids: list[int]
     options: ShareOptions = Field(default_factory=ShareOptions)
+
+
+class PackageExportBody(BaseModel):
+    scope: dict = Field(default_factory=lambda: {"type": "library"})
+    passphrase: str
+    include_media: bool = False
+    include_thumbnails: bool = True
+
+
+class PackageInspectBody(BaseModel):
+    source: str
+    passphrase: str
+
+
+class PackageImportBody(BaseModel):
+    source: str
+    passphrase: str
+    conflict: Literal["skip", "keep_both", "overwrite"] = "keep_both"
