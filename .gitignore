@@ -94,3 +94,11 @@ tests/fixtures/raw/
 
 # Upgrade-test fixtures (tiny, synthetic)
 !tests/fixtures/upgrade/**
+
+# Visual QA output (regenerated; baselines live in frontend/visual/baselines)
+artifacts/
+
+# Local tool settings
+.claude/
+.pytest_cache/
+.ruff_cache/

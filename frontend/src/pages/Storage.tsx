@@ -41,13 +41,13 @@ export function Storage() {
             {t("storage.total", { size: bytes(dash.data.library.bytes), items: number(dash.data.library.items) })}
             {" · "}{t("storage.clutter", { size: bytes(dash.data.clutter.bytes), count: number(dash.data.clutter.count) })}
           </p>
-          <div className="storage-cards">
+          <div className="storage-tiles">
             {dash.data.categories.map((c) => (
-              <button key={c.category} className={`storage-card ${category === c.category ? "active" : ""}`} aria-pressed={category === c.category}
+              <button key={c.category} className={`storage-tile ${category === c.category ? "active" : ""}`} aria-pressed={category === c.category}
                 onClick={() => setCategory(c.category)} disabled={!c.count}>
                 <strong>{t(`storage.cat.${c.category}` as MessageKey)}</strong>
                 <span>{bytes(c.bytes)}</span>
-                <span className="muted small-text">{t("library.items", { count: number(c.count) })}</span>
+                <span className="muted small-text">{c.count === 1 ? t("storage.oneItem") : t("library.items", { count: number(c.count) })}</span>
               </button>
             ))}
           </div>

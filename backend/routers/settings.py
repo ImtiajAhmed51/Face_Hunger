@@ -13,6 +13,7 @@ from .. import evaluation as evaluation_mod
 from .. import threshold_tuning
 from ..deps import cluster, config, db, engine, services, store
 from ..media_processing import load_image
+from ..ops.health import dir_usage
 from ..schemas import MaintenanceBody, SettingsPatch
 from ..services.presenters import (
     _REP_ORDER,
@@ -36,6 +37,8 @@ def get_settings():
             "embeddings": str(emb_path),
             "thumbnails": str(thumb_dir),
         },
+        "storage_bytes": {"database": dir_usage(db_path)[0], "embeddings": dir_usage(emb_path)[0],
+                          "thumbnails": dir_usage(thumb_dir)[0]},
         "roots": [str(p) for p in config.roots],
     }
 

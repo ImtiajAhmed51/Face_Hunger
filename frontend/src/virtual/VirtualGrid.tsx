@@ -22,6 +22,8 @@ export interface VirtualGridProps<T> {
   onDelete?: () => void;
   /** Server-rendered/test fallback: how many rows to render without a measured viewport. */
   initialRows?: number;
+  /** Never fewer columns than this (photo grids stay two-up on phones). */
+  minColumns?: number;
 }
 
 /**
@@ -32,7 +34,7 @@ export interface VirtualGridProps<T> {
  */
 export function VirtualGrid<T>({
   count, getItem, renderCell, onRange, label, minCell = 180, gap = 14, aspect = 1, extra = 0, className = '',
-  onOpen, onToggle, onSelectAll, onEscape, onDelete, initialRows = 3,
+  onOpen, onToggle, onSelectAll, onEscape, onDelete, initialRows = 3, minColumns = 1,
 }: VirtualGridProps<T>) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -53,7 +55,7 @@ export function VirtualGrid<T>({
     return () => observer.disconnect();
   }, []);
 
-  const geometry = gridGeometry(width || minCell * 4 + gap * 3, count, minCell, gap, aspect, extra);
+  const geometry = gridGeometry(width || minCell * 4 + gap * 3, count, minCell, gap, aspect, extra, minColumns);
   const virtualizer = useWindowVirtualizer({
     count: geometry.rows,
     estimateSize: () => geometry.rowHeight,

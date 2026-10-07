@@ -46,6 +46,25 @@
     --duration-fast: 140ms;
     --duration-normal: 240ms;
     --duration-slow: 340ms;
+    /* Type scale: nothing below 12px. */
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-base: 14px;
+    --text-md: 16px;
+    --text-lg: 18px;
+    --text-xl: 20px;
+    --text-2xl: 24px;
+    --text-3xl: 28px;
+    --text-4xl: 32px;
+    --text-title: clamp(22px, 2.4vw, 30px);
+    --text-display: clamp(28px, 3vw, 40px);
+    /* Radius scale. */
+    --radius-xs: 6px;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 18px;
+    --radius-xl: 22px;
+    --radius-pill: 999px;
     --text-caption: 0.857rem;
     --text-body: 1rem;
     --shadow-card: 0 2px 8px #17243f0a, inset 0 1px 0 #ffffff80;

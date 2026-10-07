@@ -309,6 +309,7 @@ export function VirtualMediaGrid({
       getItem={windowed.getItem}
       onRange={windowed.onRange}
       minCell={190}
+      minColumns={2}
       gap={14}
       aspect={1}
       extra={74}
@@ -656,8 +657,8 @@ export function MediaCollection({
             </label>
           )}
           <span className="muted small-text">
-            {resource.data
-              ? `${number(resource.data.total)} results`
+            {resource.error ? "" : resource.data
+              ? resource.data.total === 1 ? '1 result' : `${number(resource.data.total)} results`
               : "Your local collection"}
             {selectedCount > 0 ? ` · ${number(selectedCount)} selected` : ""}
           </span>
@@ -772,7 +773,7 @@ export function MediaCollection({
       <ErrorNotice error={resource.error} retry={resource.reload} />
       {resource.loading && !resource.data ? (
         <GallerySkeleton />
-      ) : resource.data && !items.length ? (
+      ) : resource.error ? null : resource.data && !items.length ? (
         <Empty
           icon={filters.kind === "video" ? "video" : "photo"}
           title={emptyTitle}
@@ -799,7 +800,7 @@ export function MediaCollection({
         />
       )}
       {tools && (
-        <p className="muted small-text" style={{ marginTop: 8 }}>
+        <p className="muted small-text keyboard-tip" style={{ marginTop: 8 }}>
           Tip: arrow keys move · Space selects (Shift for a range) · Enter opens ·
           {" "}{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+A selects loaded · Delete removes ·
           {" "}{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+Z undoes · drag across checkboxes to paint-select

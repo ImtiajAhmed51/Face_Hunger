@@ -39,7 +39,7 @@ export function HybridResults({ query }: { query: HybridQuery }) {
       <div className="collection-bar">
         <div className="inline-actions">
           <span className="muted small-text" role="status">
-            {number(windowed.count)} results{first ? ` in ${Math.round(first.took_ms)} ms` : ""}
+            {windowed.count === 1 ? '1 result' : `${number(windowed.count)} results`}{first ? ` in ${Math.round(first.took_ms)} ms` : ""}
             {ids.length ? ` · ${number(ids.length)} selected` : ""}
           </span>
           <span className="search-signals" aria-label="Signals used">

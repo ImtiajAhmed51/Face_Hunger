@@ -174,6 +174,7 @@ export interface Settings {
   theme: Theme;
   dino_similarity_threshold?: number;
   diagnostics_enabled?: boolean;
+  storage_bytes?: { database: number; embeddings: number; thumbnails: number };
   storage: { database: number; embeddings: number; thumbnails: number };
   roots: string[];
 }

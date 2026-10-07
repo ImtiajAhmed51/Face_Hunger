@@ -8,9 +8,9 @@ export interface GridGeometry {
 }
 
 /** Fill the width with as many cells of at least `minCell` px as fit; rows are uniform. */
-export function gridGeometry(width: number, count: number, minCell: number, gap: number, aspect = 1, extra = 0): GridGeometry {
+export function gridGeometry(width: number, count: number, minCell: number, gap: number, aspect = 1, extra = 0, minColumns = 1): GridGeometry {
   const usable = Math.max(minCell, width);
-  const columns = Math.max(1, Math.floor((usable + gap) / (minCell + gap)));
+  const columns = Math.max(minColumns, 1, Math.floor((usable + gap) / (minCell + gap)));
   const cellWidth = (usable - gap * (columns - 1)) / columns;
   const rowHeight = Math.round(cellWidth * aspect + extra + gap);
   return { columns, cellWidth, rowHeight, rows: Math.ceil(count / columns) };

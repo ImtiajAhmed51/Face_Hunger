@@ -85,7 +85,7 @@ export function Health() {
               {summary.data.status === "ok" ? "All systems normal" : `Degraded: ${summary.data.degraded.join(", ")}`}
             </Badge>
           </div>
-          <dl className="metadata">
+          <dl className="metadata status-list">
             {Object.entries(summary.data.checks).map(([name, check]) => (
               <div key={name}>
                 <dt>{name}</dt>

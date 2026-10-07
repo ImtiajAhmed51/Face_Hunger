@@ -351,7 +351,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                     const r = await mutate<Audited>("/favorites", { media_ids: [media.id], favorite: !media.favorite });
                     pushUndo(media.favorite ? t("library.unfavorite") : t("library.favorite"), undoAudit(r.audit_id));
                   })}>
-                  <Icon name="spark" size={16} />
+                  <Icon name="heart" size={16} />
                   {media.favorite ? t("library.unfavorite") : t("library.favorite")}
                 </button>
               )}

@@ -91,7 +91,7 @@ export function Events() {
       ) : (
         <VirtualGrid<EventItem>
           label={t("events.title")} count={windowed.count} getItem={windowed.getItem} onRange={windowed.onRange}
-          minCell={230} gap={16} aspect={0.75} extra={88}
+          minCell={230} gap={16} aspect={0.75} extra={96}
           onOpen={(_, event) => navigate(`/events/${event.id}`)}
           onToggle={(_, event) => selection.toggle(event.id)} onEscape={selection.clear}
           renderCell={(event) => event

@@ -7,55 +7,55 @@
   }
 
   h1 {
-    font-size: clamp(22px, 2.3vw, 30px);
+    font-size: var(--text-title);
     letter-spacing: -0.8px;
   }
   h2 {
-    font-size: 20px;
+    font-size: var(--text-xl);
     letter-spacing: -0.4px;
   }
   h3 {
-    font-size: 16px;
+    font-size: var(--text-md);
   }
 
   .button {
     min-height: 36px;
     padding: 8px 12px;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
   }
   .button.small {
     min-height: 32px;
     padding: 6px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
   }
   .icon-button {
     width: 36px;
     height: 36px;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
   }
 
   .sidebar {
     inset: 10px auto 10px 10px;
     padding: 16px 10px 12px;
-    border-radius: 18px;
+    border-radius: var(--radius-lg);
   }
   .brand {
     gap: 10px;
     padding: 0 6px;
   }
   .brand > span:last-child {
-    font-size: 16px;
+    font-size: var(--text-md);
     letter-spacing: -0.4px;
   }
   .brand small {
-    font-size: 8px;
+    font-size: var(--text-xs);
     margin-top: 2px;
     letter-spacing: 1px;
   }
   .brand-mark {
     width: 34px;
     height: 34px;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
   }
   .brand-mark svg {
     width: 20px;
@@ -72,8 +72,8 @@
     gap: 10px;
     padding: 8px 10px;
     min-height: 36px;
-    border-radius: 10px;
-    font-size: 13px;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
   }
   .nav-link.nav-group {
     margin-top: 10px;
@@ -82,7 +82,7 @@
     padding-top: 12px;
   }
   .sidebar-note {
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.45;
     padding: 8px 10px 12px;
   }
@@ -99,7 +99,7 @@
     top: 10px;
     min-height: 40px;
     padding: 6px 14px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
   .page-header {
     padding: 18px 0 14px;
@@ -108,7 +108,7 @@
   }
   .media-grid .media-image {
     aspect-ratio: 4 / 3;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
   .page-header .eyebrow {
@@ -116,7 +116,7 @@
   }
   .page-description {
     margin-top: 6px;
-    font-size: 13px;
+    font-size: var(--text-sm);
   }
   .page-footer {
     margin-top: 28px;
@@ -127,7 +127,7 @@
     gap: 12px;
   }
   .section-heading h2 {
-    font-size: 18px;
+    font-size: var(--text-lg);
   }
 
   .stats-grid {
@@ -136,36 +136,36 @@
   }
   .stat-card {
     padding: 14px 16px 12px;
-    border-radius: 14px;
+    border-radius: var(--radius-md);
   }
   .stat-card > strong {
-    font-size: clamp(22px, 2.2vw, 28px);
+    font-size: var(--text-title);
     margin: 6px 0 8px;
     letter-spacing: -0.8px;
   }
   .welcome-hero {
     min-height: 280px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
   }
   .welcome-copy {
     padding: 28px 24px;
   }
   .welcome-copy h2 {
-    font-size: clamp(26px, 3vw, 36px);
+    font-size: var(--text-display);
     margin: 10px 0 12px;
   }
   .home-search {
     padding: 18px 20px;
     gap: 16px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
   }
   .home-search h2 {
-    font-size: 20px;
+    font-size: var(--text-xl);
     margin-top: 4px;
   }
   .home-search-link {
     padding: 10px 12px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
   .home-section {
     margin-top: 22px;
@@ -189,30 +189,30 @@
   .review-callout,
   .local-panel {
     padding: 18px 20px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
   }
   .review-callout h2,
   .local-panel > h3 {
-    font-size: 20px;
+    font-size: var(--text-xl);
     margin: 8px 0 10px;
   }
   .empty-state {
     padding: 40px 20px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
   }
   .empty-state h2 {
-    font-size: 22px;
+    font-size: var(--text-xl);
   }
   .empty-symbol {
     width: 56px;
     height: 56px;
-    border-radius: 14px;
+    border-radius: var(--radius-md);
     margin-bottom: 16px;
   }
   .collection-filters {
     padding: 8px 10px;
     gap: 10px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
   .media-grid {
     grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
@@ -226,28 +226,28 @@
     gap: 12px 10px;
   }
   .person-card {
-    border-radius: 14px;
+    border-radius: var(--radius-md);
   }
   .person-caption {
     padding: 10px 12px 12px;
   }
   .person-caption h2 {
-    font-size: 15px;
+    font-size: var(--text-md);
   }
   .profile-header {
     gap: 16px;
     padding: 16px;
     margin-bottom: 16px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
   }
   .profile-portrait {
     width: 88px;
     height: 88px;
-    border-radius: 18px;
+    border-radius: var(--radius-lg);
     border-width: 3px;
   }
   .profile-copy h1 {
-    font-size: clamp(22px, 2.4vw, 30px);
+    font-size: var(--text-title);
     margin: 4px 0 8px;
   }
   .back-link {
@@ -256,7 +256,7 @@
   .tabs {
     margin-bottom: 14px;
     padding: 4px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
   .face-grid {
     grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
@@ -270,7 +270,7 @@
   .selection-toolbar {
     top: 58px;
     padding: 8px 12px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     margin-bottom: 14px;
   }
   .pagination {
@@ -280,18 +280,18 @@
   .filter-panel {
     padding: 16px 18px;
     margin-bottom: 18px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
   }
   .natural-search {
     padding: 6px 8px 6px 14px;
-    border-radius: 14px;
+    border-radius: var(--radius-md);
   }
   .natural-search input {
     padding: 8px 0;
-    font-size: 15px;
+    font-size: var(--text-md);
   }
   .review-workbench {
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
   }
   .review-image-side {
     padding: 16px;
@@ -300,15 +300,15 @@
     padding: 20px 22px;
   }
   .review-decision h2 {
-    font-size: clamp(22px, 2.6vw, 30px);
+    font-size: var(--text-title);
     margin: 8px 0 12px;
   }
   .review-main-image {
     max-width: 280px;
-    border-radius: 14px;
+    border-radius: var(--radius-md);
   }
   .cleanup-summary strong {
-    font-size: 24px;
+    font-size: var(--text-2xl);
     margin-top: 6px;
   }
   .cleanup-summary > * {
@@ -317,14 +317,14 @@
   .settings-section {
     padding: 18px 20px;
     margin-bottom: 16px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
   }
   .setting-row {
     padding: 14px 0;
     gap: 16px;
   }
   .dialog:not(.viewer-dialog) {
-    border-radius: 18px;
+    border-radius: var(--radius-lg);
   }
   .dialog-header {
     padding: 14px 16px;
@@ -457,13 +457,13 @@
       margin: 8px 12px 0;
       padding: 8px 10px;
       min-height: 48px;
-      border-radius: 14px;
+      border-radius: var(--radius-md);
     }
     .mobile-header .brand small {
       display: none;
     }
     .mobile-header .brand > span:last-child {
-      font-size: 15px;
+      font-size: var(--text-md);
     }
     .topline {
       display: none;
@@ -504,10 +504,10 @@
       border: 0;
       background: transparent;
       color: var(--muted);
-      font-size: 10px;
+      font-size: var(--text-xs);
       font-weight: 550;
       line-height: 1.2;
-      border-radius: 10px;
+      border-radius: var(--radius-sm);
       text-decoration: none;
       transition:
         background 200ms var(--ease-soft),
@@ -532,10 +532,10 @@
       min-width: 16px;
       height: 16px;
       padding: 0 4px;
-      border-radius: 999px;
+      border-radius: var(--radius-pill);
       background: var(--teal);
       color: #fff;
-      font-size: 9px;
+      font-size: var(--text-xs);
       font-weight: 700;
       display: grid;
       place-items: center;
@@ -550,7 +550,7 @@
       padding: 14px 14px 12px;
     }
     .home-search h2 {
-      font-size: 18px;
+      font-size: var(--text-lg);
     }
     .page-header {
       padding: 10px 0 12px;
@@ -563,7 +563,7 @@
       display: none;
     }
     .page-header h1 {
-      font-size: 22px;
+      font-size: var(--text-xl);
       letter-spacing: -0.5px;
     }
     .header-actions {
@@ -577,7 +577,7 @@
       padding: 12px;
     }
     .stat-card > strong {
-      font-size: 24px;
+      font-size: var(--text-2xl);
       margin: 4px 0 6px;
     }
     .home-search,
@@ -592,7 +592,7 @@
       padding: 20px 18px;
     }
     .welcome-copy h2 {
-      font-size: 26px;
+      font-size: var(--text-3xl);
     }
     .media-grid,
     .people-grid,
@@ -627,7 +627,7 @@
       grid-template-columns: 1fr;
     }
     .review-decision h2 {
-      font-size: 24px;
+      font-size: var(--text-2xl);
     }
     .settings-layout,
     .settings-secondary {

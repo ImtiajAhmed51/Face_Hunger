@@ -10,7 +10,7 @@
     display: block;
     background: var(--glass);
     border: 1px solid var(--line);
-    border-radius: 22px;
+    border-radius: var(--radius-xl);
     overflow: hidden;
     min-width: 0;
     box-shadow: var(--inset), var(--shadow);
@@ -45,13 +45,13 @@
     padding: 16px;
   }
   .person-caption h2 {
-    font-size: 18px;
+    font-size: var(--text-lg);
     letter-spacing: -0.4px;
     overflow-wrap: anywhere;
   }
   .person-caption > span {
     display: block;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--muted);
     margin-top: 5px;
   }
@@ -60,7 +60,7 @@
     gap: 12px;
     margin-top: 14px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
   .person-caption > div span {
     display: flex;
@@ -81,7 +81,7 @@
     gap: 8px;
     min-height: 32px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--text-xs);
     margin: 24px 0 18px;
     transition: color 180ms var(--ease-soft);
   }
@@ -120,13 +120,13 @@
     min-width: 0;
   }
   .profile-copy h1 {
-    font-size: clamp(28px, 3vw, 40px);
+    font-size: var(--text-display);
     margin: 8px 0 12px;
     overflow-wrap: anywhere;
   }
   .profile-copy > p:not(.eyebrow) {
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--text-xs);
   }
   .profile-copy > p span {
     margin: 0 5px;
@@ -155,7 +155,7 @@
     padding: 5px;
     overflow-x: auto;
     background: var(--soft);
-    border-radius: 15px;
+    border-radius: var(--radius-md);
     scrollbar-width: thin;
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
@@ -164,10 +164,10 @@
     position: relative;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     padding: 9px 15px;
     min-height: 38px;
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--muted);
     white-space: nowrap;
     transition:
@@ -214,7 +214,7 @@
     background: var(--glass-strong);
     border: 1px solid var(--line);
     box-shadow: var(--inset), var(--chrome-shadow);
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     z-index: 8;
     animation: glass-enter 200ms var(--ease-spring);
     isolation: isolate;
@@ -237,9 +237,9 @@
     background: none;
     border: 0;
     width: 100%;
-    font-size: 12px;
+    font-size: var(--text-xs);
     text-align: left;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     transition: background 180ms var(--ease-soft);
   }
   .actions-menu button:hover {
@@ -254,14 +254,14 @@
   .face-image {
     position: relative;
     aspect-ratio: 1;
-    border-radius: 17px;
+    border-radius: var(--radius-lg);
   }
   .face-tile-info {
     padding: 12px 2px;
   }
   .face-tile-info > strong {
     display: block;
-    font-size: 12px;
+    font-size: var(--text-xs);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -337,7 +337,7 @@
     border-bottom: 1px solid var(--line);
   }
   .dialog-header h2 {
-    font-size: 20px;
+    font-size: var(--text-xl);
     line-height: 1.3;
     letter-spacing: -0.5px;
     overflow-wrap: anywhere;
@@ -363,7 +363,7 @@
   }
   .dialog-body > p {
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--text-sm);
     margin-bottom: 20px;
   }
   .dialog-body .field + p {
@@ -389,7 +389,7 @@
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 600;
     margin: 0 0 19px;
     min-width: 0;
@@ -401,11 +401,11 @@
   .field select,
   .field textarea {
     font-weight: 400;
-    font-size: 13px;
+    font-size: var(--text-sm);
   }
   .field-label {
     display: block;
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 600;
     margin-bottom: 9px;
   }
@@ -413,7 +413,7 @@
     display: inline-flex;
     flex-wrap: wrap;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: var(--soft);
     padding: 4px;
     gap: 3px;
@@ -424,10 +424,10 @@
     border: 1px solid transparent;
     padding: 8px 13px;
     min-height: 36px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     color: var(--muted);
     background: transparent;
-    font-size: 12px;
+    font-size: var(--text-xs);
     transition:
       background 200ms var(--ease-soft),
       color 200ms var(--ease-soft),
@@ -468,7 +468,7 @@
     padding: 10px;
     border: 1px solid transparent;
     background: transparent;
-    border-radius: 13px;
+    border-radius: var(--radius-md);
     transition:
       background 200ms var(--ease-soft),
       border-color 200ms var(--ease-soft),
@@ -490,12 +490,12 @@
     flex-direction: column;
     flex: 1;
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--text-sm);
     overflow-wrap: anywhere;
   }
   .picker-person small {
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
   .picker-person > svg {
     color: var(--teal);
@@ -507,9 +507,9 @@
     background: var(--teal-wash);
     padding: 14px;
     border: 1px solid var(--line);
-    border-radius: 13px;
+    border-radius: var(--radius-md);
     margin-bottom: 20px;
-    font-size: 13px;
+    font-size: var(--text-sm);
     color: var(--teal);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
@@ -527,7 +527,7 @@
     color: var(--teal);
     border: 1px solid var(--line);
     border-radius: 30px;
-    font-size: 12px;
+    font-size: var(--text-xs);
     padding: 5px 7px 5px 13px;
     max-width: 100%;
     overflow-wrap: anywhere;
@@ -560,7 +560,7 @@
     padding: 12px 20px;
   }
   .viewer-dialog .dialog-header h2 {
-    font-size: 13px;
+    font-size: var(--text-sm);
     letter-spacing: 0;
     font-weight: 550;
   }
@@ -583,7 +583,7 @@
     justify-content: space-between;
     gap: 12px;
     padding: 12px 16px;
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
   .viewer-toolbar {
     border-bottom: 1px solid #ffffff0d;
@@ -651,7 +651,7 @@
     padding: 0;
     min-width: 12px;
     min-height: 12px;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     box-shadow: 0 0 0 1px #08192eb3;
     transition:
       border-color 200ms var(--ease-soft),
@@ -663,9 +663,9 @@
     bottom: calc(100% + 5px);
     left: -1px;
     max-width: 180px;
-    font-size: 10px;
+    font-size: var(--text-xs);
     padding: 4px 7px;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     background: #e7f0ff;
     color: #112d51;
     white-space: nowrap;
@@ -695,7 +695,7 @@
     color: #eef3fc;
   }
   .viewer-unavailable p {
-    font-size: 13px;
+    font-size: var(--text-sm);
   }
   .viewer-unavailable .button {
     margin-top: 18px;
@@ -708,7 +708,7 @@
     scrollbar-width: thin;
   }
   .viewer-details > h3 {
-    font-size: 19px;
+    font-size: var(--text-lg);
     margin: 23px 0 13px;
   }
   .viewer-faces {
@@ -723,7 +723,7 @@
     background: transparent;
     border: 1px solid transparent;
     padding: 8px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     text-align: left;
     min-width: 0;
     transition:
@@ -733,7 +733,7 @@
   .viewer-face .thumbnail {
     width: 44px;
     height: 44px;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     flex-shrink: 0;
   }
   .viewer-face > span:last-child {
@@ -742,11 +742,11 @@
     min-width: 0;
   }
   .viewer-face strong {
-    font-size: 12px;
+    font-size: var(--text-xs);
     overflow-wrap: anywhere;
   }
   .viewer-face small {
-    font-size: 10px;
+    font-size: var(--text-xs);
     color: var(--muted);
   }
   .viewer-face.active {
@@ -759,7 +759,7 @@
   .face-inspector {
     margin-top: 16px;
     border: 1px solid var(--line);
-    border-radius: 15px;
+    border-radius: var(--radius-md);
     padding: 13px;
     background: var(--glass);
     -webkit-backdrop-filter: blur(12px);
@@ -773,7 +773,7 @@
     padding-bottom: 0;
   }
   .face-inspector .button {
-    font-size: 11px;
+    font-size: var(--text-xs);
     min-height: 34px;
     padding: 7px 9px;
   }
@@ -783,7 +783,7 @@
     padding-top: 18px;
   }
   .metadata-section h3 {
-    font-size: 17px;
+    font-size: var(--text-md);
     margin-bottom: 10px;
   }
   .metadata > div {
@@ -792,7 +792,7 @@
     gap: 14px;
     justify-content: space-between;
     padding: 7px 0;
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
   .metadata dt {
     color: var(--muted);
@@ -811,13 +811,13 @@
     margin-top: 23px;
   }
   .viewer-file-actions .button {
-    font-size: 12px;
+    font-size: var(--text-xs);
     min-height: 38px;
     padding: 8px;
   }
   .viewer-file-actions p {
     text-align: center;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .viewer-dialog:fullscreen {
     max-width: none;

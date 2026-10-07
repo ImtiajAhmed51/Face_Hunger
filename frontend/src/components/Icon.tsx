@@ -35,6 +35,13 @@ const paths = {
   alert: "M12 3 2 21h20ZM12 9v5M12 18h.01",
   spark: "m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z",
   sun: "M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1 1M18 18l1 1M5 19l1-1M18 6l1-1M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0",
+  map: "M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14",
+  calendar: "M4 6h16v15H4ZM4 10h16M8 3v4M16 3v4",
+  plug: "M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0ZM12 18v3",
+  activity: "M3 12h4l3-8 4 16 3-8h4",
+  drive: "M4 14h16v6H4ZM4 14 7 4h10l3 10M8 17h.01",
+  layers: "m12 3 9 5-9 5-9-5 9-5ZM3 13l9 5 9-5M3 17l9 5 9-5",
+  heart: "M12 20.5S4 15.6 4 9.8A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 8 2.2c0 5.8-8 10.7-8 10.7Z",
 } as const;
 export type IconName = keyof typeof paths;
 export function Icon({

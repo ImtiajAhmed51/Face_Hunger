@@ -399,6 +399,7 @@ const en = {
   'lock.lockNow': "Lock now",
   'lock.saved': "App lock saved",
   'lock.removed': "App lock removed",
+  'storage.oneItem': "1 item",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -795,6 +796,7 @@ const bn: Partial<Record<MessageKey, string>> = {
   'lock.lockNow': "এখনই লক করুন",
   'lock.saved': "অ্যাপ লক সংরক্ষিত",
   'lock.removed': "অ্যাপ লক সরানো হয়েছে",
+  'storage.oneItem': "১টি আইটেম",
 };
 
 export const MESSAGES: Record<Locale, Partial<Record<MessageKey, string>>> = { en, bn };

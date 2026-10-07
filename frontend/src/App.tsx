@@ -52,12 +52,12 @@ const navigation: {
 }[] = [
   { to: "/", label: "Overview", icon: "home" },
   { to: "/people", label: "People", icon: "people" },
-  { to: "/clusters", label: "Clusters", icon: "spark" },
+  { to: "/clusters", label: "Clusters", icon: "layers" },
   { to: "/photos", label: "Photos", icon: "photo" },
   { to: "/timeline", label: "Timeline", icon: "filter" },
-  { to: "/events", label: "Events", icon: "spark" },
+  { to: "/events", label: "Events", icon: "calendar" },
   { to: "/albums", label: "Albums", icon: "folder" },
-  { to: "/map", label: "Map", icon: "folder" },
+  { to: "/map", label: "Map", icon: "map" },
   { to: "/videos", label: "Videos", icon: "video" },
   { to: "/no-faces", label: "No faces", icon: "hidden" },
   { to: "/deleted", label: "Deleted", icon: "trash" },
@@ -65,11 +65,11 @@ const navigation: {
   { to: "/review", label: "Review", icon: "review" },
   { to: "/duplicates", label: "Duplicates", icon: "merge" },
   { to: "/cleanup", label: "Cleanup", icon: "cleanup" },
-  { to: "/storage", label: "Storage", icon: "download" },
+  { to: "/storage", label: "Storage", icon: "drive" },
   { to: "/settings", label: "Settings", icon: "settings", group: true },
   { to: "/health", label: "Health", icon: "shield" },
-  { to: "/plugins", label: "Plugins", icon: "spark" },
-  { to: "/diagnostics", label: "Diagnostics", icon: "filter" },
+  { to: "/plugins", label: "Plugins", icon: "plug" },
+  { to: "/diagnostics", label: "Diagnostics", icon: "activity" },
 ];
 
 const primaryNav: { to: string; label: string; icon: IconName }[] = [
@@ -223,6 +223,8 @@ export function App() {
   const main = useRef<HTMLElement>(null);
   const pageContent = useRef<HTMLDivElement>(null);
   useEffect(() => routeRendered(location.pathname), [location.pathname]);
+  // Keep the current destination visible when the sidebar is taller than the window.
+  useEffect(() => { document.querySelector('.sidebar .nav-link.active')?.scrollIntoView?.({ block: 'nearest' }); }, [location.pathname]);
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const animation = pageContent.current?.animate(

@@ -503,15 +503,15 @@ export function Settings() {
               <dl className="metadata">
                 <div>
                   <dt>Database</dt>
-                  <dd>{bytes(resource.data.storage.database)}</dd>
+                  <dd>{bytes(resource.data.storage_bytes?.database ?? NaN)}</dd>
                 </div>
                 <div>
                   <dt>Embeddings</dt>
-                  <dd>{bytes(resource.data.storage.embeddings)}</dd>
+                  <dd>{bytes(resource.data.storage_bytes?.embeddings ?? NaN)}</dd>
                 </div>
                 <div>
                   <dt>Thumbnails</dt>
-                  <dd>{bytes(resource.data.storage.thumbnails)}</dd>
+                  <dd>{bytes(resource.data.storage_bytes?.thumbnails ?? NaN)}</dd>
                 </div>
               </dl>
               <p className="small-text muted">
