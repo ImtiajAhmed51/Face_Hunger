@@ -322,6 +322,8 @@ class VectorSpaces:
             for space in candidates:
                 if space.key == pinned:
                     return space
+        # Plugin models are only ever used when pinned: installing a plugin must not change search by itself.
+        candidates = [s for s in candidates if not s.spec.model_id.startswith("plugin-")] or candidates
         covered = [(s, s.coverage()) for s in candidates]
         ready = [s for s, c in covered if c["total"] and c["ratio"] >= min_ratio]
         if ready:

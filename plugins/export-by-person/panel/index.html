@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Export by person</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 12px; color: #1d2a2e; background: transparent; }
+  @media (prefers-color-scheme: dark) { body { color: #e8eef0; } }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+  dt { opacity: 0.7; }
+</style>
+</head>
+<body>
+<p id="status" role="status">Asking the app…</p>
+<dl id="facts" hidden>
+  <dt>Photos</dt><dd id="photos"></dd>
+  <dt>Videos</dt><dd id="videos"></dd>
+  <dt>People</dt><dd id="people"></dd>
+  <dt>Names</dt><dd id="names"></dd>
+</dl>
+<script>
+  // Message API: post {fh: 1, id, method} to the app; it answers {fh: 1, id, ok, result | error}.
+  // The panel runs in a sandboxed frame with no network access; this channel is all it has.
+  const pending = new Map();
+  let next = 1;
+  function ask(method) {
+    return new Promise((resolve, reject) => {
+      const id = next++;
+      pending.set(id, { resolve, reject });
+      parent.postMessage({ fh: 1, id, method }, "*");
+    });
+  }
+  addEventListener("message", (event) => {
+    const message = event.data;
+    if (event.source !== parent || !message || message.fh !== 1 || !pending.has(message.id)) return;
+    const { resolve, reject } = pending.get(message.id);
+    pending.delete(message.id);
+    if (message.ok) resolve(message.result); else reject(new Error(message.error));
+  });
+  (async () => {
+    const info = await ask("host.info");
+    const summary = await ask("library.summary");
+    for (const key of ["photos", "videos", "people"]) document.getElementById(key).textContent = summary[key];
+    document.getElementById("names").textContent = info.permissions.includes("library.read")
+      ? "Folders will use people's names." : "Not allowed: folders will be called person-<number>.";
+    document.getElementById("facts").hidden = false;
+    document.getElementById("status").textContent = "Plugin API " + info.api_version;
+  })().catch((error) => { document.getElementById("status").textContent = String(error.message || error); });
+</script>
+</body>
+</html>

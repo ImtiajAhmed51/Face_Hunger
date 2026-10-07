@@ -178,3 +178,10 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
 - Storage dashboard (all six categories) on a 100,000-item synthetic library: **545-600 ms**.
 - Model upgrade on the fixture: the build is killed half-way and resumed from the stored state;
   after switch and rollback the previous index file has the **same SHA-256** as before.
+
+## Plugins
+- Process cold start + first reply: **40 ms**; warm round trip: **0.02 ms** (p95 0.024 ms).
+- Reference embedding plugin through the sandboxed channel (384 px JPEG previews, batches of 8):
+  cold start + first batch 162 ms, then **~350 images/s**.
+- A plugin that exits mid-search: the search still answers (asserted); a hung plugin is stopped
+  at its 2 s budget.

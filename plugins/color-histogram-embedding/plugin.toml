@@ -1,0 +1,17 @@
+# Reference plugin: a custom embedding model. Needs no permissions: the app sends
+# small JPEG previews over the plugin channel, so the plugin never opens a file.
+[plugin]
+id = "color-histogram-embedding"
+name = "Colour histogram embedding"
+version = "1.0.0"
+api_version = "1.0"
+description = "A tiny visual model: finds photos with a similar colour palette. A template for wiring in your own model."
+license = "MIT"
+author = "Face Hunger"
+permissions = []
+
+[capabilities.embedding]
+entry = "plugin:Embedder"
+model_id = "rgb-hist"
+version = "1"
+dim = 80

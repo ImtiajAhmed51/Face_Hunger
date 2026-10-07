@@ -40,7 +40,7 @@ describe('shared UI semantics', () => {
 });
 
 describe('application route rendering', () => {
-  it.each(['/', '/photos', '/videos', '/people', '/clusters', '/review', '/duplicates', '/cleanup', '/search', '/settings', '/health', '/timeline', '/map', '/events', '/albums', '/favorites', '/storage', '/deleted', '/no-faces'])('renders %s without React errors', async path => {
+  it.each(['/', '/photos', '/videos', '/people', '/clusters', '/review', '/duplicates', '/cleanup', '/search', '/settings', '/health', '/timeline', '/map', '/events', '/albums', '/favorites', '/storage', '/plugins', '/deleted', '/no-faces'])('renders %s without React errors', async path => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       // prerender waits for code-split (lazy) screens instead of emitting their skeleton.

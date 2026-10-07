@@ -1,0 +1,19 @@
+# Reference plugin: an export target. The plugin only proposes where each file goes;
+# the app does the copying, inside the folder you choose, and never overwrites.
+[plugin]
+id = "export-by-person"
+name = "Export to folders by person"
+version = "1.0.0"
+api_version = "1.0"
+description = "Copies photos into Person/Year folders. Without the names permission folders are called person-<number>."
+license = "MIT"
+author = "Face Hunger"
+permissions = ["library.read"]
+
+[capabilities.export]
+entry = "plugin:plan"
+label = "Folders by person"
+
+[capabilities.ui_panel]
+entry = "panel/index.html"
+title = "Export by person"

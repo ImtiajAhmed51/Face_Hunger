@@ -31,6 +31,7 @@ from .routers import (
     models,
     packages,
     people,
+    plugins,
     quality,
     review,
     search,
@@ -69,6 +70,7 @@ ROUTERS = (
     packages.router,
     assistant.router,
     storage.router,
+    plugins.router,
 )
 
 

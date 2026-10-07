@@ -132,9 +132,12 @@ def make_embed_backfill(services):
     def handler(ctx: JobContext):
         wanted = ctx.payload.get("key")
         totals = {"embedded": 0, "failed": 0}
+        pinned = set((services.db.settings().get("active_models") or {}).values())
         for space in services.embedding_spaces_for_backfill():
             if wanted and space.key != wanted:
                 continue
+            if not wanted and space.spec.model_id.startswith("plugin-") and space.key not in pinned:
+                continue  # a plugin model is only filled on request (model upgrade) or once it is in use
             embedder = services.embedder_for(space.key)
             if embedder is None:
                 continue
@@ -332,6 +335,22 @@ def make_package_import(services):
     return handler
 
 
+def make_plugin_export(services):
+    def handler(ctx: JobContext):
+        return services.plugins.export(ctx.payload["plugin_id"], ctx.payload["media_ids"], ctx.payload["target_dir"],
+                                       options=ctx.payload.get("options"), checkpoint=ctx.checkpoint,
+                                       progress=lambda **p: ctx.progress(**p))
+
+    return handler
+
+
+def make_plugin_classify(services):
+    def handler(ctx: JobContext):
+        return services.plugins.classify(ctx.payload["plugin_id"], checkpoint=ctx.checkpoint, progress=lambda **p: ctx.progress(**p))
+
+    return handler
+
+
 def make_album_generate(services):
     def handler(ctx: JobContext):
         return services.assistant.generate_album(ctx.payload["prompt"], size=int(ctx.payload.get("size", 30)),
@@ -366,6 +385,8 @@ def register_all(services) -> None:
     jobs.register("backup_restore", make_backup_restore(services))
     jobs.register("ingest", make_ingest(services))
     jobs.register("embed_backfill", make_embed_backfill(services))
+    jobs.register("plugin_export", make_plugin_export(services))
+    jobs.register("plugin_classify", make_plugin_classify(services))
     jobs.register("rebuild_index", make_rebuild_index(services))
 
 

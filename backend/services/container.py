@@ -31,6 +31,7 @@ from .edits import EditService
 from .events import EventService
 from .library import LibraryService
 from .packages import PackageService
+from .plugins import PluginService
 from .quality import QualityService
 from .search import HybridSearch
 from .sharing import SharingService
@@ -69,6 +70,7 @@ class Services:
         self.packages = PackageService(self)
         self.assistant = Assistant(self)
         self.storage = StorageService(self)
+        self.plugins = PluginService(self)
         self.keyframe_encoder = None  # tests/plugins may inject an image+text encoder
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)
@@ -125,6 +127,7 @@ class Services:
         if self.config.watch:
             self.watcher.start()
         self.schedule_embedding_backfill()
+        self.plugins.activate()
         self.storage.resume_upgrade()
         self.schedule_metadata_backfill()
         self.schedule_quality()
@@ -218,6 +221,7 @@ class Services:
         self.jobs.stop()
         self.video.close()
         self.assistant.close()
+        self.plugins.close()
         self.worker.shutdown(timeout=5)
         for closer in (self.store.close, self.vectors.close, self.models.close):
             try:

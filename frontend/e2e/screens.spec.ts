@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { expect, go, test } from './fixtures';
 
 test('timeline: sections, sticky date and keyboard scrubber', async ({ page, errors, axe }) => {
@@ -237,4 +238,36 @@ test('storage: preview a category, clean up the selection, undo restores it', as
   await expect.poll(async () => (await page.request.get('/api/storage').then((r) => r.json())).library).toEqual(before.library);
   await go(page, '/health');
   await expect(page.getByRole('heading', { name: 'Re-index with another model' })).toBeVisible();
+});
+
+test('plugins: install from a folder, review permissions, sandboxed panel talks over messages, uninstall', async ({ page, errors, axe }) => {
+  void errors;
+  const external: string[] = [];
+  page.on('request', (req) => { if (!['127.0.0.1', 'localhost'].includes(new URL(req.url()).hostname) && !/^(data|blob|about):/.test(req.url())) external.push(req.url()); });
+  await go(page, '/plugins');
+  await expect(page.getByRole('heading', { level: 1, name: 'Plugins' })).toBeVisible();
+  await expect(page.getByText('No plugins installed')).toBeVisible();
+  await page.getByLabel('Install from a folder on this computer (full path)').fill(path.resolve(process.cwd(), '../plugins/export-by-person'));
+  await page.getByRole('button', { name: 'Install', exact: true }).click();
+  const card = page.locator('.plugin-card');
+  await expect(card.getByRole('heading', { name: /Export to folders by person/ })).toBeVisible();
+  // Off by default, nothing granted, and no frame is loaded for a disabled plugin.
+  await expect(card.getByLabel('Enabled')).not.toBeChecked();
+  await expect(card.getByLabel('See names of people')).not.toBeChecked();
+  await expect(card.locator('iframe')).toHaveCount(0);
+  await card.getByLabel('Enabled').click();
+  await expect(card.getByLabel('Enabled')).toBeChecked();
+  const frame = card.frameLocator('iframe');
+  await expect(card.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts');
+  await expect(frame.getByText('Plugin API 1.0')).toBeVisible();
+  await expect(frame.getByText(/Not allowed: folders will be called/)).toBeVisible();
+  await card.getByLabel('See names of people').check();
+  await card.getByRole('button', { name: 'Save permissions' }).click();
+  await expect(frame.getByText("Folders will use people's names.")).toBeVisible();
+  await card.getByRole('button', { name: 'Test', exact: true }).click();
+  await expect(page.locator('.toast').filter({ hasText: 'The plugin started and answered.' })).toBeVisible();
+  await axe(page, 'plugins');
+  await card.getByRole('button', { name: 'Uninstall' }).click();
+  await expect(page.getByText('No plugins installed')).toBeVisible();
+  expect(external).toEqual([]);
 });

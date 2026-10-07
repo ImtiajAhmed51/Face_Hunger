@@ -244,6 +244,26 @@ def _m15_captions(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS caption_fts USING fts5(caption, tags, tokenize='porter unicode61')")
 
 
+def _m16_plugins(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS plugins (
+          id TEXT PRIMARY KEY, manifest TEXT NOT NULL, source_path TEXT,
+          enabled INTEGER NOT NULL DEFAULT 0, granted_permissions TEXT NOT NULL DEFAULT '[]',
+          installed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, last_error TEXT
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS plugin_labels (
+          plugin_id TEXT NOT NULL, media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+          label TEXT NOT NULL, score REAL NOT NULL, PRIMARY KEY (plugin_id, media_id, label)
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_plugin_labels_label ON plugin_labels(label, score)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS plugin_media_done (
+          plugin_id TEXT NOT NULL, media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+          PRIMARY KEY (plugin_id, media_id)
+        )""")
+
+
 MIGRATIONS = [
     (6, "embedding_stores", _m6_embedding_stores),
     (7, "saved_searches", _m7_saved_searches),
@@ -255,6 +275,7 @@ MIGRATIONS = [
     (13, "library", _m13_library),
     (14, "edits", _m14_edits),
     (15, "captions", _m15_captions),
+    (16, "plugins", _m16_plugins),
 ]
 LATEST = MIGRATIONS[-1][0]
 

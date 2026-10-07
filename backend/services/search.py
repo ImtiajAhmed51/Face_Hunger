@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 RRF_K = 60
 EXACT_LIMIT = 5000  # filtered sets up to this size are scored exactly
 DEFAULT_WEIGHTS = {"text": 1.0, "similar_media": 1.0, "similar_face": 1.0, "recency": 0.0,
-                   "expansion": 0.5, "caption": 0.7}
+                   "expansion": 0.5, "caption": 0.7, "label": 0.7, "plugin": 0.5}
 MIN_TEXT_SIM = 0.0  # SigLIP similarities are low in absolute terms; ranking matters, not the value
 
 
@@ -229,6 +229,9 @@ class HybridSearch:
             caption_hits = self._caption_ranked(text, allowed, max(want * 3, 300))
             if caption_hits:
                 ranked["caption"] = caption_hits
+            label_hits = self.s.plugins.label_ranked(text, allowed, max(want * 3, 300))
+            if label_hits:
+                ranked["label"] = label_hits
         if sim_media is not None:
             space, vec, warn = self._media_vector(int(sim_media), (q.get("space_overrides") or {}).get("visual"))
             if warn:
@@ -254,6 +257,12 @@ class HybridSearch:
             alive = self._alive(candidates, where_sql, params)
             ranked = {name: [p for p in pairs if p[0] in alive] for name, pairs in ranked.items()}
             candidates = alive
+        if text and candidates and weights["plugin"] > 0 and self.s.plugins.enabled_with("search_signal"):
+            # Enabled search-signal plugins re-rank the top candidates (isolated, 2 s budget, failures only warn).
+            top = dict.fromkeys(mid for pairs in ranked.values() for mid, _ in pairs[:300] if mid in candidates)
+            extra, plugin_warnings = self.s.plugins.search_signals(text, list(top))
+            ranked.update(extra)
+            warnings.extend(plugin_warnings)
         if weights["recency"] > 0 and candidates:
             order = self.s.db.all(
                 f"SELECT id FROM media WHERE id IN ({','.join('?' * len(candidates))}) "
@@ -263,7 +272,7 @@ class HybridSearch:
         scores: dict[int, float] = {}
         detail: dict[int, dict] = {}
         for name, pairs in ranked.items():
-            w = weights.get("expansion" if name.startswith("expansion_") else name, 1.0)
+            w = weights.get("expansion" if name.startswith("expansion_") else "plugin" if name.startswith("plugin_") else name, 1.0)
             if w <= 0:
                 continue
             for rank, (mid, sim) in enumerate(pairs, start=1):

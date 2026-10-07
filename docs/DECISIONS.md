@@ -412,3 +412,21 @@ Short log of choices and dependencies. One entry per decision, newest last.
   flow in settings (`model_upgrade`). Switching only writes `active_models[role]`; rollback clears
   it. Neither store is modified or deleted by switch, rollback or "Done". A/B compare runs the same
   query against both stores. No new dependency.
+
+## Plugins
+- **Isolation = one subprocess per plugin, JSON lines over pipes.** The server never imports plugin
+  code; it reads only the TOML manifest (`tomllib`, standard library). No new dependency.
+- **Sandbox in two layers**: a Python audit hook (cannot be removed once installed) on every
+  platform, plus `sandbox-exec` on macOS when it is usable. Chosen over containers/seccomp because it
+  needs nothing installed. Its limit (native extension modules on Linux/Windows) is documented in
+  docs/EXTENDING.md rather than hidden.
+- **The host does the risky part.** Export plugins return a plan and the app copies the files;
+  embedding/classifier plugins receive JPEG previews over the channel. So the reference plugins
+  need no file access at all.
+- **Install does not enable, enable does not grant.** Permissions are stored per plugin and can only
+  be a subset of what the manifest requests. Changing them restarts the process.
+- **Plugin models never become the search model by themselves**: they are used only when pinned
+  through the model-upgrade flow, and are not back-filled automatically until then.
+- **API version rule**: same major, plugin minor <= app minor. Anything else is refused at install.
+- **Panels**: opaque-origin sandboxed iframe + CSP `connect-src 'none'`; the message API is relayed
+  by the page to one server endpoint that checks the plugin's permissions.

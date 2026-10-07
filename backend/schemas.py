@@ -333,3 +333,23 @@ class UpgradeCompareBody(BaseModel):
     similar_media_id: Optional[int] = None
     text: Optional[str] = None
     limit: int = Field(12, ge=1, le=60)
+
+
+class PluginInstallBody(BaseModel):
+    path: str = Field(min_length=1, max_length=1000)
+
+
+class PluginConfigureBody(BaseModel):
+    enabled: Optional[bool] = None
+    permissions: Optional[list[str]] = None
+
+
+class PluginExportBody(BaseModel):
+    target_dir: str = Field(min_length=1, max_length=1000)
+    media_ids: Optional[list[int]] = Field(default=None, max_length=100_000)
+    album_id: Optional[int] = None
+    options: Optional[dict] = None
+
+
+class PluginPanelRpcBody(BaseModel):
+    method: str = Field(min_length=1, max_length=60)
