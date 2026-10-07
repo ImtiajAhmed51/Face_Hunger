@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import gzip
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import Config
@@ -115,6 +117,32 @@ def create_app(config: Optional[Config] = None, services: Optional[Services] = N
     return app
 
 
+class CompressedStatic(StaticFiles):
+    """Hashed build assets: gzip once (cached in memory by path and mtime) and cache forever in the browser."""
+
+    _cache: dict = {}
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code != 200 or not isinstance(response, FileResponse):
+            return response
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        accepts = dict(scope.get("headers") or {}).get(b"accept-encoding", b"").decode("latin-1")
+        file = Path(response.path)
+        if "gzip" not in accepts or file.suffix not in (".js", ".css", ".svg", ".json") or scope.get("method") != "GET" \
+                or any(k == b"range" for k, _ in scope.get("headers") or []):
+            return response
+        stat = file.stat()
+        key = (str(file), stat.st_mtime_ns)
+        body = self._cache.get(key)
+        if body is None:
+            body = gzip.compress(file.read_bytes(), compresslevel=6, mtime=0)
+            self._cache[key] = body
+        return Response(body, media_type=response.media_type, headers={
+            "Content-Encoding": "gzip", "Vary": "Accept-Encoding", "Cache-Control": response.headers["Cache-Control"],
+            "ETag": response.headers.get("etag", "")})
+
+
 def _mount_frontend(app: FastAPI, config: Config) -> None:
     """Static frontend + SPA fallback."""
     frontend_dir = config.frontend_dir
@@ -122,7 +150,7 @@ def _mount_frontend(app: FastAPI, config: Config) -> None:
         return
     assets_dir = frontend_dir / "assets"
     if assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+        app.mount("/assets", CompressedStatic(directory=str(assets_dir)), name="assets")
 
     @app.get("/{full_path:path}")
     def spa(full_path: str):

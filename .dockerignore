@@ -1,0 +1,12 @@
+.git
+.venv
+data
+models
+**/node_modules
+frontend/dist
+frontend/test-results
+tests
+docs
+**/__pycache__
+*.pyc
+.claude

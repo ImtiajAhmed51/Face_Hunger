@@ -85,6 +85,8 @@ def test_app_lock_protects_every_api_route_and_media(client, app_services):
         response = client.get(url)
         if path == "/api/lock":
             assert response.json() == {"enabled": True, "unlocked": False, "managed_by_environment": False}
+        elif path == "/api/health/live":
+            assert response.json() == {"ok": True}
         else:
             assert response.status_code == 401 and response.json()["locked"] is True, path
     assert client.post("/api/search/hybrid", json={}).status_code == 401

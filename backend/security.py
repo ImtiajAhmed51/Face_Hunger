@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 DEV_ORIGINS = {"127.0.0.1:5173", "localhost:5173"}
-OPEN_PATHS = {"/api/lock", "/api/lock/unlock"}
+OPEN_PATHS = {"/api/lock", "/api/lock/unlock", "/api/health/live"}
 COOKIE = "lfs_session"
 SESSION_SECONDS = 12 * 3600
 MAX_FAILURES, LOCKOUT_SECONDS = 5, 60

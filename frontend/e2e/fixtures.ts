@@ -1,7 +1,7 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-/** Every test fails on console errors or failed requests, and can assert WCAG 2.1 AA with axe. */
+/** Every test fails on console errors or failed requests, and can assert WCAG 2.2 AA with axe. */
 export const test = base.extend<{ errors: string[]; axe: (page: Page, label: string) => Promise<void> }>({
   errors: async ({ page }, use) => {
     const errors: string[] = [];
@@ -17,7 +17,7 @@ export const test = base.extend<{ errors: string[]; axe: (page: Page, label: str
   },
   axe: async ({}, use) => {
     await use(async (page: Page, label: string) => {
-      const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+      const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
       const summary = results.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.length}x ${v.nodes[0]?.target.join(' ')}`);
       expect(summary, `axe violations on ${label}`).toEqual([]);
     });

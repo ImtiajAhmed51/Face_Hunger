@@ -191,3 +191,16 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   no file is created (asserted: the data folder has no `diagnostics*` file after jobs and searches).
 - On: **~15 µs per recorded operation** including batched writes to `diagnostics.sqlite`.
 - With diagnostics on, jobs, searches and report export open **0 sockets** (asserted).
+
+## Release hardening (v1.0)
+- **Search at 500,000 items** (`scripts/bench_search.py`, 180 queries, 9 query shapes, run while
+  another benchmark shared the CPU): **p50 151 ms, p95 406 ms** (budget 500 ms), max 672 ms.
+  Slowest shape: text + 2 people + quality, p95 581 ms; plain text p95 38 ms. Index build for the
+  benchmark: text 503 s, visual 263 s.
+- **Lighthouse** (desktop preset, production build, fixture library; `e2e/lighthouse.spec.ts`):
+  home 99 / photos 97 / people 100 / search 100 / timeline 99 performance; accessibility 100 and
+  best practices 100 on all five. Before gzip for build assets and the footer layout-shift fix the
+  same screens scored 92-98.
+- **Indexing memory**: `scripts/bench_indexing.py` at 20,000 items (384 dimensions): 93 -> 117 MB
+  resident, about 1.2 kB per item (the in-memory ANN index). **Not yet measured at 500,000**, and
+  grid scrolling at 500,000 items has not been measured either (last measured at 100,000).

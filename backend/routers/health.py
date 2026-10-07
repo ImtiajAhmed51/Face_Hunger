@@ -18,6 +18,12 @@ router = APIRouter()
 BACKUP_NAME = re.compile(r"^face-hunger-backup-[0-9TZ-]+\.zip$")
 
 
+@router.get("/api/health/live")
+def live():
+    """Liveness only (no library details): safe to expose to a container health check, even when locked."""
+    return {"ok": True}
+
+
 @router.get("/api/health")
 def health():
     """Liveness/readiness: database, disk, job runner, watcher, models, config warnings."""

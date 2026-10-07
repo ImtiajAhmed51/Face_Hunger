@@ -569,3 +569,15 @@
   .lock-form { display: grid; gap: 10px; max-width: 420px; }
   .lock-form label { display: grid; gap: 4px; font-size: 0.9rem; }
 }
+
+@layer components {
+  /* WCAG 2.2 target size (2.5.8) and reflow (1.4.10) fixes from the release audit. */
+  .event-card .select-check input { width: 24px; height: 24px; }
+  .memories { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+  .memory { min-width: 0; }
+}
+
+@layer components {
+  /* Keep the footer below the fold while a screen loads, so it does not jump when content arrives. */
+  .page-content { min-height: 100dvh; }
+}
