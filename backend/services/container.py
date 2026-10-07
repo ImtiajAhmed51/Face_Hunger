@@ -21,6 +21,7 @@ from ..jobs.watcher import LibraryWatcher
 from ..ml.models import ModelHub
 from ..ops.backup import apply_pending_restore
 from ..ops.diagnostics import Diagnostics
+from ..security import AppLock
 from ..vectors.spaces import Space, VectorSpaces
 from ..vectors.specs import FACE_ARCFACE
 from ..video.service import VideoService
@@ -72,6 +73,7 @@ class Services:
         self.assistant = Assistant(self)
         self.storage = StorageService(self)
         self.plugins = PluginService(self)
+        self.lock = AppLock(self.db, config.app_password)
         # Off unless the user turned it on; when off nothing is recorded and no file is created.
         self.diagnostics = Diagnostics(config.data_dir)
         if self.db.settings().get("diagnostics_enabled") is True:

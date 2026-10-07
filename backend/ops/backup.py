@@ -128,6 +128,20 @@ def export_backup(db, data_dir: Path, *, include_thumbnails: bool = False, check
             "manifest": manifest}
 
 
+MAX_ENTRIES, MAX_RATIO, BOMB_FLOOR = 2_000_000, 200, 32 << 20
+
+
+def _expected_name(name: str) -> bool:
+    """Only the files a backup can contain, at the places it puts them (no traversal, nothing executable)."""
+    path = Path(name)
+    if path.is_absolute() or ".." in path.parts or "\\" in name or name != path.as_posix():
+        return False
+    if name in (DB_NAME, "embeddings.bin", "media_embeddings.bin"):
+        return True
+    return len(path.parts) == 2 and ((path.parts[0] == "vectors" and path.suffix == ".f32")
+                                     or (path.parts[0] == "thumbnails" and path.suffix == ".jpg"))
+
+
 def verify_archive(path: Path, checkpoint: Callable[[], None] = lambda: None) -> dict:
     try:
         with zipfile.ZipFile(path) as zf:
@@ -135,9 +149,17 @@ def verify_archive(path: Path, checkpoint: Callable[[], None] = lambda: None) ->
             if manifest.get("format") != FORMAT or manifest.get("version") != FORMAT_VERSION:
                 raise BackupError("Not a Face Hunger backup (or an unsupported version)")
             names = set(zf.namelist())
+            if not isinstance(manifest.get("files"), dict) or len(manifest["files"]) > MAX_ENTRIES:
+                raise BackupError("The backup's file list is invalid")
             for name, info in manifest["files"].items():
-                if name not in names or Path(name).is_absolute() or ".." in Path(name).parts:
+                if name not in names or not _expected_name(name):
                     raise BackupError(f"Archive entry {name} is missing or unsafe")
+                # Decompression-bomb guard: the declared size must be the stored size, and nothing in a
+                # real backup compresses anywhere near this well (only the database is deflated).
+                entry = zf.getinfo(name)
+                if entry.file_size != info.get("bytes") or \
+                        (entry.file_size > BOMB_FLOOR and entry.file_size > MAX_RATIO * max(1, entry.compress_size)):
+                    raise BackupError(f"Archive entry {name} has an implausible size: the backup is not trusted")
                 digest = hashlib.sha256()
                 size = 0
                 with zf.open(name) as src:
@@ -157,6 +179,9 @@ def verify_archive(path: Path, checkpoint: Callable[[], None] = lambda: None) ->
 def stage_restore(path: Path, data_dir: Path, checkpoint: Callable[[], None] = lambda: None) -> dict:
     """Verify and extract a backup so it is swapped in on the next start."""
     manifest = verify_archive(path, checkpoint)
+    need = sum(int(info["bytes"]) for info in manifest["files"].values())
+    if shutil.disk_usage(data_dir).free < need * 1.1:
+        raise BackupError(f"Not enough free space to restore this backup ({need / 1e9:.2f} GB needed)")
     pending = Path(data_dir) / PENDING
     if pending.exists():
         shutil.rmtree(pending)

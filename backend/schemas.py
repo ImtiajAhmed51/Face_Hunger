@@ -362,3 +362,12 @@ class DiagnosticsToggleBody(BaseModel):
 class DiagnosticsClientBody(BaseModel):
     name: str = Field(pattern=r"^[a-z0-9_.-]{1,40}$")
     ms: float = Field(ge=0, le=600_000)
+
+
+class LockPasswordBody(BaseModel):
+    password: str = Field(max_length=500)
+
+
+class LockSetBody(BaseModel):
+    password: str = Field(max_length=500)
+    current: Optional[str] = Field(default=None, max_length=500)

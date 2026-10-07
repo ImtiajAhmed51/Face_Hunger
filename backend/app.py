@@ -28,6 +28,7 @@ from .routers import (
     jobs,
     libraries,
     library,
+    lock,
     media,
     models,
     packages,
@@ -41,6 +42,7 @@ from .routers import (
     storage,
     video,
 )
+from .security import SecurityMiddleware
 from .services.container import Services, set_current
 
 # Registration order matters: static media paths (e.g. /api/media/soft-originals)
@@ -72,6 +74,7 @@ ROUTERS = (
     assistant.router,
     storage.router,
     plugins.router,
+    lock.router,
     diagnostics.router,
 )
 
@@ -97,6 +100,7 @@ def create_app(config: Optional[Config] = None, services: Optional[Services] = N
         lifespan=lifespan,
     )
     app.state.services = services
+    app.add_middleware(SecurityMiddleware, services=services)
     app.add_middleware(RequestIdMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -124,8 +128,10 @@ def _mount_frontend(app: FastAPI, config: Config) -> None:
     def spa(full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(404, "Not found")
-        candidate = frontend_dir / full_path
-        if full_path and candidate.is_file():
+        # Never serve anything outside the built frontend, whatever the URL decodes to.
+        root = frontend_dir.resolve()
+        candidate = (root / full_path).resolve()
+        if full_path and candidate.is_relative_to(root) and candidate.is_file():
             return FileResponse(candidate)
         index = frontend_dir / "index.html"
         if index.is_file():

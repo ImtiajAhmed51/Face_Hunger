@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AppLockCard } from "../components/AppLock";
 import { Link } from "react-router-dom";
 import { bytes, mutate } from "../api";
 import { useAction, useApp } from "../context";
@@ -479,6 +480,7 @@ export function Settings() {
           </section>
           <ModelRuntime />
           <VlmCard />
+          <AppLockCard />
           {resource.data && <MapAndLanguage settings={resource.data} />}
           {resource.data && <Preferences settings={resource.data} />}
           <Exclusions />

@@ -18,6 +18,10 @@ class Config(BaseSettings):
     host: str = "0.0.0.0"
     port: int = Field(8765, ge=1, le=65535)
     allowed_roots: str = ""
+    # Extra host names the app may be reached by (";"-separated). IP addresses and localhost always work.
+    allowed_hosts: str = ""
+    # Optional app lock set from the environment (otherwise set it in Settings).
+    app_password: str = ""
     frontend_dir: Path = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     # Optional ONNX models (scripts/fetch_models.py): unload after this many idle seconds.
     model_idle_seconds: float = Field(300.0, ge=5, le=86400)

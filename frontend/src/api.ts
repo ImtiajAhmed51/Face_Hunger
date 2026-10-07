@@ -35,6 +35,7 @@ export async function request<T>(path: string, options: { method?: string; body?
     if (error instanceof Error && error.name === 'AbortError') throw error;
     throw new Error('Cannot reach the local server. Make sure Face Hunger is running, then retry.');
   }
+  if (response.status === 401 && !path.startsWith('/lock')) window.dispatchEvent(new Event('lfs-locked'));
   if (!response.ok) throw await responseError(response);
   if (response.status === 204) return undefined as T;
   const text = await response.text();

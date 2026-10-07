@@ -56,7 +56,7 @@ def test_vlm_code_is_not_imported_when_disabled(tmp_path):
         from backend.services.container import Services
         root = {str(tmp_path)!r}
         import os; os.makedirs(root + "/fe", exist_ok=True)
-        cfg = Config(data_dir=root + "/data", model_dir={str(REPO / 'models')!r}, frontend_dir=root + "/fe", allowed_roots=root, watch=False)
+        cfg = Config(data_dir=root + "/data", model_dir={str(REPO / 'models')!r}, frontend_dir=root + "/fe", allowed_roots=root, watch=False, allowed_hosts="testserver")
         app = create_app(cfg, services=Services(cfg, engine=FakeEngine()))
         with TestClient(app) as client:
             h = {{"X-LFS-Request": "1"}}

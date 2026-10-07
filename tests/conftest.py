@@ -41,7 +41,7 @@ def make_config(tmp_path):
         (frontend / "index.html").write_text("<!doctype html><title>t</title>")
         (frontend / "assets").mkdir(exist_ok=True)
         values = dict(data_dir=tmp_path / "data", model_dir=tmp_path / "models",
-                      frontend_dir=frontend, allowed_roots=str(tmp_path))
+                      frontend_dir=frontend, allowed_roots=str(tmp_path), allowed_hosts="testserver")
         values.update(overrides)
         return Config(**values)
     return _make
