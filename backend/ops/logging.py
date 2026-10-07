@@ -17,6 +17,8 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from . import diagnostics
+
 request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
 
 _STD_ATTRS = set(vars(logging.makeLogRecord({}))) | {"message", "asctime", "request_id"}
@@ -91,4 +93,8 @@ class RequestIdMiddleware:
             access_log.log(level, "%s %s -> %s", scope.get("method"), path, status["code"],
                            extra={"method": scope.get("method"), "path": path, "status": status["code"],
                                   "duration_ms": round((time.perf_counter() - started) * 1000, 1)})
+            if diagnostics._active is not None:
+                route = getattr(scope.get("route"), "path", None) or "unmatched"
+                diagnostics.record("request", f"{scope.get('method')} {route}", (time.perf_counter() - started) * 1000,
+                                   status=status["code"])
             request_id.reset(token)

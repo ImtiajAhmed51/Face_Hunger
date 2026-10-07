@@ -271,3 +271,27 @@ test('plugins: install from a folder, review permissions, sandboxed panel talks 
   await expect(page.getByText('No plugins installed')).toBeVisible();
   expect(external).toEqual([]);
 });
+
+test('diagnostics: off by default, opt in, timings appear, redacted report, off again', async ({ page, errors, axe }) => {
+  void errors;
+  await go(page, '/diagnostics');
+  await expect(page.getByRole('heading', { level: 1, name: 'Diagnostics' })).toBeVisible();
+  const toggle = page.getByRole('checkbox', { name: 'Record performance timings' });
+  await expect(toggle).not.toBeChecked();
+  await expect(page.getByText('Off: nothing is being recorded.')).toBeVisible();
+  expect((await page.request.get('/api/diagnostics').then((r) => r.json())).events).toBe(0);
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await go(page, '/photos');
+  await expect(page.locator('[role=gridcell]').first()).toBeVisible();
+  await go(page, '/diagnostics');
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('rowheader', { name: /request · GET \.api\.media/ }).first()).toBeVisible();
+  await expect(page.getByRole('rowheader', { name: 'render · route.photos' })).toBeVisible();
+  await axe(page, 'diagnostics');
+  const report = await page.request.get('/api/diagnostics/report').then((r) => r.text());
+  expect(report).not.toMatch(/\/Users\/|\/private\/|\/tmp\/|\.jpg|\.mp4/);
+  await page.getByRole('button', { name: 'Delete recorded timings' }).click();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+});

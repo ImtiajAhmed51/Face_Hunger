@@ -16,6 +16,7 @@ from .routers import (
     assistant,
     cleanup,
     dashboard,
+    diagnostics,
     duplicates,
     edits,
     events,
@@ -71,6 +72,7 @@ ROUTERS = (
     assistant.router,
     storage.router,
     plugins.router,
+    diagnostics.router,
 )
 
 

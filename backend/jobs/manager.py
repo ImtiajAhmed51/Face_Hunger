@@ -26,6 +26,8 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
+from ..ops import diagnostics
+
 logger = logging.getLogger(__name__)
 
 PRIORITY = {"urgent": 10, "normal": 50, "background": 80}
@@ -277,7 +279,8 @@ class JobManager:
     def _execute(self, job: dict) -> None:
         ctx = JobContext(self, job)
         try:
-            result = self.handlers[job["kind"]](ctx) or {}
+            with diagnostics.span("job", job["kind"]):
+                result = self.handlers[job["kind"]](ctx) or {}
         except Cancelled:
             ctx.progress(force=True)
             self._finish(job["id"], "cancelled")

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { setDiagnostics } from "./diag";
 import type { ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { request } from "./api";
@@ -105,7 +106,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const controller = new AbortController();
     void request<Settings>("/settings", { signal: controller.signal })
-      .then((data) => { if (!controller.signal.aborted) setTheme(data.theme); })
+      .then((data) => { if (!controller.signal.aborted) { setTheme(data.theme); setDiagnostics(data.diagnostics_enabled === true); } })
       .catch(() => {});
     return () => controller.abort();
   }, []);

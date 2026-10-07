@@ -185,3 +185,9 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
   cold start + first batch 162 ms, then **~350 images/s**.
 - A plugin that exits mid-search: the search still answers (asserted); a hung plugin is stopped
   at its 2 s budget.
+
+## Diagnostics
+- Off (default): an instrumented block costs **~0.13 µs** (one `is None` check and a shared no-op);
+  no file is created (asserted: the data folder has no `diagnostics*` file after jobs and searches).
+- On: **~15 µs per recorded operation** including batched writes to `diagnostics.sqlite`.
+- With diagnostics on, jobs, searches and report export open **0 sockets** (asserted).

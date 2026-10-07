@@ -18,6 +18,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 
+from ..ops import diagnostics
 from ..vectors.specs import DINOV2_BASE, DINOV2_SMALL, SIGLIP2_BASE, ModelSpec
 from . import providers
 
@@ -56,6 +57,7 @@ class OnnxSlot:
     def session(self):
         with self._lock:
             self.last_used = time.monotonic()
+            diagnostics.count("model_session", self._session is not None)
             if self._session is None:
                 if not self.installed:
                     raise FileNotFoundError(f"{self.path} is missing; run scripts/fetch_models.py")
@@ -68,6 +70,7 @@ class OnnxSlot:
                     self.error = f"{type(exc).__name__}: {exc}"
                     raise
                 self.loads += 1
+                diagnostics.record("model_load", self.name, (time.monotonic() - started) * 1000)
                 logger.info("Loaded %s on %s in %.1fs", self.name, providers.label(self.provider),
                             time.monotonic() - started)
             return self._session

@@ -23,6 +23,8 @@ from typing import Optional
 
 import numpy as np
 
+from ..ops import diagnostics
+
 logger = logging.getLogger(__name__)
 
 MODEL_ID = "smolvlm2-500m"
@@ -104,6 +106,7 @@ class LocalVLM:
             self._config = json.loads((self.dir / "config.json").read_text())
             self.provider = "CPU"
             self.load_seconds = time.perf_counter() - started
+            diagnostics.record("model_load", MODEL_ID, self.load_seconds * 1000)
             self.loaded_bytes = max(0, _rss() - before)
             if self.loaded_bytes > RAM_CAP_BYTES:
                 self.unload()

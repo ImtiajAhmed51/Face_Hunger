@@ -16,6 +16,7 @@ from .. import imaging, scoring
 from ..deps import cluster, config, db, services, video_compat
 from ..media_http import hover_clip, media_response
 from ..media_processing import _ffmpeg_bin, load_image
+from ..ops import diagnostics
 from ..scanner import authorized_root
 from ..schemas import ConfirmBody, MoveMediaBody, PurgeMediaBody
 from ..services.presenters import (
@@ -486,6 +487,7 @@ def media_thumbnail(media_id: int):
     for path in candidates:
         try:
             if path.is_file() and path.stat().st_size > 0:
+                diagnostics.count("thumbnail", True)
                 edit = services().edits.get(media_id)
                 if edit_model.is_identity_geometry(edit):
                     return FileResponse(path, media_type="image/jpeg")
@@ -503,6 +505,7 @@ def media_thumbnail(media_id: int):
         raise HTTPException(404, "Original file missing; thumbnail unavailable")
 
     # 2) Generate from original (photo or video) and cache
+    diagnostics.count("thumbnail", False)
     try:
         import numpy as np
         from PIL import Image

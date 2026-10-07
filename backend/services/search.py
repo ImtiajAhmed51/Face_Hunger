@@ -22,6 +22,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from ..ops import diagnostics
+
 logger = logging.getLogger(__name__)
 
 RRF_K = 60
@@ -185,6 +187,12 @@ class HybridSearch:
 
     # -- main entry ---------------------------------------------------------
     def run(self, q: dict) -> dict:
+        with diagnostics.span("search", "hybrid") as timing:
+            result = self._run(q)
+            timing.set(results=len(result["items"]), signals=len(result["signals"]))
+            return result
+
+    def _run(self, q: dict) -> dict:
         started = time.perf_counter()
         page = max(1, int(q.get("page") or 1))
         limit = max(1, min(int(q.get("limit") or 60), 200))

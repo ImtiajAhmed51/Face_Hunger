@@ -353,3 +353,12 @@ class PluginExportBody(BaseModel):
 
 class PluginPanelRpcBody(BaseModel):
     method: str = Field(min_length=1, max_length=60)
+
+
+class DiagnosticsToggleBody(BaseModel):
+    enabled: bool
+
+
+class DiagnosticsClientBody(BaseModel):
+    name: str = Field(pattern=r"^[a-z0-9_.-]{1,40}$")
+    ms: float = Field(ge=0, le=600_000)

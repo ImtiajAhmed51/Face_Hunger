@@ -20,6 +20,7 @@ from ..jobs.manager import PRIORITY, JobManager
 from ..jobs.watcher import LibraryWatcher
 from ..ml.models import ModelHub
 from ..ops.backup import apply_pending_restore
+from ..ops.diagnostics import Diagnostics
 from ..vectors.spaces import Space, VectorSpaces
 from ..vectors.specs import FACE_ARCFACE
 from ..video.service import VideoService
@@ -71,6 +72,10 @@ class Services:
         self.assistant = Assistant(self)
         self.storage = StorageService(self)
         self.plugins = PluginService(self)
+        # Off unless the user turned it on; when off nothing is recorded and no file is created.
+        self.diagnostics = Diagnostics(config.data_dir)
+        if self.db.settings().get("diagnostics_enabled") is True:
+            self.diagnostics.set_enabled(True)
         self.keyframe_encoder = None  # tests/plugins may inject an image+text encoder
         self.extra_embedders: dict = {}  # model key -> embedder (tests, plugins)
         self.jobs = JobManager(self.db)
@@ -221,6 +226,7 @@ class Services:
         self.jobs.stop()
         self.video.close()
         self.assistant.close()
+        self.diagnostics.close()
         self.plugins.close()
         self.worker.shutdown(timeout=5)
         for closer in (self.store.close, self.vectors.close, self.models.close):

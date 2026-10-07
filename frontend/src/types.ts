@@ -173,6 +173,7 @@ export interface Settings {
   video_interval: number;
   theme: Theme;
   dino_similarity_threshold?: number;
+  diagnostics_enabled?: boolean;
   storage: { database: number; embeddings: number; thumbnails: number };
   roots: string[];
 }

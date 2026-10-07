@@ -430,3 +430,15 @@ Short log of choices and dependencies. One entry per decision, newest last.
 - **API version rule**: same major, plugin minor <= app minor. Anything else is refused at install.
 - **Panels**: opaque-origin sandboxed iframe + CSP `connect-src 'none'`; the message API is relayed
   by the page to one server endpoint that checks the plugin's permissions.
+
+## Diagnostics
+- **Separate file, off by default.** Timings go to `data_dir/diagnostics.sqlite`, never into the
+  library database, so "off" means no writes at all and "delete" is removing one file. No schema
+  migration and no new dependency.
+- **Private by construction, then scrubbed again.** An event is a kind, an operation name (job kind,
+  route *template*, model key) and numbers. String fields are dropped and names are sanitised when
+  recorded. The exported report is additionally scanned for library folders, the home folder,
+  people and album names and anything path-shaped.
+- **No automatic sending, no upload button.** The only output is a JSON file the user downloads.
+- Render timings come from the page (route name + milliseconds) and are posted only while
+  diagnostics are on; when off the page makes no extra request.

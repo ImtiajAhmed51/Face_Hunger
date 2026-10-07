@@ -20,6 +20,7 @@ from typing import Callable, Iterable, Optional, Protocol, Sequence
 
 import numpy as np
 
+from ..ops import diagnostics
 from .ann import AnnIndex
 from .file import VectorFile, unit
 from .specs import KNOWN, ModelSpec
@@ -251,7 +252,8 @@ def run_backfill(space: Space, embedder: Embedder, *, checkpoint: Callable[[], N
         rows = space.pending(take, exclude=failed_ids)
         if not rows:
             break
-        results = embedder.embed_media(rows)
+        with diagnostics.span("embed", space.key, items=len(rows)):
+            results = embedder.embed_media(rows)
         good, bad = [], []
         for row, result in zip(rows, results):
             if isinstance(result, BaseException) or result is None:
