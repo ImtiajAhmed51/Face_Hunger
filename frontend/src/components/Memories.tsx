@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { mutate, number } from "../api";
@@ -28,10 +29,10 @@ export function Memories() {
           </h3>
           <div className="memory-strip">
             {s.media_ids.map((id) => (
-              <button key={id} onClick={() => setOpen({ id, ids: s.media_ids })}
+              <Button key={id} onClick={() => setOpen({ id, ids: s.media_ids })}
                 aria-label={t("memories.open", { year: s.year })}>
                 <Thumbnail src={`/api/media/${id}/thumbnail`} alt="" />
-              </button>
+              </Button>
             ))}
             {s.total > s.media_ids.length && <span className="memory-more muted small-text">{t("memories.more", { count: number(s.total - s.media_ids.length) })}</span>}
           </div>
@@ -58,7 +59,7 @@ export function ActivityLog() {
             <li key={e.id}>
               <span>{e.summary}<span className="muted small-text"> · {new Date(e.at.replace(" ", "T") + "Z").toLocaleString()}</span></span>
               {e.action !== "undo" && (e.undone_at ? <span className="muted small-text">{t("activity.undone")}</span> : (
-                <button className="text-link" disabled={busy === e.id} onClick={async () => {
+                <Button className="text-link" disabled={busy === e.id} onClick={async () => {
                   setBusy(e.id);
                   try {
                     await mutate(`/audit/${e.id}/undo`);
@@ -66,7 +67,7 @@ export function ActivityLog() {
                     setBusy(null);
                     refreshData();
                   }
-                }}>{t("activity.undo")}</button>
+                }}>{t("activity.undo")}</Button>
               ))}
             </li>
           ))}

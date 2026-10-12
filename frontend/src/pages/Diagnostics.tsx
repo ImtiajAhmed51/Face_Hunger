@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { bytes, mutate, number } from "../api";
 import { useAction } from "../context";
 import { setDiagnostics } from "../diag";
@@ -41,12 +42,11 @@ export function Diagnostics() {
               {summary.enabled ? t("diag.on") : t("diag.off")} {t("diag.stored", { count: number(summary.events), size: bytes(summary.bytes) })}
             </p>
             <div className="inline-actions">
-              <a className="button small" href="/api/diagnostics/report" download>{t("diag.export")}</a>
-              <button className="button small" disabled={action.busy} onClick={() => data.reload()}>{t("diag.refresh")}</button>
-              <button className="button small danger-text" disabled={action.busy || !summary.events}
-                onClick={() => call(() => mutate("/diagnostics", undefined, "DELETE"), t("diag.cleared"))}>{t("diag.clear")}</button>
+
+              <Button className="button small" disabled={action.busy} onClick={() => data.reload()}>{t("diag.refresh")}</Button>
+              <Button className="button small danger-text" disabled={action.busy || !summary.events}
+                onClick={() => call(() => mutate("/diagnostics", undefined, "DELETE"), t("diag.cleared"))}>{t("diag.clear")}</Button>
             </div>
-            <p className="small-text muted">{t("diag.exportHelp")}</p>
           </section>
           {summary.events === 0 ? <p className="muted">{t("diag.empty")}</p> : (
             <>

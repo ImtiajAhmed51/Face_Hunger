@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
-import { apiKey, fetchApi } from '../queryClient';
+import { apiKey, fetchApi, queryClient } from '../queryClient';
 import type { Page } from '../types';
 import { pagesForRange } from './geometry';
 
@@ -49,6 +49,23 @@ export function useWindowedPages<T>(basePath: string | null, pageSize = 120, fet
     const page = Math.floor(index / pageSize) + 1;
     return byPage.get(page)?.[index % pageSize];
   }, [results, pageSize]); // byPage is derived from `results`
+  const getItemAt = async (index: number): Promise<T | undefined> => {
+    if (!basePath || index < 0 || index >= count) return undefined;
+    const page = Math.floor(index / pageSize) + 1;
+    const path = `${basePath}${separator}page=${page}&limit=${pageSize}`;
+    const data = await queryClient.fetchQuery({
+      queryKey: fetchPage ? ['page', basePath, page, pageSize] : apiKey(path),
+      queryFn: ({ signal }) => fetchPage ? fetchPage(page, pageSize, signal) : fetchApi<Page<T>>(path, signal),
+    });
+    return data.items[index % pageSize];
+  };
+  const indexOf = (predicate: (item: T) => boolean): number => {
+    for (const [page, items] of byPage) {
+      const offset = items.findIndex(predicate);
+      if (offset !== -1) return (page - 1) * pageSize + offset;
+    }
+    return -1;
+  };
   const loaded = useMemo(() => pages.flatMap(page => byPage.get(page) ?? []), [results, pages]);
   const onRange = useCallback((start: number, end: number) => {
     setRange(current => {
@@ -64,6 +81,8 @@ export function useWindowedPages<T>(basePath: string | null, pageSize = 120, fet
     firstPage: firstData,
     count,
     getItem,
+    getItemAt,
+    indexOf,
     loaded,
     onRange,
     loading: !!basePath && !!first && first.isPending,

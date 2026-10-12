@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { queryString, request } from "../api";
+import { useState } from "react";
+import { queryString } from "../api";
 import { useAnimatedList, useResource, useSelection } from "../hooks";
-import type { Face, Media, MediaDetail, Page } from "../types";
+import type { Face, Page } from "../types";
 import { FaceActions, FaceTile } from "./FaceActions";
 import { MediaViewer } from "./MediaViewer";
 import { Empty, ErrorNotice, Loading, Pagination } from "./ui";
@@ -81,49 +81,13 @@ export function DeletedFaces({ personId }: { personId?: number }) {
 export function PersonFaces({ personId }: { personId: number }) {
   const [page, setPage] = useState(1);
   const [deleted, setDeleted] = useState(false);
-  const mediaResource = useResource<Page<Media>>(
-    deleted
-      ? null
-      : `/media?${queryString({ people: [personId], excluded: true, page, limit: 24 })}`,
-  );
-  const [state, setState] = useState<{
-    faces: Face[];
-    loading: boolean;
-    error: string;
-  }>({ faces: [], loading: false, error: "" });
-  const selection = useSelection(`${personId}:${page}:${deleted}`);
+  const path = `/people/${personId}/faces?${queryString({ page, limit: 60, deleted })}`;
+  const resource = useResource<Page<Face>>(deleted ? null : path);
+  const selection = useSelection(path);
   const [viewer, setViewer] = useState<Face | null>(null);
-  useEffect(() => {
-    if (!mediaResource.data) return;
-    const controller = new AbortController();
-    setState((prev) => ({ ...prev, loading: !prev.faces.length, error: "" }));
-    void Promise.all(
-      mediaResource.data.items.map((item) =>
-        request<MediaDetail>(`/media/${item.id}`, {
-          signal: controller.signal,
-        }),
-      ),
-    )
-      .then((details) => {
-        if (!controller.signal.aborted)
-          setState({
-            faces: details
-              .flatMap((item) => item.faces)
-              .filter(
-                (face) => face.person_id === personId && !face.deleted_at,
-              ),
-            loading: false,
-            error: "",
-          });
-      })
-      .catch((error: Error) => {
-        if (!controller.signal.aborted)
-          setState({ faces: [], loading: false, error: error.message });
-      });
-    return () => controller.abort();
-  }, [mediaResource.data, personId]);
-  const loading = mediaResource.loading || state.loading;
-  const animatedActive = useAnimatedList(state.faces, (face) => face.id);
+  const faces = resource.data?.items ?? [];
+  const loading = resource.loading;
+  const animatedActive = useAnimatedList(faces, (face) => face.id);
   return (
     <section>
       <div className="collection-filters">
@@ -131,7 +95,7 @@ export function PersonFaces({ personId }: { personId: number }) {
           <input
             type="checkbox"
             checked={deleted}
-            onChange={(event) => setDeleted(event.target.checked)}
+            onChange={(event) => { setDeleted(event.target.checked); setPage(1); }}
           />
           Deleted faces
         </label>
@@ -147,13 +111,13 @@ export function PersonFaces({ personId }: { personId: number }) {
             <label className="check-label">
               <input
                 type="checkbox"
-                disabled={!state.faces.length || loading}
+                disabled={!faces.length || loading}
                 checked={
-                  !!state.faces.length &&
-                  state.faces.every((face) => selection.selected.has(face.id))
+                  !!faces.length &&
+                  faces.every((face) => selection.selected.has(face.id))
                 }
                 onChange={() =>
-                  selection.all(state.faces.map((face) => face.id))
+                  selection.all(faces.map((face) => face.id))
                 }
               />
               Select faces on page
@@ -164,19 +128,19 @@ export function PersonFaces({ personId }: { personId: number }) {
           </div>
           {!loading && (
             <FaceActions
-              faces={state.faces.filter((face) =>
+              faces={faces.filter((face) =>
                 selection.selected.has(face.id),
               )}
               onDone={selection.clear}
             />
           )}
           <ErrorNotice
-            error={mediaResource.error || state.error}
-            retry={mediaResource.reload}
+            error={resource.error}
+            retry={resource.reload}
           />
           {loading ? (
             <Loading label="Loading this person's faces" />
-          ) : !state.faces.length && !mediaResource.error && !state.error ? (
+          ) : !faces.length && !resource.error ? (
             <Empty
               icon="people"
               title="No active faces on this page"
@@ -196,11 +160,11 @@ export function PersonFaces({ personId }: { personId: number }) {
               ))}
             </div>
           )}
-          {mediaResource.data && (
+          {resource.data && (
             <Pagination
               page={page}
-              total={mediaResource.data.total}
-              limit={24}
+              total={resource.data.total}
+              limit={60}
               onPage={setPage}
             />
           )}
@@ -210,7 +174,7 @@ export function PersonFaces({ personId }: { personId: number }) {
         <MediaViewer
           id={viewer.media_id}
           timestamp={viewer.timestamp}
-          ids={mediaResource.data?.items.map((item) => item.id)}
+          ids={[...new Set(faces.map((face) => face.media_id))]}
           onClose={() => setViewer(null)}
         />
       )}

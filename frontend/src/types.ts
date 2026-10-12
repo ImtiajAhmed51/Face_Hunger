@@ -21,6 +21,7 @@ export interface Media {
   size: number;
   status: string;
   missing: boolean;
+  offline?: boolean;
   deleted_at: string | null;
   face_count: number;
   people: { id: number; display_name: string }[];
@@ -94,7 +95,8 @@ export interface Job {
     | "completed"
     | "cancelled"
     | "failed"
-    | "interrupted";
+    | "interrupted"
+    | "offline";
   phase: string;
   total: number;
   processed: number;
@@ -109,6 +111,7 @@ export interface Job {
   priority?: number;
   progress?: Record<string, unknown>;
   payload?: Record<string, unknown>;
+  extra?: { discovered?: number; current_folder?: string; mode?: string; mb_per_s?: number; eta_seconds?: number | null } | null;
 }
 export interface SoftOriginal {
   media_id: number;
@@ -138,7 +141,15 @@ export interface CleanupCounts {
 }
 
 export interface Cleanup extends Omit<CleanupCounts, "soft_originals" | "converted_backups"> {
-  possible_people: { a: Person; b: Person; similarity: number }[];
+  possible_people: {
+    a: Person;
+    b: Person;
+    similarity: number;
+    confidence?: "high" | "medium" | "low";
+    scores?: { centroid: number; best_crop: number; top3: number };
+    evidence?: { a_media: number; b_media: number };
+  }[];
+  duplicate_diagnostics?: Record<string, number>;
   soft_originals_list?: SoftOriginal[];
   soft_originals?: SoftOriginal[] | number;
   converted_backups?: ConvertedBackup[] | number;
@@ -158,15 +169,30 @@ export interface Dashboard {
   job: Job | null;
   engine: Engine;
 }
+export interface LibrarySettings { scan_videos: boolean; poll_minutes: number; concurrency: number; pause_on_battery: boolean }
 export interface Library {
   id: number;
   name: string;
   path: string;
   ignored: string[];
   media_count: number;
+  video_count?: number;
+  bytes?: number;
+  failed_count?: number;
+  missing_count?: number;
+  kind?: "local" | "network" | "external";
+  share?: { protocol: string | null; server: string | null; name: string | null; subpath: string | null } | null;
+  status?: "online" | "offline";
+  status_reason?: string | null;
+  paused?: boolean;
+  settings?: LibrarySettings;
+  last_scan_at?: string | null;
+  next_scan_at?: string | null;
+  last_scan?: { mode: string; files: number; changed: number; failed: number; seconds: number; mb_per_s: number | null } | null;
 }
 export type Theme = "light" | "dark" | "system";
 export interface Settings {
+  adaptive_video?: boolean;
   matching_threshold: number;
   review_threshold: number;
   detection_size: 320 | 640 | 960;
@@ -197,7 +223,7 @@ export interface MediaFilters {
   deleted?: boolean;
   no_faces?: boolean;
   favorite?: boolean;
-  sort?: "date" | "size_desc" | "size_asc" | "name" | "best" | "";
+  sort?: "date" | "indexed" | "size_desc" | "size_asc" | "name" | "best" | "";
   q?: string;
 }
 export interface ParsedSearch {

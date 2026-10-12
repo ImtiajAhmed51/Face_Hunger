@@ -1,6 +1,7 @@
+import { Button } from "@/components/primitives/button";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { dateLabel, exportZip, mutate, percent, timeLabel } from "../api";
+import { dateLabel, mutate, percent, timeLabel } from "../api";
 import { useAction, useApp } from "../context";
 import { useMounted, useResource } from "../hooks";
 import type { Face, MediaDetail } from "../types";
@@ -24,7 +25,8 @@ import {
 const RAW_EXT = /\.(cr2|cr3|nef|nrw|arw|dng|raf|orf|rw2|pef|srw)$/i;
 const isRaw = (name: string) => RAW_EXT.test(name);
 
-type ViewerProps = { id: number; ids?: number[]; timestamp?: number | null; onClose: () => void };
+type ViewerProps = { id: number; ids?: number[]; timestamp?: number | null; onClose: () => void;
+  paging?: { index: number; total: number; onStep: (delta: number) => Promise<void> } };
 
 export function MediaViewer(props: ViewerProps) {
   const [navigation, setNavigation] = useState({ source: props.id, current: props.id, timestamp: props.timestamp });
@@ -34,7 +36,7 @@ export function MediaViewer(props: ViewerProps) {
     onNavigate={id => setNavigation({ source: props.id, current: id, timestamp: undefined })} />;
 }
 
-function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerProps & { onNavigate: (id: number) => void }) {
+function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate, paging }: ViewerProps & { onNavigate: (id: number) => void }) {
   const t = useT();
   const current = id;
   const mounted = useMounted();
@@ -51,6 +53,9 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
   // RAW: the embedded camera preview shows instantly; the full demosaic is opt-in.
   const [fullQuality, setFullQuality] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [conversionOpen, setConversionOpen] = useState(false);
+  const [copyDeleteOpen, setCopyDeleteOpen] = useState(false);
+  const [hasPlaybackCopy, setHasPlaybackCopy] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   const [converting, setConverting] = useState(false);
   const [convertProgress, setConvertProgress] = useState(0);
@@ -67,7 +72,11 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
   const pendingSeek = useRef<number | null>(timestamp ?? null);
   const action = useAction();
   const { notify, pushUndo } = useApp();
-  const position = ids.indexOf(current);
+  const position = paging?.index ?? ids.indexOf(current);
+  const total = paging?.total ?? ids.length;
+  const navigating = useRef(false);
+  const [navigationBusy, setNavigationBusy] = useState(false);
+  const [zoom, setZoom] = useState(1);
   useEffect(() => {
     pendingSeek.current = timestamp ?? null;
     if (timestamp != null && video.current && video.current.readyState >= 1) {
@@ -95,6 +104,8 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
     setConvertError(null);
     setVideoReady(false);
     setVideoSrcVersion(0);
+    setHasPlaybackCopy(false);
+    setCopyDeleteOpen(false);
     setTime(0);
     setNeedsConvert(false);
     setConvertStarted(false);
@@ -115,7 +126,9 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
       error?: string | null;
       indeterminate?: boolean;
       needs_conversion?: boolean;
+      has_playback_copy?: boolean;
     }) => {
+      setHasPlaybackCopy(Boolean(data.has_playback_copy));
       const status = data.status || "";
       if (status === "completed" || status === "ready" || data.ready) {
         setConverting(false);
@@ -202,7 +215,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
     };
   }, [media?.id, media?.kind, media?.missing, convertStarted]);
 
-  const startConvert = () => {
+  const startConvert = async (force = previewError) => {
     // Conversion starts only from this explicit user action — never on open/click.
     if (!media || convertLock.current || converting) return;
     convertLock.current = true;
@@ -213,24 +226,29 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
     setVideoReady(false);
     setConvertStage("Starting conversion…");
     setConvertIndeterminate(true);
-    void (async () => {
-      try {
-        await mutate(`/media/${media.id}/convert`, {});
-      } catch (error) {
-        if (!mounted.current) return;
-        setConvertStarted(false);
-        setConverting(false);
-        setNeedsConvert(true);
-        setConvertError(
-          error instanceof Error ? error.message : "Could not start conversion",
-        );
-        setVideoReady(true);
-      } finally {
-        convertLock.current = false;
-      }
-    })();
+    try {
+      await mutate(`/media/${media.id}/convert${force ? "?force=true" : ""}`, {});
+    } catch (error) {
+      if (!mounted.current) return;
+      setConvertStarted(false);
+      setConverting(false);
+      setNeedsConvert(true);
+      setConvertError(error instanceof Error ? error.message : "Could not start conversion");
+      setVideoReady(true);
+      throw error;
+    } finally {
+      convertLock.current = false;
+    }
   };
   const go = (offset: number) => {
+    if (paging) {
+      if (navigating.current) return;
+      navigating.current = true;
+      setNavigationBusy(true);
+      void paging.onStep(offset).catch(error => notify(error instanceof Error ? error.message : "Unable to open media", true))
+        .finally(() => { navigating.current = false; if (mounted.current) setNavigationBusy(false); });
+      return;
+    }
     const next = ids[position + offset];
     if (next !== undefined) {
       pendingSeek.current = null;
@@ -243,12 +261,12 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
         await document.exitFullscreen();
         return;
       }
-      // Prefer the dialog; fall back to stage / documentElement for browsers that
+      // Keep the toolbar and navigation inside every fullscreen fallback for browsers that
       // reject requestFullscreen() on <dialog> (Safari, some Chromium builds).
       const dialog = stage.current?.closest("dialog") as HTMLElement | null;
       const targets: (HTMLElement | null | undefined)[] = [
         dialog,
-        stage.current,
+        stage.current?.closest(".viewer-main") as HTMLElement | null,
         document.documentElement,
       ];
       let lastError: unknown;
@@ -285,7 +303,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
         event.preventDefault();
         go(-1);
       }
-      if (event.key === "ArrowRight" && position < ids.length - 1) {
+      if (event.key === "ArrowRight" && position < total - 1) {
         event.preventDefault();
         go(1);
       }
@@ -326,50 +344,62 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
           <div className="viewer-toolbar">
             <span className="muted">
               {position >= 0
-                ? `${position + 1} of ${ids.length} loaded`
+                ? `${position + 1} of ${total}${paging ? "" : " loaded"}`
                 : "Source media"}
             </span>
             <div className="inline-actions">
-              <button
+              {media?.kind === "photo" && !cropping && (!edits.data || !hasGeometry(edits.data.edit)) && (
+                <div className="viewer-zoom" role="group" aria-label="Photo zoom">
+                  <Button className="icon-button" aria-label="Zoom out" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, value - 0.5))}>−</Button>
+                  <Button className="button small" aria-label="Fit photo to screen" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</Button>
+                  <Button className="icon-button" aria-label="Zoom in" disabled={zoom >= 4} onClick={() => setZoom(value => Math.min(4, value + 0.5))}>+</Button>
+                </div>
+              )}
+              <Button
                 className="button small"
                 onClick={() => setBoxes((value) => !value)}
                 aria-pressed={boxes}
               >
                 <Icon name="people" size={16} />
                 Face boxes
-              </button>
+              </Button>
               {media && isRaw(media.name) && fullQuality !== media.id && (
-                <button className="button small" onClick={() => setFullQuality(media.id)}
+                <Button className="button small" onClick={() => setFullQuality(media.id)}
                   title={t("viewer.fullQualityHelp")}>
                   <Icon name="expand" size={16} />
                   {t("viewer.fullQuality")}
-                </button>
+                </Button>
               )}
               {media && (
-                <button className="button small" aria-pressed={!!media.favorite}
+                <Button className="button small" aria-pressed={!!media.favorite}
                   onClick={() => void action.run(async () => {
                     const r = await mutate<Audited>("/favorites", { media_ids: [media.id], favorite: !media.favorite });
                     pushUndo(media.favorite ? t("library.unfavorite") : t("library.favorite"), undoAudit(r.audit_id));
                   })}>
                   <Icon name="heart" size={16} />
                   {media.favorite ? t("library.unfavorite") : t("library.favorite")}
-                </button>
+                </Button>
               )}
               <Link className="button small" to={`/search?similar=${id}`} onClick={onClose}
                 title={t("viewer.findSimilarHelp")}>
                 <Icon name="spark" size={16} />
                 {t("viewer.findSimilar")}
               </Link>
-              <button
+      {media?.kind === "video" && hasPlaybackCopy && !converting && (
+        <Button className="button" onClick={() => setCopyDeleteOpen(true)}>
+          Remove converted copy
+        </Button>
+      )}
+              <Button
                 className="icon-button"
                 aria-label="Toggle fullscreen (F)"
                 onClick={() => void fullscreen()}
               >
                 <Icon name="expand" />
-              </button>
+              </Button>
             </div>
           </div>
-          <div className="viewer-stage" ref={stage}>
+          <div className={`viewer-stage${zoom > 1 ? " zoomed" : ""}`} ref={stage}>
             {resource.loading && !media && (
               <Loading label="Opening original media" />
             )}
@@ -377,7 +407,13 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
               <ErrorNotice error={resource.error} retry={resource.reload} />
             )}
             {media &&
-              (media.missing || convertError || (previewError && (media.kind === "photo" || (!converting && videoReady && !needsConvert))) ? (
+              (media.offline && !media.missing ? (
+                <div className="viewer-unavailable">
+                  <img className="viewer-offline-thumb" src={`/api/media/${media.id}/thumbnail`} alt="" />
+                  <h3>This original is offline</h3>
+                  <p>It lives on a library that cannot be reached right now. Nothing is lost: it opens again as soon as the library is back.</p>
+                </div>
+              ) : media.missing || convertError || (previewError && (media.kind === "photo" || (!converting && videoReady && !needsConvert))) ? (
                 <div className="viewer-unavailable">
                   <Icon name="alert" size={40} />
                   <h3>
@@ -394,7 +430,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                         ? convertError
                         : "The browser could not display this file. Try downloading the original or checking the library."}
                   </p>
-                  {convertError && !media.missing && <button className="button primary" onClick={startConvert}>Retry conversion</button>}
+                  {convertError && !media.missing && <Button className="button primary" onClick={() => setConversionOpen(true)}>Retry conversion</Button>}
                   {!media.missing && (
                     <a
                       className="button"
@@ -434,7 +470,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                         ) : (
                           <span className="conversion-pulse">Working…</span>
                         )}
-                        <span>Please wait — the original is kept until conversion succeeds.</span>
+                        <span>Please wait — your original video remains unchanged.</span>
                       </div>
                     </div>
                   </div>
@@ -453,13 +489,13 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                       <h3 className="conversion-title">{media.name}</h3>
                       <p className="conversion-stage">
                         This format may not play in the browser. Convert only when you choose —
-                        the original file is kept as a backup.
+                        the original file stays unchanged.
                       </p>
                       <div className="inline-actions" style={{ marginTop: "0.75rem" }}>
-                        <button className="button primary" type="button" onClick={startConvert}>
+                        <Button className="button primary" type="button" onClick={() => setConversionOpen(true)}>
                           <Icon name="spark" size={16} />
                           Convert for browser
-                        </button>
+                        </Button>
                         <a className="button subtle" href={`/api/media/${media.id}/file`} download>
                           Download original
                         </a>
@@ -476,11 +512,12 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                 <div
                   className="media-surface"
                   style={{
+                    ...(media.kind === "photo" && zoom > 1 ? { width: `${zoom * 100}%`, flexShrink: 0, maxWidth: "none" } : {}),
                     aspectRatio:
                       media.width && media.height
                         ? `${media.width} / ${media.height}`
                         : undefined,
-                    maxWidth:
+                    maxWidth: zoom > 1 && media.kind === "photo" ? "none" :
                       media.width && media.height
                         ? `min(100%, ${(68 * media.width) / media.height}vh)`
                         : "100%",
@@ -531,7 +568,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                   {boxes && !!media.width && !!media.height && (
                     <div className="face-overlay">
                       {visibleFaces.map((item) => (
-                        <button
+                        <Button
                           key={item.id}
                           className={`face-box ${item.id === selected ? "active" : ""}`}
                           style={{
@@ -546,7 +583,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                           title={item.display_name}
                         >
                           <span>{item.display_name}</span>
-                        </button>
+                        </Button>
                       ))}
                     </div>
                   )}
@@ -554,25 +591,25 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
               ))}
           </div>
           <div className="viewer-bottom">
-            <button
+            <Button
               className="button small"
-              disabled={position <= 0}
+              disabled={position <= 0 || navigationBusy}
               onClick={() => go(-1)}
             >
               <Icon name="back" size={16} />
               Previous
-            </button>
+            </Button>
             <span className="small-text muted">
               Arrow keys to browse · F for fullscreen
             </span>
-            <button
+            <Button
               className="button small"
-              disabled={position < 0 || position >= ids.length - 1}
+              disabled={position < 0 || position >= total - 1 || navigationBusy}
               onClick={() => go(1)}
             >
               Next
               <Icon name="arrow" size={16} />
-            </button>
+            </Button>
           </div>
         </div>
         <aside className="viewer-details" aria-label="Media details">
@@ -595,7 +632,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
               )}
               <div className="viewer-faces">
                 {media.faces.map((item) => (
-                  <button
+                  <Button
                     className={`viewer-face ${selected === item.id ? "active" : ""}`}
                     key={item.id}
                     onClick={() => pick(item)}
@@ -616,7 +653,7 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                         {item.excluded ? " · Excluded" : ""}
                       </small>
                     </span>
-                  </button>
+                  </Button>
                 ))}
               </div>
               {face && (
@@ -758,14 +795,14 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
               <QualityPanel mediaId={media.id} />
               <div className="viewer-file-actions">
                 {media.kind === "video" && needsConvert && !converting && !media.missing && (
-                  <button
+                  <Button
                     className="button primary"
                     type="button"
-                    onClick={startConvert}
+                    onClick={() => setConversionOpen(true)}
                   >
                     <Icon name="spark" size={16} />
                     Convert for browser
-                  </button>
+                  </Button>
                 )}
                 {media.kind === "video" && converting && (
                   <p className="small-text muted" role="status">
@@ -785,22 +822,9 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                     Download original file
                   </a>
                 )}
-                <button
-                  className="button"
-                  disabled={action.busy || media.missing}
-                  onClick={() =>
-                    void action.run(
-                      () => exportZip("/export", { media_ids: [media.id] }),
-                      "Export downloaded.",
-                      false,
-                    )
-                  }
-                >
-                  <Icon name="download" size={16} />
-                  Export original + manifest
-                </button>
+
                 {media.deleted_at ? (
-                  <button
+                  <Button
                     className="button"
                     disabled={action.busy}
                     onClick={() =>
@@ -812,16 +836,16 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
                   >
                     <Icon name="restore" size={16} />
                     Restore media
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button
                     className="button danger-text"
                     disabled={action.busy}
                     onClick={() => setDeleteOpen(true)}
                   >
                     <Icon name="trash" size={16} />
                     Delete
-                  </button>
+                  </Button>
                 )}
                 <p className="small-text muted">
                   Soft-deletes only. Originals stay on disk until permanently removed from the Deleted tab.
@@ -831,6 +855,34 @@ function ViewerSession({ id, ids = [], timestamp, onClose, onNavigate }: ViewerP
           )}
         </aside>
       </div>
+      <ConfirmDialog
+        open={copyDeleteOpen}
+        onClose={() => setCopyDeleteOpen(false)}
+        title="Remove converted playback copy?"
+        description="Permanently removes the generated MP4 from disk. Your original video stays untouched. To play it here again, convert it manually."
+        label="Remove copy"
+        refresh={false}
+        onConfirm={async () => {
+          video.current?.pause();
+          await mutate(`/media/${current}/playback-copy`, undefined, "DELETE");
+          setHasPlaybackCopy(false);
+          setConvertError(null);
+          setNeedsConvert(true);
+          setPreviewError(true);
+          setVideoReady(false);
+          setVideoSrcVersion(v => v + 1);
+        }}
+      />
+      <ConfirmDialog
+        open={conversionOpen}
+        onClose={() => setConversionOpen(false)}
+        title="Convert this video for browser playback?"
+        description="This creates a compatible MP4 playback copy in the local app cache. Your original video and indexed path remain unchanged."
+        label="Convert video"
+        danger={false}
+        refresh={false}
+        onConfirm={startConvert}
+      />
       <ConfirmDialog
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}

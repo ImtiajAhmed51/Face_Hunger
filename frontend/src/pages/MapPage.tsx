@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type GeoJSONSource, type Map as MapLibre } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -9,6 +10,7 @@ import { useT } from "../i18n";
 import type { Media } from "../types";
 import { Icon } from "../components/Icon";
 import { VirtualMediaGrid } from "../components/MediaGrid";
+import { usePagedViewer } from "../virtual/usePagedViewer";
 import { MediaViewer } from "../components/MediaViewer";
 import { Empty, ErrorNotice, Loading, PageHeader } from "../components/ui";
 import { useWindowedPages } from "../virtual/useWindowedPages";
@@ -31,7 +33,6 @@ export function MapPage() {
   const [bbox, setBbox] = useState<[number, number, number, number] | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [renderMs, setRenderMs] = useState<number | null>(null);
-  const [viewer, setViewer] = useState<number | null>(null);
   const [anchor, setAnchor] = useState<number | null>(null);
   const dark = theme === "dark" || (theme === "system" && typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches);
 
@@ -46,6 +47,9 @@ export function MapPage() {
   }, [points.data]);
 
   const markers = useRef(new Map<number, maplibregl.Marker>());
+  const photos = useRef(new Map<number, maplibregl.Marker>());
+  const pinLabel = useRef("");
+  pinLabel.current = t("map.openPlace");
   const refreshClusters = useCallback(() => {
     const map = mapRef.current;
     if (!map || !map.getSource("media")) return;
@@ -70,6 +74,26 @@ export function MapPage() {
       el.textContent = cluster.count >= 1000 ? `${Math.round(cluster.count / 100) / 10}k` : String(cluster.count);
       el.setAttribute("aria-hidden", "true");
       live.set(cluster.id, new maplibregl.Marker({ element: el }).setLngLat([cluster.lon, cluster.lat]).addTo(map));
+    }
+    // A place with a single item shows that item: a round thumbnail instead of a dot.
+    const singles = new Map<number, [number, number]>();
+    for (const f of map.querySourceFeatures("media", { filter: ["!", ["has", "point_count"]] })) {
+      const id = f.properties?.id as number;
+      if (!singles.has(id) && singles.size < 60) singles.set(id, (f.geometry as GeoJSON.Point).coordinates as [number, number]);
+    }
+    const shown = photos.current;
+    for (const [id, marker] of shown) {
+      if (!singles.has(id)) { marker.remove(); shown.delete(id); }
+    }
+    for (const [id, [lon, lat]] of singles) {
+      if (shown.has(id)) continue;
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = "map-photo";
+      el.style.backgroundImage = `url("/api/media/${id}/thumbnail")`;
+      el.setAttribute("aria-label", pinLabel.current);
+      el.addEventListener("click", (event) => { event.stopPropagation(); setBbox([lon - 1e-5, lat - 1e-5, lon + 1e-5, lat + 1e-5]); });
+      shown.set(id, new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map));
     }
   }, []);
 
@@ -105,13 +129,13 @@ export function MapPage() {
     map.on("load", () => {
       map.addSource("media", { type: "geojson", data: geojson, cluster: true, clusterRadius: 48, clusterMaxZoom: 15 });
       map.addLayer({ id: "clusters", type: "circle", source: "media", filter: ["has", "point_count"],
-        paint: { "circle-color": "#0a84ff", "circle-opacity": 0.85, "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5,
-          "circle-radius": ["step", ["get", "point_count"], 12, 20, 16, 200, 22, 2000, 30, 20000, 38] } });
+        paint: { "circle-color": "#4250af", "circle-opacity": 0.92,
+          "circle-radius": ["step", ["get", "point_count"], 18, 20, 21, 200, 24, 2000, 30, 20000, 38] } });
       map.addLayer({ id: "point", type: "circle", source: "media", filter: ["!", ["has", "point_count"]],
-        paint: { "circle-color": ["match", ["get", "video"], 1, "#ff9f0a", "#0a84ff"], "circle-radius": 5,
-          "circle-stroke-color": "#ffffff", "circle-stroke-width": 1 } });
+        paint: { "circle-color": "#4250af", "circle-radius": 6, "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5 } });
+      map.addControl(new maplibregl.ScaleControl({ unit: "metric", maxWidth: 120 }), "bottom-left");
       const box = bounds(geojson.features.map((f) => f.geometry.coordinates as [number, number]));
-      if (box) map.fitBounds(box, { padding: 40, duration: 0, maxZoom: 12 });
+      if (box) map.fitBounds(box, { padding: { top: 70, bottom: 70, left: 100, right: 70 }, duration: 0, maxZoom: 12 });
       map.once("idle", () => { setRenderMs(Math.round(performance.now() - started)); refreshClusters(); });
     });
     map.on("moveend", refreshClusters);
@@ -130,7 +154,8 @@ export function MapPage() {
       map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; });
     }
     const live = markers.current;
-    return () => { live.forEach((m) => m.remove()); live.clear(); map.remove(); mapRef.current = null; };
+    const pins = photos.current;
+    return () => { live.forEach((m) => m.remove()); live.clear(); pins.forEach((m) => m.remove()); pins.clear(); map.remove(); mapRef.current = null; };
   }, [geojson, config.data, dark, refreshClusters, selectCluster]);
 
   // Map points are rounded to 5 decimals (~1 m); pad by one unit so edge points of a
@@ -138,6 +163,7 @@ export function MapPage() {
   const bboxParam = bbox ? [bbox[0] - 1e-5, bbox[1] - 1e-5, bbox[2] + 1e-5, bbox[3] + 1e-5]
     .map((v) => v.toFixed(5)).join(",") : null;
   const windowed = useWindowedPages<Media>(bboxParam ? `/media?bbox=${bboxParam}` : null, 120);
+  const { open: openViewer, viewer } = usePagedViewer(windowed);
   const selection = useSelection(bbox ? bbox.join(",") : "none");
 
   return (
@@ -161,21 +187,21 @@ export function MapPage() {
             <div className="map-frame">
               <div ref={container} className="map-canvas" role="region" aria-label={t("map.canvas")} data-render-ms={renderMs ?? undefined} />
               <div className="map-controls">
-                <button className="icon-button" aria-label={t("map.zoomIn")} onClick={() => mapRef.current?.zoomIn()}><Icon name="plus" size={18} /></button>
-                <button className="icon-button" aria-label={t("map.zoomOut")} onClick={() => mapRef.current?.zoomOut()}><span aria-hidden="true">−</span></button>
-                <button className="icon-button" aria-label={t("map.fit")} onClick={() => {
+                <Button className="icon-button" aria-label={t("map.zoomIn")} onClick={() => mapRef.current?.zoomIn()}><Icon name="plus" size={18} /></Button>
+                <Button className="icon-button" aria-label={t("map.zoomOut")} onClick={() => mapRef.current?.zoomOut()}><span aria-hidden="true">−</span></Button>
+                <Button className="icon-button" aria-label={t("map.fit")} onClick={() => {
                   const data = points.data!;
                   const box = bounds(data.lon.map((lon, i) => [lon, data.lat[i]]));
                   if (box) mapRef.current?.fitBounds(box, { padding: 40, maxZoom: 12 });
-                }}><Icon name="expand" size={18} /></button>
+                }}><Icon name="expand" size={18} /></Button>
               </div>
             </div>
             <ul className="map-places" aria-label={t("map.title")}>
               {clusters.map((cluster) => (
                 <li key={cluster.id}>
-                  <button className="button small" onClick={() => void selectCluster(cluster.id)}>
+                  <Button className="button small" onClick={() => void selectCluster(cluster.id)}>
                     {cluster.lat.toFixed(2)}, {cluster.lon.toFixed(2)} · {number(cluster.count)}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -184,10 +210,10 @@ export function MapPage() {
             <section className="collection" aria-label={t("map.selection", { count: number(windowed.count) })}>
               <div className="collection-bar">
                 <strong>{t("map.selection", { count: number(windowed.count) })}</strong>
-                <button className="button ghost small" onClick={() => setBbox(null)}>{t("map.clear")}</button>
+                <Button className="button ghost small" onClick={() => setBbox(null)}>{t("map.clear")}</Button>
               </div>
               <VirtualMediaGrid windowed={windowed} selected={selection.selected} label={t("map.selection", { count: windowed.count })}
-                onOpen={setViewer} onClear={selection.clear} onSelectAll={() => selection.addRange(windowed.loaded.map((m) => m.id))}
+                onOpen={openViewer} onClear={selection.clear} onSelectAll={() => selection.addRange(windowed.loaded.map((m) => m.id))}
                 onSelect={(id, index, mode) => {
                   if (mode === "range" && anchor !== null) selection.addRange(idsBetween(anchor, index, windowed.getItem));
                   else { setAnchor(index); selection.toggle(id); }
@@ -196,7 +222,7 @@ export function MapPage() {
           )}
         </>
       )}
-      {viewer !== null && <MediaViewer id={viewer} ids={windowed.loaded.map((m) => m.id)} onClose={() => setViewer(null)} />}
+      {viewer && <MediaViewer {...viewer} />}
     </>
   );
 }

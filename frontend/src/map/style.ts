@@ -17,8 +17,8 @@ export interface PmtilesInfo {
 
 export interface Palette { background: string; graticule: string; land: string; water: string; road: string; boundary: string }
 
-export const LIGHT: Palette = { background: '#eef1f5', graticule: '#c9d1dc', land: '#e3e7ec', water: '#bcd3ea', road: '#c7ccd4', boundary: '#9aa6b5' };
-export const DARK: Palette = { background: '#141922', graticule: '#2a3342', land: '#1d2430', water: '#16273b', road: '#303a4a', boundary: '#4b576a' };
+export const LIGHT: Palette = { background: '#aad3df', graticule: '#93c3d3', land: '#e3e7ec', water: '#bcd3ea', road: '#c7ccd4', boundary: '#9aa6b5' };
+export const DARK: Palette = { background: '#10202e', graticule: '#1c3246', land: '#1d2430', water: '#16273b', road: '#303a4a', boundary: '#4b576a' };
 
 export function graticule(step = 15): FeatureCollection<LineString> {
   const features: FeatureCollection<LineString>['features'] = [];

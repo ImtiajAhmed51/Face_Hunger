@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { mutate, number, request } from "../api";
@@ -8,6 +9,7 @@ import { useT } from "../i18n";
 import type { HybridMedia, HybridResult, Media } from "../types";
 import { Icon } from "../components/Icon";
 import { MediaCollection, VirtualMediaGrid } from "../components/MediaGrid";
+import { usePagedViewer } from "../virtual/usePagedViewer";
 import { MediaViewer } from "../components/MediaViewer";
 import { ConfirmDialog, Empty, ErrorNotice, GallerySkeleton, PageHeader, Thumbnail } from "../components/ui";
 import { useWindowedPages } from "../virtual/useWindowedPages";
@@ -51,7 +53,7 @@ export function Albums() {
         <label className="field">{t("library.newAlbum")}
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("library.albumName")} />
         </label>
-        <button className="button primary" disabled={!name.trim() || action.busy}><Icon name="plus" size={16} />{t("library.create")}</button>
+        <Button className="button primary" disabled={!name.trim() || action.busy}><Icon name="plus" size={16} />{t("library.create")}</Button>
       </form>
       <GenerateAlbum />
       <ErrorNotice error={albums.error || collections.error} retry={() => { albums.reload(); collections.reload(); }} />
@@ -108,7 +110,7 @@ function GenerateAlbum() {
       <label className="field wide-field">{t("vlm.generate")}
         <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t("vlm.generatePlaceholder")} />
       </label>
-      <button className="button" disabled={!prompt.trim() || action.busy || running}><Icon name="spark" size={16} />{t("vlm.generateButton")}</button>
+      <Button className="button" disabled={!prompt.trim() || action.busy || running}><Icon name="spark" size={16} />{t("vlm.generateButton")}</Button>
       {job && <span role="status" className="small-text muted">
         {job.status === "failed" ? job.error : running ? t("vlm.generating", { phase: result.phase ?? "" }) : ""}</span>}
     </form>
@@ -121,9 +123,9 @@ export function AlbumDetail() {
   const navigate = useNavigate();
   const album = useResource<Album>(`/albums/${id}`);
   const windowed = useWindowedPages<Media>(`/media?album=${id}`, 120);
+  const { open: openViewer, viewer } = usePagedViewer(windowed);
   const selection = useSelection(`album-${id}`);
   const [anchor, setAnchor] = useState<number | null>(null);
-  const [viewer, setViewer] = useState<number | null>(null);
   const [rename, setRename] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const action = useAction();
@@ -136,8 +138,8 @@ export function AlbumDetail() {
       {album.data && (rename === null ? (
         <PageHeader title={album.data.name} description={t("library.items", { count: number(album.data.item_count) })}
           actions={<div className="inline-actions">
-            <button className="button small" onClick={() => setRename(album.data!.name)}><Icon name="edit" size={16} />{t("library.rename")}</button>
-            <button className="button small danger-text" onClick={() => setConfirm(true)}><Icon name="trash" size={16} />{t("library.delete")}</button>
+            <Button className="button small" onClick={() => setRename(album.data!.name)}><Icon name="edit" size={16} />{t("library.rename")}</Button>
+            <Button className="button small danger-text" onClick={() => setConfirm(true)}><Icon name="trash" size={16} />{t("library.delete")}</Button>
           </div>} />
       ) : (
         <form className="page-header" onSubmit={(e) => {
@@ -151,18 +153,18 @@ export function AlbumDetail() {
           <label className="field wide-field">{t("library.rename")}
             <input autoFocus value={rename} onChange={(e) => setRename(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setRename(null); }} />
           </label>
-          <button className="button primary" disabled={!rename.trim()}>{t("events.save")}</button>
+          <Button className="button primary" disabled={!rename.trim()}>{t("events.save")}</Button>
         </form>
       ))}
       {ids.length > 0 && (
         <div className="selection-toolbar" role="region" aria-label={t("common.selectionActions")}>
           <strong>{t("common.selected", { count: number(ids.length) })}</strong>
-          <button className="button small" disabled={action.busy} onClick={() => void action.run(async () => {
+          <Button className="button small" disabled={action.busy} onClick={() => void action.run(async () => {
             const r = await mutate<Audited & { removed: number }>(`/albums/${id}/items/remove`, { media_ids: ids });
             selection.clear();
             pushUndo(t("library.removed", { count: r.removed }), undoAudit(r.audit_id));
-          })}>{t("library.remove")}</button>
-          <button className="button ghost small" onClick={selection.clear}>{t("common.clearSelection")}</button>
+          })}>{t("library.remove")}</Button>
+          <Button className="button ghost small" onClick={selection.clear}>{t("common.clearSelection")}</Button>
         </div>
       )}
       <ErrorNotice error={windowed.error || action.error} retry={windowed.reload} />
@@ -170,13 +172,13 @@ export function AlbumDetail() {
         <Empty icon="photo" title={t("library.emptyAlbum")} description={t("library.emptyAlbumDescription")} />
       ) : (
         <VirtualMediaGrid windowed={windowed} selected={selection.selected} label={album.data?.name ?? t("library.albums")}
-          onOpen={setViewer} onClear={selection.clear} onSelectAll={() => selection.addRange(windowed.loaded.map((m) => m.id))}
+          onOpen={openViewer} onClear={selection.clear} onSelectAll={() => selection.addRange(windowed.loaded.map((m) => m.id))}
           onSelect={(mid, index, mode) => {
             if (mode === "range" && anchor !== null) selection.addRange(idsBetween(anchor, index, windowed.getItem));
             else { setAnchor(index); selection.toggle(mid); }
           }} />
       )}
-      {viewer !== null && <MediaViewer id={viewer} ids={windowed.loaded.map((m) => m.id)} onClose={() => setViewer(null)} />}
+      {viewer && <MediaViewer {...viewer} />}
       <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} title={t("library.delete")} description={t("library.deleteHelp")}
         label={t("library.delete")} onConfirm={async () => {
           const r = await mutate<Audited>(`/albums/${id}`, undefined, "DELETE");
@@ -194,8 +196,8 @@ export function CollectionDetail() {
   const meta = collections.data?.items.find((c) => c.id === id);
   const windowed = useWindowedPages<HybridMedia>(`collection:${id}`, 120, (page, limit, signal) =>
     request<HybridResult>(`/collections/${id}/items?page=${page}&limit=${limit}`, { signal }));
+  const { open: openViewer, viewer } = usePagedViewer(windowed);
   const selection = useSelection(`collection-${id}`);
-  const [viewer, setViewer] = useState<number | null>(null);
   return (
     <>
       <p><Link className="text-link" to="/albums"><Icon name="back" size={14} />{t("library.back")}</Link></p>
@@ -203,10 +205,10 @@ export function CollectionDetail() {
       <ErrorNotice error={windowed.error} retry={windowed.reload} />
       {windowed.loading ? <GallerySkeleton /> : (
         <VirtualMediaGrid windowed={windowed as unknown as ReturnType<typeof useWindowedPages<Media>>} selected={selection.selected}
-          label={meta?.name ?? t("library.smart")} onOpen={setViewer} onClear={selection.clear}
+          label={meta?.name ?? t("library.smart")} onOpen={openViewer} onClear={selection.clear}
           onSelectAll={() => selection.addRange(windowed.loaded.map((m) => m.id))} onSelect={(mid) => selection.toggle(mid)} />
       )}
-      {viewer !== null && <MediaViewer id={viewer} ids={windowed.loaded.map((m) => m.id)} onClose={() => setViewer(null)} />}
+      {viewer && <MediaViewer {...viewer} />}
     </>
   );
 }

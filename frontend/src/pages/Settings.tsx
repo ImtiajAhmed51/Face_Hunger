@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useEffect, useState } from "react";
 import { AppLockCard } from "../components/AppLock";
 import { Link } from "react-router-dom";
@@ -39,12 +40,17 @@ function Preferences({ settings }: { settings: SettingsData }) {
     review_threshold: settings.review_threshold,
     detection_size: settings.detection_size,
     video_interval: settings.video_interval,
+    adaptive_video: settings.adaptive_video ?? true,
     theme: settings.theme,
     dino_similarity_threshold: settings.dino_similarity_threshold ?? 0.92,
   });
   const action = useAction();
   const autotune = useAction();
   const { setTheme, notify } = useApp();
+  // Settings are re-fetched in the background (job progress, other screens). Only a real change of the
+  // saved values may reset the form; otherwise a choice made here would snap back before it is saved.
+  const saved = JSON.stringify([settings.matching_threshold, settings.review_threshold, settings.detection_size,
+    settings.video_interval, settings.adaptive_video ?? true, settings.theme, settings.dino_similarity_threshold ?? 0.92]);
   useEffect(
     () =>
       setDraft({
@@ -52,10 +58,12 @@ function Preferences({ settings }: { settings: SettingsData }) {
         review_threshold: settings.review_threshold,
         detection_size: settings.detection_size,
         video_interval: settings.video_interval,
+    adaptive_video: settings.adaptive_video ?? true,
         theme: settings.theme,
         dino_similarity_threshold: settings.dino_similarity_threshold ?? 0.92,
       }),
-    [settings],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [saved],
   );
   const dirty = Object.entries(draft).some(
     ([key, value]) => settings[key as keyof typeof draft] !== value,
@@ -79,12 +87,12 @@ function Preferences({ settings }: { settings: SettingsData }) {
           <p className="eyebrow">FINE-TUNE YOUR COLLECTION</p>
           <h2>Recognition & appearance</h2>
         </div>
-        <button
+        <Button
           className="button primary small"
           disabled={!dirty || action.busy}
         >
           {action.busy ? "Saving..." : "Save changes"}
-        </button>
+        </Button>
       </div>
       <div className="settings-fields">
         <div className="setting-row">
@@ -114,7 +122,7 @@ function Preferences({ settings }: { settings: SettingsData }) {
               {draft.matching_threshold.toFixed(2)}
             </output>
           </div>
-          <button
+          <Button
             type="button"
             className="button small"
             disabled={autotune.busy}
@@ -132,7 +140,7 @@ function Preferences({ settings }: { settings: SettingsData }) {
             }
           >
             {autotune.busy ? "Tuning..." : "Auto-tune from reviews"}
-          </button>
+          </Button>
           <ErrorNotice error={autotune.error} />
         </div>
         <div className="setting-row">
@@ -238,6 +246,16 @@ function Preferences({ settings }: { settings: SettingsData }) {
             <span>seconds</span>
           </div>
         </div>
+        <div className="setting-row">
+          <div>
+            <label htmlFor="adaptive-video">Adaptive video sampling</label>
+            <p>Sample more often during motion. Turn off for a steady interval and less inference work.
+              For faster scans, a 5–8 second interval uses fewer frames but can miss brief appearances.
+              Finish the current scan before changing these settings.</p>
+          </div>
+          <input id="adaptive-video" type="checkbox" checked={draft.adaptive_video}
+            onChange={event => setDraft(current => ({ ...current, adaptive_video: event.target.checked }))} />
+        </div>
         <fieldset className="theme-fieldset">
           <legend>Make yourself at home</legend>
           <p className="muted">
@@ -319,14 +337,14 @@ function Exclusions() {
                 <Link to={`/people/${item.person_id}`}>
                   {item.display_name}
                 </Link>
-                <button
+                <Button
                   className="text-link filename-link"
                   onClick={() => setViewer(item.media_id)}
                 >
                   {item.name}
-                </button>
+                </Button>
               </div>
-              <button
+              <Button
                 className="button small"
                 disabled={action.busy}
                 onClick={() =>
@@ -343,7 +361,7 @@ function Exclusions() {
               >
                 <Icon name="eye" size={15} />
                 Include again
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -413,7 +431,7 @@ export function Settings() {
       )}
       <div className="settings-layout">
         <div className="settings-primary">
-          <Libraries roots={resource.data?.roots ?? []} />
+          <Libraries />
           <section className="settings-section">
             <div className="section-heading">
               <div>
@@ -468,14 +486,14 @@ export function Settings() {
                 <h3>Reconcile identities</h3>
                 <p>Run global clustering with manual corrections protected.</p>
               </div>
-              <button
+              <Button
                 className="button small"
                 disabled={active}
                 onClick={() => setReconcile(true)}
               >
                 <Icon name="merge" size={16} />
                 Reconcile
-              </button>
+              </Button>
             </div>
           </section>
           <ModelRuntime />
@@ -494,7 +512,6 @@ export function Settings() {
             <ul>
               <li>Originals stay in place</li>
               <li>Corrections are yours</li>
-              <li>Export whenever you want</li>
             </ul>
           </section>
           {resource.data && (
@@ -527,7 +544,7 @@ export function Settings() {
               Finish any running scan first.
             </p>
             {Object.entries(maintenance).map(([key, item]) => (
-              <button
+              <Button
                 key={key}
                 className={`button ${key === "index" || key === "reset" ? "danger-text" : ""}`}
                 disabled={active}
@@ -535,7 +552,7 @@ export function Settings() {
               >
                 {item.title}
                 <Icon name="arrow" size={14} />
-              </button>
+              </Button>
             ))}
           </section>
         </aside>
@@ -639,7 +656,7 @@ function MapAndLanguage({ settings }: { settings: SettingsData }) {
         <label className="field wide-field">{t("settings.mapPath")}
           <input value={path} onChange={(event) => setPath(event.target.value)} placeholder="/Users/me/Maps/world.pmtiles" spellCheck={false} />
         </label>
-        <button className="button small" disabled={!path.trim() || action.busy}>Save</button>
+        <Button className="button small" disabled={!path.trim() || action.busy}>Save</Button>
       </form>
       <ErrorNotice error={action.error} />
       <label className="field">{t("common.language")}
@@ -682,8 +699,8 @@ function VlmCard() {
           {!s.installed && <p className="small-text muted">{t("vlm.install")} <code>{s.install_hint}</code></p>}
           {s.enabled && s.installed && (
             <div className="inline-actions">
-              <button className="button small" disabled={action.busy || s.loaded} onClick={() => void action.run(() => mutate("/vlm/load"))}>{t("vlm.load")}</button>
-              <button className="button small" disabled={action.busy || !s.loaded} onClick={() => void action.run(() => mutate("/vlm/unload"))}>{t("vlm.unload")}</button>
+              <Button className="button small" disabled={action.busy || s.loaded} onClick={() => void action.run(() => mutate("/vlm/load"))}>{t("vlm.load")}</Button>
+              <Button className="button small" disabled={action.busy || !s.loaded} onClick={() => void action.run(() => mutate("/vlm/unload"))}>{t("vlm.unload")}</Button>
               <span className="small-text muted">{t("vlm.idle", { minutes: Math.round(s.idle_seconds / 60) })}</span>
             </div>
           )}

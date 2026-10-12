@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { mutate } from "../api";
 import { useAction } from "../context";
@@ -124,32 +125,32 @@ export function EditPanel({ mediaId, detail, cropping, draft, aspect, frame, onC
       <h3 id={`edit-${mediaId}`}>{t("edit.title")}</h3>
       <div className="edit-row" role="radiogroup" aria-label={t("edit.rating")}>
         {[1, 2, 3, 4, 5].map((n) => (
-          <button key={n} role="radio" aria-checked={edit.rating === n} className={`star ${edit.rating >= n ? "on" : ""}`}
-            aria-label={t("edit.stars", { count: n })} onClick={() => save({ rating: edit.rating === n ? 0 : n })}>★</button>
+          <Button key={n} role="radio" aria-checked={edit.rating === n} className={`star ${edit.rating >= n ? "on" : ""}`}
+            aria-label={t("edit.stars", { count: n })} onClick={() => save({ rating: edit.rating === n ? 0 : n })}>★</Button>
         ))}
       </div>
       <div className="edit-row" role="radiogroup" aria-label={t("edit.label")}>
         {LABELS.map((name) => (
-          <button key={name} role="radio" aria-checked={edit.label === name} className={`swatch swatch-${name.toLowerCase()}`}
+          <Button key={name} role="radio" aria-checked={edit.label === name} className={`swatch swatch-${name.toLowerCase()}`}
             aria-label={t(`edit.label.${name}` as MessageKey)} title={t(`edit.label.${name}` as MessageKey)}
             onClick={() => save({ label: edit.label === name ? null : name })} />
         ))}
-        <button className="button small" aria-pressed={edit.flag === "pick"} onClick={() => save({ flag: edit.flag === "pick" ? null : "pick" })}>{t("edit.pick")}</button>
-        <button className="button small" aria-pressed={edit.flag === "reject"} onClick={() => save({ flag: edit.flag === "reject" ? null : "reject" })}>{t("edit.reject")}</button>
+        <Button className="button small" aria-pressed={edit.flag === "pick"} onClick={() => save({ flag: edit.flag === "pick" ? null : "pick" })}>{t("edit.pick")}</Button>
+        <Button className="button small" aria-pressed={edit.flag === "reject"} onClick={() => save({ flag: edit.flag === "reject" ? null : "reject" })}>{t("edit.reject")}</Button>
       </div>
       <div className="edit-row">
-        <button className="button small" onClick={() => save({ rotation: (edit.rotation + 270) % 360, crop: rotateCrop(edit.crop, false) })}>{t("edit.rotateLeft")}</button>
-        <button className="button small" onClick={() => save({ rotation: (edit.rotation + 90) % 360, crop: rotateCrop(edit.crop, true) })}>{t("edit.rotateRight")}</button>
-        <button className="button small" aria-pressed={edit.flip_h} onClick={() => save({ flip_h: !edit.flip_h, crop: flipCrop(edit.crop, true) })}>{t("edit.flipH")}</button>
-        <button className="button small" aria-pressed={edit.flip_v} onClick={() => save({ flip_v: !edit.flip_v, crop: flipCrop(edit.crop, false) })}>{t("edit.flipV")}</button>
+        <Button className="button small" onClick={() => save({ rotation: (edit.rotation + 270) % 360, crop: rotateCrop(edit.crop, false) })}>{t("edit.rotateLeft")}</Button>
+        <Button className="button small" onClick={() => save({ rotation: (edit.rotation + 90) % 360, crop: rotateCrop(edit.crop, true) })}>{t("edit.rotateRight")}</Button>
+        <Button className="button small" aria-pressed={edit.flip_h} onClick={() => save({ flip_h: !edit.flip_h, crop: flipCrop(edit.crop, true) })}>{t("edit.flipH")}</Button>
+        <Button className="button small" aria-pressed={edit.flip_v} onClick={() => save({ flip_v: !edit.flip_v, crop: flipCrop(edit.crop, false) })}>{t("edit.flipV")}</Button>
       </div>
       <div className="edit-row">
         {!cropping ? (
           <>
-            <button className="button small" onClick={() => { onDraft(edit.crop ?? defaultCrop(aspect, fw, fh)); onCropping(true); }}>
+            <Button className="button small" onClick={() => { onDraft(edit.crop ?? defaultCrop(aspect, fw, fh)); onCropping(true); }}>
               <Icon name="edit" size={16} />{t("edit.crop")}
-            </button>
-            {edit.crop && <button className="button small" onClick={() => save({ crop: null })}>{t("edit.removeCrop")}</button>}
+            </Button>
+            {edit.crop && <Button className="button small" onClick={() => save({ crop: null })}>{t("edit.removeCrop")}</Button>}
           </>
         ) : (
           <>
@@ -158,8 +159,8 @@ export function EditPanel({ mediaId, detail, cropping, draft, aspect, frame, onC
                 {ASPECTS.map((a) => <option key={a} value={a}>{a === "free" ? t("edit.aspectFree") : a === "original" ? t("edit.aspectOriginal") : a}</option>)}
               </select>
             </label>
-            <button className="button small primary" disabled={!isUsableCrop(draft)} onClick={() => { if (draft) save({ crop: draft }); onCropping(false); }}>{t("edit.applyCrop")}</button>
-            <button className="button small" onClick={() => onCropping(false)}>{t("edit.cancel")}</button>
+            <Button className="button small primary" disabled={!isUsableCrop(draft)} onClick={() => { if (draft) save({ crop: draft }); onCropping(false); }}>{t("edit.applyCrop")}</Button>
+            <Button className="button small" onClick={() => onCropping(false)}>{t("edit.cancel")}</Button>
           </>
         )}
       </div>
@@ -172,16 +173,16 @@ export function EditPanel({ mediaId, detail, cropping, draft, aspect, frame, onC
             {detail.history.slice(0, 20).map((h) => (
               <li key={h.id}>
                 <span>{h.summary}{h.source === "external" ? ` · ${t("edit.external")}` : ""}</span>
-                <button className="text-link" disabled={action.busy} onClick={() => revert(h.id)}>{t("edit.undoStep")}</button>
+                <Button className="text-link" disabled={action.busy} onClick={() => revert(h.id)}>{t("edit.undoStep")}</Button>
               </li>
             ))}
           </ul>
         </details>
       )}
       {(detail.edited || edit.rating > 0 || edit.label || edit.flag) && (
-        <button className="button small" disabled={action.busy} onClick={() => { onCropping(false); revert(); }}>
+        <Button className="button small" disabled={action.busy} onClick={() => { onCropping(false); revert(); }}>
           <Icon name="restore" size={16} />{t("edit.revert")}
-        </button>
+        </Button>
       )}
       <p className="small-text muted">{t("edit.safe")}</p>
     </section>

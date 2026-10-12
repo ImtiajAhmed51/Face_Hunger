@@ -7,7 +7,7 @@ import { MESSAGES, type MessageKey } from './i18n';
 const NEW_SCREENS = [
   'pages/Timeline.tsx', 'pages/MapPage.tsx', 'pages/Events.tsx', 'pages/Albums.tsx',
   'components/Memories.tsx', 'components/VideoInsights.tsx', 'components/VideoMoments.tsx',
-  'components/QualityPanel.tsx', 'components/PhotoEdits.tsx', 'components/ShareDialog.tsx', 'components/Packages.tsx', 'pages/Storage.tsx', 'pages/Plugins.tsx', 'components/AppLock.tsx', 'pages/Diagnostics.tsx', 'components/OrganizeActions.tsx', 'components/DuplicateResolver.tsx',
+  'components/QualityPanel.tsx', 'components/PhotoEdits.tsx', 'components/Packages.tsx', 'pages/Storage.tsx', 'pages/Plugins.tsx', 'components/FolderChooser.tsx', 'components/Libraries.tsx', 'components/AppLock.tsx', 'components/FaceUnlock.tsx', 'pages/Diagnostics.tsx', 'components/OrganizeActions.tsx', 'components/DuplicateResolver.tsx',
 ];
 
 const KEY_NAMES = new Set(['Tab', 'Enter', 'Esc', 'Shift', 'Space']);

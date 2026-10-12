@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useEffect, useMemo, useState } from "react";
 import { bytes, mutate, number } from "../api";
 import { undoAudit } from "../audit";
@@ -43,12 +44,12 @@ export function Storage() {
           </p>
           <div className="storage-tiles">
             {dash.data.categories.map((c) => (
-              <button key={c.category} className={`storage-tile ${category === c.category ? "active" : ""}`} aria-pressed={category === c.category}
+              <Button key={c.category} className={`storage-tile ${category === c.category ? "active" : ""}`} aria-pressed={category === c.category}
                 onClick={() => setCategory(c.category)} disabled={!c.count}>
                 <strong>{t(`storage.cat.${c.category}` as MessageKey)}</strong>
                 <span>{bytes(c.bytes)}</span>
                 <span className="muted small-text">{c.count === 1 ? t("storage.oneItem") : t("library.items", { count: number(c.count) })}</span>
-              </button>
+              </Button>
             ))}
           </div>
         </>
@@ -61,24 +62,24 @@ export function Storage() {
             <strong>{t("storage.saving", { count: number(chosen.length), size: bytes(saving) })}</strong>
             <div className="inline-actions">
               <label className="check-label"><input type="checkbox" checked={free} onChange={(e) => setFree(e.target.checked)} />{t("storage.freeNow")}</label>
-              <button className="button small" onClick={() => setSelected(new Set(selected.size ? [] : items.map((i) => i.id)))}>
+              <Button className="button small" onClick={() => setSelected(new Set(selected.size ? [] : items.map((i) => i.id)))}>
                 {selected.size ? t("common.clearSelection") : t("storage.selectAll")}
-              </button>
-              <button className="button small danger-text" disabled={!chosen.length || action.busy} onClick={() => void action.run(async () => {
+              </Button>
+              <Button className="button small danger-text" disabled={!chosen.length || action.busy} onClick={() => void action.run(async () => {
                 const r = await mutate<{ audit_id: number; removed: number }>("/storage/cleanup", { media_ids: chosen.map((i) => i.id), free_space: free });
                 pushUndo(t("storage.cleaned", { count: number(r.removed) }), undoAudit(r.audit_id));
                 refreshData();
               }, undefined, false)}>
                 <Icon name="trash" size={16} />{t("storage.cleanup")}
-              </button>
+              </Button>
             </div>
           </div>
           <ul className="storage-grid">
             {items.map((item) => (
               <li key={item.id} className={selected.has(item.id) ? "selected" : ""}>
-                <button className="storage-thumb" onClick={() => setViewer(item.id)} aria-label={t("storage.open", { name: item.name })}>
+                <Button className="storage-thumb" onClick={() => setViewer(item.id)} aria-label={t("storage.open", { name: item.name })}>
                   <Thumbnail src={`/api/media/${item.id}/thumbnail`} alt="" icon={item.kind === "video" ? "video" : "photo"} />
-                </button>
+                </Button>
                 <label className="check-label">
                   <input type="checkbox" checked={selected.has(item.id)} onChange={(e) => setSelected((prev) => {
                     const next = new Set(prev);
@@ -129,7 +130,7 @@ export function ModelUpgrade() {
           {candidates.map((o) => (
             <li key={o.key}>
               <span>{o.key} <span className="muted small-text">· {o.role} · {number(o.coverage.filled)} / {number(o.coverage.total)}</span></span>
-              <button className="button small" disabled={action.busy} onClick={() => call("/models/upgrade", { to_key: o.key })}>{t("upgrade.start")}</button>
+              <Button className="button small" disabled={action.busy} onClick={() => call("/models/upgrade", { to_key: o.key })}>{t("upgrade.start")}</Button>
             </li>
           ))}
         </ul>
@@ -140,14 +141,14 @@ export function ModelUpgrade() {
           <progress max={Math.max(1, up.coverage.total)} value={up.coverage.filled} aria-label={t("upgrade.progress")} />
           <span className="small-text muted"> {number(up.coverage.filled)} / {number(up.coverage.total)} · {t("upgrade.active", { key: up.active_key ?? "–" })}</span>
           <div className="inline-actions">
-            {up.from_key && <button className="button small" disabled={action.busy || !up.coverage.filled} onClick={() => void action.run(async () => {
+            {up.from_key && <Button className="button small" disabled={action.busy || !up.coverage.filled} onClick={() => void action.run(async () => {
               const sample = await mutate<{ items: { id: number }[] }>("/search/hybrid", { limit: 20 });
               const pick = sample.items[Math.floor(Math.random() * Math.max(1, sample.items.length))];
               if (pick) setCompare(await mutate("/models/upgrade/compare", { similar_media_id: pick.id, limit: 6 }));
-            }, undefined, false)}>{t("upgrade.compare")}</button>}
-            <button className="button small primary" disabled={action.busy || !up.ready || up.active_key === up.to_key} onClick={() => call("/models/upgrade/switch")}>{t("upgrade.switch")}</button>
-            {up.from_key && <button className="button small" disabled={action.busy || up.active_key === up.from_key} onClick={() => call("/models/upgrade/rollback")}>{t("upgrade.rollback")}</button>}
-            <button className="button ghost small" disabled={action.busy || up.status === "building"} onClick={() => call("/models/upgrade/finish")}>{t("upgrade.finish")}</button>
+            }, undefined, false)}>{t("upgrade.compare")}</Button>}
+            <Button className="button small primary" disabled={action.busy || !up.ready || up.active_key === up.to_key} onClick={() => call("/models/upgrade/switch")}>{t("upgrade.switch")}</Button>
+            {up.from_key && <Button className="button small" disabled={action.busy || up.active_key === up.from_key} onClick={() => call("/models/upgrade/rollback")}>{t("upgrade.rollback")}</Button>}
+            <Button className="button ghost small" disabled={action.busy || up.status === "building"} onClick={() => call("/models/upgrade/finish")}>{t("upgrade.finish")}</Button>
           </div>
           {compare && (
             <div className="upgrade-compare" aria-label={t("upgrade.compare")}>

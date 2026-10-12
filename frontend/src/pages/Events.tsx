@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { dateLabel, mutate, number } from "../api";
@@ -7,10 +8,12 @@ import { useT } from "../i18n";
 import type { Media, Page } from "../types";
 import { Icon } from "../components/Icon";
 import { VirtualMediaGrid } from "../components/MediaGrid";
+import { usePagedViewer } from "../virtual/usePagedViewer";
 import { MediaViewer } from "../components/MediaViewer";
 import { Badge, Dialog, Empty, ErrorNotice, GallerySkeleton, PageHeader, Thumbnail } from "../components/ui";
 import { VirtualGrid } from "../virtual/VirtualGrid";
 import { useWindowedPages } from "../virtual/useWindowedPages";
+import { useMinCell } from "../virtual/useMinCell";
 import { idsBetween } from "../virtual/geometry";
 
 export interface EventItem {
@@ -60,6 +63,7 @@ function useEventUndo() {
 }
 
 export function Events() {
+  const minCell = useMinCell(200, 190, 170);
   const t = useT();
   const navigate = useNavigate();
   const windowed = useWindowedPages<EventItem>("/events", 60);
@@ -70,19 +74,19 @@ export function Events() {
   return (
     <>
       <PageHeader eyebrow={t("events.eyebrow")} title={t("events.title")} description={t("events.description")}
-        actions={<button className="button" disabled={action.busy} onClick={() => void action.run(() => mutate("/events/detect", {}), t("events.detect"))}>
+        actions={<Button className="button" disabled={action.busy} onClick={() => void action.run(() => mutate("/events/detect", {}), t("events.detect"))}>
           <Icon name="spark" size={16} />{t("events.detect")}
-        </button>} />
+        </Button>} />
       <div className="collection-bar">
         <span className="muted small-text" role="status">{t("events.count", { count: number(windowed.count) })}</span>
         {ids.length >= 2 && (
-          <button className="button small" disabled={action.busy} onClick={() => void action.run(async () => {
+          <Button className="button small" disabled={action.busy} onClick={() => void action.run(async () => {
             const merged = await mutate<EventItem>("/events/merge", { event_ids: ids });
             selection.clear();
             undoable(t("events.merged"), merged.undo_token);
           })}>
             <Icon name="merge" size={16} />{t("events.merge", { count: ids.length })}
-          </button>
+          </Button>
         )}
       </div>
       <ErrorNotice error={windowed.error} retry={windowed.reload} />
@@ -91,7 +95,7 @@ export function Events() {
       ) : (
         <VirtualGrid<EventItem>
           label={t("events.title")} count={windowed.count} getItem={windowed.getItem} onRange={windowed.onRange}
-          minCell={230} gap={16} aspect={0.75} extra={96}
+          minCell={minCell} gap={10} aspect={0.75} extra={84}
           onOpen={(_, event) => navigate(`/events/${event.id}`)}
           onToggle={(_, event) => selection.toggle(event.id)} onEscape={selection.clear}
           renderCell={(event) => event
@@ -109,9 +113,9 @@ export function EventDetail() {
   const eventId = Number(id);
   const event = useResource<EventItem>(`/events/${eventId}`);
   const windowed = useWindowedPages<Media>(`/media?event=${eventId}&sort=date_asc`, 120);
+  const { open: openViewer, viewer } = usePagedViewer(windowed);
   const selection = useSelection(`event-${eventId}`);
   const [anchor, setAnchor] = useState<number | null>(null);
-  const [viewer, setViewer] = useState<number | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const action = useAction();
@@ -127,7 +131,7 @@ export function EventDetail() {
       {data && (name === null ? (
         <PageHeader eyebrow={range(data)} title={data.name}
           description={t("events.items", { count: number(data.item_count) })}
-          actions={<button className="button small" onClick={() => setName(data.name)}><Icon name="edit" size={16} />{t("events.rename")}</button>} />
+          actions={<Button className="button small" onClick={() => setName(data.name)}><Icon name="edit" size={16} />{t("events.rename")}</Button>} />
       ) : (
         <form className="page-header" onSubmit={(e) => {
           e.preventDefault();
@@ -140,25 +144,25 @@ export function EventDetail() {
           <label className="field wide-field">{t("events.rename")}
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setName(null); }} />
           </label>
-          <button className="button primary" disabled={!name.trim() || action.busy}>{t("events.save")}</button>
+          <Button className="button primary" disabled={!name.trim() || action.busy}>{t("events.save")}</Button>
         </form>
       ))}
       {data && data.people.length > 0 && <p className="event-people">{data.people.map((p) => <Link key={p.id} to={`/people/${p.id}`}><Badge>{p.display_name}</Badge></Link>)}</p>}
       <div className="collection-bar">
         <span className="muted small-text">{ids.length ? t("common.selected", { count: number(ids.length) }) : t("events.splitHelp")}</span>
         <div className="inline-actions">
-          <button className="button small" disabled={!firstSelected || action.busy} onClick={() => firstSelected && void action.run(async () => {
+          <Button className="button small" disabled={!firstSelected || action.busy} onClick={() => firstSelected && void action.run(async () => {
             const result = await mutate<{ undo_token: number }>(`/events/${eventId}/split`, { media_id: firstSelected.id });
             selection.clear();
             undoable(t("events.splitDone"), result.undo_token);
-          })}>{t("events.split")}</button>
-          <button className="button small" disabled={!ids.length || action.busy} onClick={() => setPicking(true)}>{t("events.move")}</button>
+          })}>{t("events.split")}</Button>
+          <Button className="button small" disabled={!ids.length || action.busy} onClick={() => setPicking(true)}>{t("events.move")}</Button>
         </div>
       </div>
       <ErrorNotice error={windowed.error || action.error} retry={windowed.reload} />
       {windowed.loading ? <GallerySkeleton /> : (
         <VirtualMediaGrid windowed={windowed} selected={selection.selected} label={data?.name ?? t("events.title")}
-          onOpen={setViewer} onClear={selection.clear} onSelectAll={() => selection.addRange(windowed.loaded.map((m) => m.id))}
+          onOpen={openViewer} onClear={selection.clear} onSelectAll={() => selection.addRange(windowed.loaded.map((m) => m.id))}
           onSelect={(mid, index, mode) => {
             if (mode === "range" && anchor !== null) selection.addRange(idsBetween(anchor, index, windowed.getItem));
             else { setAnchor(index); selection.toggle(mid); }
@@ -171,7 +175,7 @@ export function EventDetail() {
         undoable(t("events.moved", { count: ids.length }), moved.undo_token);
         refreshData();
       })} />}
-      {viewer !== null && <MediaViewer id={viewer} ids={windowed.loaded.map((m) => m.id)} onClose={() => setViewer(null)} />}
+      {viewer && <MediaViewer {...viewer} />}
     </>
   );
 }
@@ -183,7 +187,7 @@ function MoveDialog({ exclude, onClose, onPick }: { exclude: number; onClose: ()
     <Dialog open onClose={onClose} title={t("events.pickTarget")}>
       <ul className="dialog-body event-pick">
         {(list.data?.items ?? []).filter((e) => e.id !== exclude).map((e) => (
-          <li key={e.id}><button className="button ghost" onClick={() => onPick(e.id)}>{e.name}<span className="muted small-text"> · {range(e)}</span></button></li>
+          <li key={e.id}><Button className="button ghost" onClick={() => onPick(e.id)}>{e.name}<span className="muted small-text"> · {range(e)}</span></Button></li>
         ))}
       </ul>
     </Dialog>

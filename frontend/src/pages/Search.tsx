@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Button } from "@/components/primitives/button";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { mutate } from "../api";
 import { useAction } from "../context";
 import { useResource, refreshData } from "../hooks";
@@ -48,12 +49,13 @@ function toHybrid(f: MediaFilters, content: string, similar: number | null): Hyb
 
 function fromHybrid(q: HybridQuery): MediaFilters {
   return { ...initial, people: q.people ?? [], mode: q.people_mode ?? "ANY", kind: q.kind ?? "",
-    date_from: q.date_from ?? "", date_to: q.date_to ?? "" };
+    date_from: q.date_from ?? "", date_to: q.date_to ?? "", q: q.name ?? "", deleted: q.deleted ?? false };
 }
 
 export function Search() {
   const t = useT();
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
   const [query, setQuery] = useState(params.get("q") ?? "");
   const [content, setContent] = useState("");
   const [appliedContent, setAppliedContent] = useState("");
@@ -65,11 +67,11 @@ export function Search() {
   const [expansions, setExpansions] = useState<string[]>([]);
   const [draft, setDraft] = useState<MediaFilters>(initial);
   const [applied, setApplied] = useState<MediaFilters | null>(null);
-  const [unmatched, setUnmatched] = useState<string[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [picker, setPicker] = useState(false);
   const [validation, setValidation] = useState("");
   const action = useAction();
+  const parseGeneration = useRef(0);
   const update = <K extends keyof MediaFilters>(
     key: K,
     value: MediaFilters[K],
@@ -83,10 +85,12 @@ export function Search() {
     setApplied({ ...draft });
     setAppliedContent(content);
   };
-  const runParse = (text: string) =>
-    action.run(
+  const runParse = (text: string) => {
+    const generation = ++parseGeneration.current;
+    return action.run(
       async () => {
         const parsed = await mutate<ParsedSearch>("/search/parse", { query: text });
+        if (generation !== parseGeneration.current) return;
         const next: MediaFilters = {
           ...initial,
           people: parsed.people,
@@ -94,30 +98,38 @@ export function Search() {
           kind: parsed.kind ?? "",
           date_from: parsed.date_from ?? "",
           date_to: parsed.date_to ?? "",
+          q: parsed.embedding_query?.available ? "" : (parsed.text ?? ""),
         };
         setDraft(next);
         setApplied(next);
-        setContent(parsed.text ?? "");
-        setAppliedContent(parsed.text ?? "");
+        setContent(parsed.embedding_query?.available ? (parsed.text ?? "") : "");
+        setAppliedContent(parsed.embedding_query?.available ? (parsed.text ?? "") : "");
         // Leftover words become a content search when SigLIP 2 is installed.
-        setUnmatched(parsed.embedding_query?.available ? [] : parsed.unmatched);
         setExpanded(true);
         setValidation("");
         setExpansions([]);
         // Optional local VLM: adds alternative visual phrasings (shown below, removable). Rules-only otherwise.
         void mutate<{ expansions: string[]; source: string }>("/search/rewrite", { query: text })
-          .then((rewritten) => setExpansions(rewritten.expansions ?? []))
+          .then((rewritten) => {
+            if (generation === parseGeneration.current) setExpansions(rewritten.expansions ?? []);
+          })
           .catch(() => {});
       },
       undefined,
       false,
     );
+  };
   // Deep links: /search?q=... (command palette) and /search?similar=<media id> (viewer).
   const initialQ = params.get("q");
+  const lastInitialKey = useRef<string | null>(null);
   useEffect(() => {
-    if (initialQ) void runParse(initialQ);
+    if (initialQ && location.key !== lastInitialKey.current && !action.busy) {
+      lastInitialKey.current = location.key;
+      setQuery(initialQ);
+      void runParse(initialQ);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialQ]);
+  }, [initialQ, location.key, action.busy]);
   // Arriving via "Find similar" starts a fresh query around that item.
   useEffect(() => {
     if (similar === null || params.get("saved") || params.get("q")) return;
@@ -125,13 +137,16 @@ export function Search() {
     setApplied({ ...initial });
     setContent("");
     setAppliedContent("");
-    setUnmatched([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [similar]);
   const savedId = Number(params.get("saved")) || null;
+  const loadedSavedId = useRef<number | null>(null);
   useEffect(() => {
+    if (savedId === null) loadedSavedId.current = null;
     const item = saved.data?.items.find((entry) => entry.id === savedId);
-    if (!item) return;
+    if (!item || loadedSavedId.current === savedId) return;
+    loadedSavedId.current = savedId;
+    parseGeneration.current += 1;
     const next = fromHybrid(item.query);
     setDraft(next);
     setApplied(next);
@@ -153,7 +168,7 @@ export function Search() {
       <PageHeader
         eyebrow="LOOK FOR A PERSON. FIND A MOMENT."
         title="Search your memories"
-        description="Ordinary words. Precise filters. Parsed locally, without sending anything away."
+        description="Find people, dates, filenames and folders. Visual search uses installed local models."
       />
       <form
         className="natural-search"
@@ -172,23 +187,23 @@ export function Search() {
           id="natural-query"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="A name, a year, or what's in the picture: “Maya at the beach 2021”"
+          placeholder="Search a person, year, media type or filename"
           autoComplete="off"
         />
-        <button
+        <Button
           className="button primary"
           disabled={action.busy || !query.trim()}
         >
           {action.busy ? "Reading your search..." : "Find moments"}
           <Icon name="arrow" size={16} />
-        </button>
+        </Button>
       </form>
       <div className="search-hint">
         <span>
           <Icon name="shield" size={14} />
           Parsed and searched on this device, not by a cloud chatbot
         </span>
-        <button
+        <Button
           className="text-link"
           aria-expanded={expanded}
           aria-controls="structured-filters"
@@ -196,29 +211,16 @@ export function Search() {
         >
           <Icon name="filter" size={16} />
           {expanded ? "Hide filters" : "Build a precise search"}
-        </button>
+        </Button>
       </div>
       <ErrorNotice error={action.error} />
       {expansions.length > 0 && (
         <div className="search-expansions" role="group" aria-label={t("vlm.expansions")}>
           <span className="muted small-text">{t("vlm.expansions")}</span>
           {expansions.map((phrase) => (
-            <button key={phrase} className="badge" onClick={() => setExpansions((list) => list.filter((p) => p !== phrase))}
-              aria-label={t("vlm.removeExpansion", { phrase })}>{phrase} ×</button>
+            <Button key={phrase} className="badge" onClick={() => setExpansions((list) => list.filter((p) => p !== phrase))}
+              aria-label={t("vlm.removeExpansion", { phrase })}>{phrase} ×</Button>
           ))}
-        </div>
-      )}
-      {unmatched.length > 0 && (
-        <div className="search-unmatched" role="status">
-          <Icon name="alert" size={18} />
-          <div>
-            <strong>Some words weren't understood</strong>
-            <p>{unmatched.join(", ")}</p>
-            <p>
-              These words are not applied as filters. Add a person, date, or
-              filename below to refine the results.
-            </p>
-          </div>
         </div>
       )}
       {expanded && (
@@ -232,22 +234,25 @@ export function Search() {
         >
           <div className="filter-panel-heading">
             <h2>Make it specific</h2>
-            <button
+            <Button
               type="button"
               className="text-link"
               onClick={() => {
+                parseGeneration.current += 1;
+                lastInitialKey.current = null;
+                loadedSavedId.current = null;
+                setExpansions([]);
                 setDraft(initial);
                 setApplied(null);
                 setContent("");
                 setAppliedContent("");
                 setParams({});
                 setQuery("");
-                setUnmatched([]);
                 setValidation("");
               }}
             >
               Reset search
-            </button>
+            </Button>
           </div>
           <label className="field wide-field">
             What's in the picture
@@ -273,14 +278,14 @@ export function Search() {
                   }
                 />
               ))}
-              <button
+              <Button
                 type="button"
                 className="button small"
                 onClick={() => setPicker(true)}
               >
                 <Icon name="plus" size={16} />
                 Add person
-              </button>
+              </Button>
               {!draft.people?.length && (
                 <span className="muted small-text">
                   Everyone in your library
@@ -393,10 +398,10 @@ export function Search() {
                 Deleted media only
               </label>
             </div>
-            <button className="button primary">
+            <Button className="button primary">
               Apply filters
               <Icon name="arrow" size={16} />
-            </button>
+            </Button>
           </div>
           <ErrorNotice error={validation} />
         </form>
@@ -411,16 +416,16 @@ export function Search() {
                 : "Any selected person"}
             </Badge>
             {hybridQuery && (
-              <button className="button small" onClick={() => { setSaveName(query || appliedContent || "My search"); setSaveOpen(true); }}>
+              <Button className="button small" onClick={() => { setSaveName(query || appliedContent || "My search"); setSaveOpen(true); }}>
                 <Icon name="plus" size={16} />
                 Save search
-              </button>
+              </Button>
             )}
           </div>
           {similar !== null && (
             <div className="inline-actions">
               <Badge tone="teal">Looks like media #{similar}</Badge>
-              <button className="text-link" onClick={() => setParams({})}>Clear</button>
+              <Button className="text-link" onClick={() => setParams({})}>Clear</Button>
             </div>
           )}
           {hybridQuery?.text && <MomentResults text={hybridQuery.text} people={hybridQuery.people} />}
@@ -448,7 +453,7 @@ export function Search() {
           <div className="inline-actions" style={{ flexWrap: "wrap" }}>
             {saved.data.items.map((item) => (
               <span key={item.id} className="inline-actions">
-                <button className="button small" onClick={() => {
+                <Button className="button small" onClick={() => {
                   const next = fromHybrid(item.query);
                   setDraft(next);
                   setApplied(next);
@@ -460,11 +465,11 @@ export function Search() {
                 }}>
                   <Icon name="search" size={14} />
                   {item.name}
-                </button>
-                <button className="icon-button" aria-label={`Delete saved search ${item.name}`}
+                </Button>
+                <Button className="icon-button" aria-label={`Delete saved search ${item.name}`}
                   onClick={() => void action.run(() => mutate(`/search/saved/${item.id}`, undefined, "DELETE"), "Saved search removed.")}>
                   <Icon name="close" size={14} />
-                </button>
+                </Button>
               </span>
             ))}
           </div>
@@ -490,8 +495,8 @@ export function Search() {
             </label>
           </div>
           <div className="dialog-footer">
-            <button type="button" className="button" onClick={() => setSaveOpen(false)}>Cancel</button>
-            <button className="button primary" disabled={!saveName.trim() || action.busy}>Save</button>
+            <Button type="button" className="button" onClick={() => setSaveOpen(false)}>Cancel</Button>
+            <Button className="button primary" disabled={!saveName.trim() || action.busy}>Save</Button>
           </div>
         </form>
       </Dialog>

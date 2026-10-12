@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
 import { mutate } from "../api";
 import { undoAudit, type Audited } from "../audit";
@@ -6,8 +7,6 @@ import { useResource } from "../hooks";
 import { useT } from "../i18n";
 import { Icon } from "./Icon";
 import { Dialog, ErrorNotice } from "./ui";
-import { ShareDialog } from "./ShareDialog";
-import { PackageExportDialog } from "./Packages";
 
 interface Album { id: number; name: string; item_count: number }
 
@@ -17,26 +16,22 @@ export function OrganizeActions({ ids, onDone }: { ids: number[]; onDone?: () =>
   const action = useAction();
   const { pushUndo } = useApp();
   const [open, setOpen] = useState(false);
-  const [sharing, setSharing] = useState(false);
-  const [packing, setPacking] = useState(false);
   return (
     <>
-      <button className="button small" disabled={action.busy || !ids.length} onClick={() => void action.run(async () => {
+      <Button className="button small" disabled={action.busy || !ids.length} onClick={() => void action.run(async () => {
         const r = await mutate<Audited & { changed: number }>("/favorites", { media_ids: ids, favorite: true });
         pushUndo(t("library.favorited", { count: r.changed }), undoAudit(r.audit_id));
         onDone?.();
       })}>
         <Icon name="spark" size={16} />{t("library.favorite")}
-      </button>
-      <button className="button small" disabled={action.busy || !ids.length} onClick={() => setOpen(true)}>
+      </Button>
+      <Button className="button small" disabled={action.busy || !ids.length} onClick={() => setOpen(true)}>
         <Icon name="plus" size={16} />{t("library.addToAlbum")}
-      </button>
-      <button className="button small" disabled={!ids.length} onClick={() => setSharing(true)}>
-        <Icon name="shield" size={16} />{t("share.button")}
-      </button>
-      <button className="button small" disabled={!ids.length} onClick={() => setPacking(true)}>{t("pack.button")}</button>
-      {sharing && <ShareDialog ids={ids} onClose={() => setSharing(false)} />}
-      {packing && <PackageExportDialog scope={{ type: "selection", media_ids: ids }} onClose={() => setPacking(false)} />}
+      </Button>
+
+
+
+
       {open && <AddToAlbumDialog ids={ids} onClose={() => setOpen(false)} onDone={() => { setOpen(false); onDone?.(); }} />}
     </>
   );
@@ -68,12 +63,12 @@ export function AddToAlbumDialog({ ids, onClose, onDone }: { ids: number[]; onCl
           <label className="field wide-field">{t("library.newAlbum")}
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={t("library.albumName")} />
           </label>
-          <button className="button primary" disabled={!name.trim() || action.busy}>{t("library.create")}</button>
+          <Button className="button primary" disabled={!name.trim() || action.busy}>{t("library.create")}</Button>
         </form>
         <ul className="event-pick" aria-label={t("library.albums")}>
           {(albums.data?.items ?? []).map((a) => (
-            <li key={a.id}><button className="button ghost" onClick={() => add(a.id, a.name)}>{a.name}
-              <span className="muted small-text"> · {a.item_count}</span></button></li>
+            <li key={a.id}><Button className="button ghost" onClick={() => add(a.id, a.name)}>{a.name}
+              <span className="muted small-text"> · {a.item_count}</span></Button></li>
           ))}
         </ul>
         <ErrorNotice error={action.error} />

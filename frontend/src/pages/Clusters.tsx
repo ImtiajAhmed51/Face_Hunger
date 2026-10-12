@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { number, queryString } from "../api";
@@ -39,7 +40,7 @@ export function Clusters() {
         description="Each card is one person cluster — small faces that the engine grouped together. Zoom to inspect tiles."
         actions={
           <div className="cluster-zoom-controls" role="group" aria-label="Zoom">
-            <button
+            <Button
               className="button small"
               type="button"
               onClick={zoomOut}
@@ -48,16 +49,16 @@ export function Clusters() {
             >
               <Icon name="close" size={14} />
               <span>−</span>
-            </button>
-            <button
+            </Button>
+            <Button
               className="button small"
               type="button"
               onClick={zoomReset}
               aria-label="Reset zoom"
             >
               {Math.round(zoom * 100)}%
-            </button>
-            <button
+            </Button>
+            <Button
               className="button small"
               type="button"
               onClick={zoomIn}
@@ -65,7 +66,7 @@ export function Clusters() {
               disabled={zoom >= 1.85}
             >
               <Icon name="plus" size={14} />
-            </button>
+            </Button>
           </div>
         }
       />
@@ -103,7 +104,7 @@ export function Clusters() {
           }
         >
           {q ? (
-            <button
+            <Button
               className="button"
               type="button"
               onClick={() => {
@@ -112,7 +113,7 @@ export function Clusters() {
               }}
             >
               Clear search
-            </button>
+            </Button>
           ) : (
             <Link to="/settings" className="button primary">
               <Icon name="folder" size={16} />

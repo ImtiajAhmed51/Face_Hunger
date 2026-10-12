@@ -1,6 +1,6 @@
+import { Button } from "@/components/primitives/button";
 import { useEffect, useState, type RefObject } from "react";
-import { exportZip, timeLabel } from "../api";
-import { useAction } from "../context";
+import { timeLabel } from "../api";
 import { useResource } from "../hooks";
 import { useT } from "../i18n";
 import { Thumbnail } from "./ui";
@@ -14,13 +14,12 @@ export interface VideoDetail {
   analyzed: boolean;
 }
 
-/** Person lanes over the timeline (face markers), timestamp chips and per-person clip export. */
+/** Person lanes over the timeline (face markers), timestamp chips. */
 export function VideoInsights({ mediaId, duration, video, onSeek }: {
   mediaId: number; duration: number | null; video: RefObject<HTMLVideoElement | null>; onSeek: (t: number) => void;
 }) {
   const t = useT();
   const detail = useResource<VideoDetail>(`/media/${mediaId}/video`);
-  const action = useAction();
   const [now, setNow] = useState(0);
   useEffect(() => {
     // Media events do not bubble, but they can be captured at the document; this keeps working
@@ -47,25 +46,21 @@ export function VideoInsights({ mediaId, duration, video, onSeek }: {
           <div className="video-lane-head">
             <Thumbnail src={`/api/faces/${person.best_face_id}/thumbnail`} alt="" icon="people" />
             <strong>{person.display_name}</strong>
-            <button className="text-link small-text" disabled={action.busy}
-              onClick={() => void action.run(() => exportZip(`/media/${mediaId}/person-clips`, { person_id: person.person_id }, "clips.zip"),
-                t("video.clipsSaved"), false)}>
-              {t("video.exportClips")}
-            </button>
+
           </div>
           <div className="video-track" role="group" aria-label={t("video.lane", { name: person.display_name })}>
             {person.segments.map((s) => (
-              <button key={s.start} className="video-segment" style={{ left: pct(s.start), width: `max(6px, ${pct(s.end - s.start)})` }}
+              <Button key={s.start} className="video-segment" style={{ left: pct(s.start), width: `max(6px, ${pct(s.end - s.start)})` }}
                 onClick={() => onSeek(s.start)} aria-label={t("video.seek", { time: timeLabel(s.start) })} title={`${timeLabel(s.start)} – ${timeLabel(s.end)}`} />
             ))}
             <span className="video-playhead" style={{ left: pct(now) }} aria-hidden="true" />
           </div>
           <div className="video-chips">
             {person.segments.map((s) => (
-              <button key={s.start} className="badge" onClick={() => onSeek(s.start)}
+              <Button key={s.start} className="badge" onClick={() => onSeek(s.start)}
                 aria-label={t("video.seekPerson", { name: person.display_name, time: timeLabel(s.start) })}>
                 {timeLabel(s.start)}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -75,11 +70,11 @@ export function VideoInsights({ mediaId, duration, video, onSeek }: {
           <h4 className="field-label">{t("video.scenes")}</h4>
           <div className="video-keyframes">
             {data.keyframes.map((k) => (
-              <button key={k.id} onClick={() => onSeek(k.t)} aria-label={t("video.seek", { time: timeLabel(k.t) })}
+              <Button key={k.id} onClick={() => onSeek(k.t)} aria-label={t("video.seek", { time: timeLabel(k.t) })}
                 className={now >= k.t ? "passed" : ""}>
                 <img src={`/api/keyframes/${k.id}/image`} alt="" loading="lazy" />
                 <span>{timeLabel(k.t)}</span>
-              </button>
+              </Button>
             ))}
           </div>
         </>

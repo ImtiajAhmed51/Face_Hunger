@@ -4,8 +4,11 @@ import { HashRouter } from 'react-router-dom';
 import { App, ErrorBoundary } from './App';
 import { AppProvider } from './context';
 import { LockGate } from './components/AppLock';
+import './tailwind.css';
 import './styles/index.css';
 import './appearance.css';
+import './photos-theme.css';
+import './liquid-glass.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode><ErrorBoundary><HashRouter><AppProvider><LockGate><App /></LockGate></AppProvider></HashRouter></ErrorBoundary></StrictMode>,

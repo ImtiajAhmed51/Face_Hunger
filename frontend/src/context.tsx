@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { setDiagnostics } from "./diag";
 import type { ReactNode } from "react";
@@ -105,7 +106,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     const controller = new AbortController();
-    void request<Settings>("/settings", { signal: controller.signal })
+    void request<Settings>("/settings?storage=false", { signal: controller.signal })
       .then((data) => { if (!controller.signal.aborted) { setTheme(data.theme); setDiagnostics(data.diagnostics_enabled === true); } })
       .catch(() => {});
     return () => controller.abort();
@@ -124,6 +125,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Live job progress over SSE; falls back to polling where EventSource is unavailable.
     const known = new Map<number, Job>();
     const lastStatus = new Map<number, string>();
+    let receivedSnapshot = false;
     const FINISHED = new Set(["completed", "failed", "cancelled", "interrupted"]);
     const publish = () => {
       const all = [...known.values()].sort((a, b) => b.id - a.id);
@@ -131,7 +133,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const latestIndex = all.find(item => (item.kind ?? "index") === "index") ?? null;
       setJob(current => JSON.stringify(current) === JSON.stringify(latestIndex) ? current : latestIndex);
       // New data appears when a job finishes: refresh every visible query once.
-      const finished = all.some(item => FINISHED.has(item.status) && lastStatus.has(item.id) && !FINISHED.has(lastStatus.get(item.id)!));
+      const finished = receivedSnapshot && all.some(item => FINISHED.has(item.status) &&
+        (!lastStatus.has(item.id) || !FINISHED.has(lastStatus.get(item.id)!)));
+      receivedSnapshot = true;
       all.forEach(item => lastStatus.set(item.id, item.status));
       if (finished) refreshData();
     };
@@ -191,11 +195,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           >
             <span>{item.text}</span>
             {item.undoId !== undefined && (
-              <button className="button ghost small" onClick={() => void runUndo(item.undoId)}>
+              <Button className="button ghost small" onClick={() => void runUndo(item.undoId)}>
                 Undo
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               className="icon-button"
               onClick={() =>
                 setNotices((current) => current.filter((n) => n.id !== item.id))
@@ -203,7 +207,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               aria-label="Dismiss notification"
             >
               &times;
-            </button>
+            </Button>
           </div>
         ))}
       </div>

@@ -1,5 +1,7 @@
+import { Button } from "@/components/primitives/button";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
+import { Link } from "react-router-dom";
 import { number, timeLabel } from "../api";
 import { useResource } from "../hooks";
 import { useLqip } from "../lqip";
@@ -17,7 +19,7 @@ interface TimelineData { days: DayCount[]; total: number; undated: number; guess
 const HEADER = 52;
 const GAP = 6;
 
-export function Timeline() {
+export function Timeline({ photos = false }: { photos?: boolean }) {
   const t = useT();
   const [kind, setKind] = useState<"" | "photo" | "video">("");
   const data = useResource<TimelineData>(`/timeline${kind ? `?kind=${kind}` : ""}`);
@@ -25,8 +27,9 @@ export function Timeline() {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(1000);
   const [offset, setOffset] = useState(0);
-  const [viewer, setViewer] = useState<number | null>(null);
-  const [current, setCurrent] = useState(0);
+  const [viewer, setViewer] = useState<{ id: number; index: number } | null>(null);
+  const [scrollPosition, setScrollPosition] = useState(0);
+  const current = Math.max(0, scrollPosition - offset);
 
   useLayoutEffect(() => {
     const node = ref.current;
@@ -39,7 +42,8 @@ export function Timeline() {
   }, [data.data]);
 
   const geometry = gridGeometry(width, 0, width < 600 ? 104 : 150, GAP, 1, 0);
-  const sections = useMemo(() => groupDays(data.data?.days ?? []), [data.data]);
+  const sections = useMemo(() => groupDays([...(data.data?.days ?? []),
+    ...(data.data?.undated ? [["", data.data.undated] as DayCount] : [])]), [data.data]);
   const { rows, height } = useMemo(() => layoutRows(sections, geometry.columns, geometry.rowHeight, HEADER),
     [sections, geometry.columns, geometry.rowHeight]);
   const marks = useMemo(() => scrubMarks(sections, rows), [sections, rows]);
@@ -67,7 +71,7 @@ export function Timeline() {
     let frame = 0;
     const onScroll = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => setCurrent(Math.max(0, window.scrollY - offset)));
+      frame = requestAnimationFrame(() => setScrollPosition(window.scrollY));
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -87,17 +91,25 @@ export function Timeline() {
     window.scrollTo({ top: offset + Math.max(0, Math.min(height, y)), behavior: "instant" as ScrollBehavior });
   }, [offset, height]);
 
-  const placeholders = useLqip(windowed.loaded.map((item) => item.id));
+  // Request blur previews for mounted rows, rather than decoding every prefetched page.
+  const placeholders = useLqip(visible.flatMap(({ index }) => {
+    const row = rows[index];
+    if (row?.kind !== "items") return [];
+    return Array.from({ length: row.count }, (_, i) => windowed.getItem(row.first + i)?.id)
+      .filter((id): id is number => id !== undefined);
+  }));
 
   return (
     <>
-      <PageHeader eyebrow={t("timeline.eyebrow")} title={t("timeline.title")} description={t("timeline.description")} />
+      <PageHeader eyebrow={t("timeline.eyebrow")} title={t(photos ? "common.photos" : "timeline.title")}
+        description={t("timeline.description")} actions={<Link className="button small" to="/browse">
+          <Icon name="filter" size={16} />{t("photos.organize")}</Link>} />
       <div className="collection-filters">
         <div className="segmented" role="group" aria-label={t("timeline.kind")}>
           {(["", "photo", "video"] as const).map((value) => (
-            <button key={value || "all"} type="button" aria-pressed={kind === value} onClick={() => setKind(value)}>
+            <Button key={value || "all"} type="button" aria-pressed={kind === value} onClick={() => setKind(value)}>
               {t(value === "" ? "common.all" : value === "photo" ? "common.photos" : "common.videos")}
-            </button>
+            </Button>
           ))}
         </div>
         {data.data && (
@@ -135,34 +147,62 @@ export function Timeline() {
                   {Array.from({ length: row.count }, (_, i) => {
                     const item = windowed.getItem(row.first + i);
                     return item ? (
-                      <button key={i} className="timeline-tile" onClick={() => setViewer(item.id)}
+                      <Button key={item.id} className="timeline-tile" onClick={() => setViewer({ id: item.id, index: row.first + i })}
                         aria-label={`${item.name}${item.captured_at ? `, ${new Date(item.captured_at).toLocaleString()}` : ""}`}>
-                        <Thumbnail src={`/api/media/${item.id}/thumbnail`} alt="" placeholder={placeholders[item.id]} />
+                        <Thumbnail src={`/api/media/${item.id}/thumbnail?size=384${item.edit_version ? `&v=${item.edit_version}` : ""}`} alt="" eager={row.first + i < geometry.columns} placeholder={placeholders[item.id]} />
                         {item.kind === "video" && <span className="media-duration"><Icon name="play" size={11} />{timeLabel(item.duration)}</span>}
-                      </button>
+                        {(item.missing || item.status === "failed" || item.status === "pending") &&
+                          <span className="media-warning"><Icon name="alert" size={13} />{t(item.missing ? "photos.missing" : item.status === "failed" ? "photos.failed" : "photos.indexing")}</span>}
+                      </Button>
                     ) : <div key={i} className="cell-skeleton" aria-hidden="true" />;
                   })}
                 </div>
               );
             })}
           </div>
-          <Scrubber marks={marks} height={height} position={current} label={currentSection ? sectionLabel(currentSection) : ""}
+          <Scrubber top={Math.max(0, offset - scrollPosition)} marks={marks} height={height} position={current} label={currentSection ? sectionLabel(currentSection) : ""}
             onScrub={scrollToY} ariaLabel={t("timeline.scrubber")} />
         </div>
       )}
-      {viewer !== null && <MediaViewer id={viewer} ids={windowed.loaded.map((item) => item.id)} onClose={() => setViewer(null)} />}
+      {viewer !== null && <MediaViewer id={viewer.id} onClose={() => setViewer(null)} paging={{ index: viewer.index,
+        total: windowed.count, onStep: async delta => {
+          const item = await windowed.getItemAt(viewer.index + delta);
+          if (item) setViewer({ id: item.id, index: viewer.index + delta });
+        } }} />}
     </>
   );
 }
 
-function Scrubber({ marks, height, position, label, onScrub, ariaLabel }: {
+function Scrubber({ top, marks, height, position, label, onScrub, ariaLabel }: {
+  top: number;
   marks: ReturnType<typeof scrubMarks>; height: number; position: number; label: string;
   onScrub: (y: number) => void; ariaLabel: string;
 }) {
   const rail = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  const [railHeight, setRailHeight] = useState(0);
+  useEffect(() => {
+    if (!rail.current) return;
+    const observer = new ResizeObserver(([entry]) => setRailHeight(entry.contentRect.height));
+    observer.observe(rail.current);
+    return () => observer.disconnect();
+  }, []);
   const years = marks.filter((m) => m.month === undefined);
   const months = marks.filter((m) => m.month !== undefined);
+  // Uneven library dates can put many years in a few pixels. Keep navigation
+  // anchors intact, but show only labels with enough room on the visible rail.
+  const visibleYears = railHeight && height && years.length
+    ? (years.length > 1 ? [years[0], years[years.length - 1]] : [years[0]]) : [];
+  if (railHeight && height && years.length > 2) {
+    let previous = years[0].top;
+    const last = years[years.length - 1].top;
+    for (const mark of years.slice(1, -1)) {
+      if ((mark.top - previous) / height * railHeight >= 22 && (last - mark.top) / height * railHeight >= 22) {
+        visibleYears.splice(visibleYears.length - 1, 0, mark);
+        previous = mark.top;
+      }
+    }
+  }
   const ratio = height ? Math.min(1, position / height) : 0;
   const fromPointer = (event: PointerEvent) => {
     const box = rail.current?.getBoundingClientRect();
@@ -183,14 +223,15 @@ function Scrubber({ marks, height, position, label, onScrub, ariaLabel }: {
     if (map[event.key]) { event.preventDefault(); map[event.key](); }
   };
   return (
-    <div className="timeline-scrubber">
+    <div className="timeline-scrubber" style={{ top: `max(calc(var(--topbar-height) + 20px), ${top}px)` }}>
       <div ref={rail} className="scrubber-rail" role="slider" tabIndex={0} aria-label={ariaLabel}
         aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(ratio * 100)} aria-valuetext={label}
         aria-orientation="vertical" onKeyDown={onKey}
         onPointerDown={(e) => { dragging.current = true; e.currentTarget.setPointerCapture(e.pointerId); fromPointer(e); }}
         onPointerMove={(e) => { if (dragging.current) fromPointer(e); }}
-        onPointerUp={() => { dragging.current = false; }}>
-        {years.map((mark) => (
+        onPointerUp={() => { dragging.current = false; }}
+        onPointerCancel={() => { dragging.current = false; }}>
+        {visibleYears.filter(mark => Math.abs((mark.top / height - ratio) * railHeight) >= 12).map((mark) => (
           <span key={mark.year} className="scrubber-year" style={{ top: `${(mark.top / height) * 100}%` }}>{mark.label}</span>
         ))}
         <span className="scrubber-thumb" style={{ top: `${ratio * 100}%` }}>

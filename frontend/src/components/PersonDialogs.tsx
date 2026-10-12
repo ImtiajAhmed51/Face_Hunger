@@ -1,7 +1,8 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
 import { mutate } from "../api";
 import { useAction, useApp } from "../context";
-import { useResource } from "../hooks";
+import { refreshData, useResource } from "../hooks";
 import { undoAudit, type Audited } from "../audit";
 import type { Person } from "../types";
 import { Dialog, ErrorNotice, Thumbnail } from "./ui";
@@ -54,17 +55,17 @@ export function RenameDialog({
           <ErrorNotice error={action.error} />
         </div>
         <div className="dialog-footer">
-          <button
+          <Button
             className="button"
             type="button"
             onClick={onClose}
             disabled={action.busy}
           >
             Cancel
-          </button>
-          <button className="button primary" disabled={action.busy}>
+          </Button>
+          <Button className="button primary" disabled={action.busy}>
             {action.busy ? "Saving..." : "Save name"}
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>
@@ -107,10 +108,13 @@ export function MergeDialog({
                 const result = await mutate<Audited>(`/people/${person.id}/merge`, { target_id: target.id });
                 pushUndo(`Merged ${person.display_name} into ${target.display_name}`, undoAudit(result.audit_id));
               },
+              undefined,
+              false,
             )
           ) {
             onClose();
             onMerged(target.id);
+            refreshData({ removedPrefix: `/people/${person.id}` });
           }
         }}
       >
@@ -156,17 +160,17 @@ export function MergeDialog({
           <ErrorNotice error={action.error} />
         </div>
         <div className="dialog-footer">
-          <button
+          <Button
             type="button"
             className="button"
             onClick={onClose}
             disabled={action.busy}
           >
             Cancel
-          </button>
-          <button className="button primary" disabled={!target || action.busy}>
+          </Button>
+          <Button className="button primary" disabled={!target || action.busy}>
             {action.busy ? "Merging..." : "Merge people"}
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>

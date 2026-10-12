@@ -1,0 +1,22 @@
+/* Omit Preflight: the existing accessible reset owns native media and form sizing. */
+@layer theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "./";
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@theme inline {
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --color-primary: var(--teal);
+  --color-primary-foreground: var(--on-accent);
+  --color-destructive-foreground: var(--ink);
+  --color-secondary: var(--soft);
+  --color-secondary-foreground: var(--ink);
+  --color-accent-foreground: var(--ink);
+  --color-input: var(--line);
+  --color-destructive: var(--red);
+  --color-accent: var(--hover);
+  --color-border: var(--line);
+  --color-ring: var(--teal);
+  --font-sans: var(--sans);
+}

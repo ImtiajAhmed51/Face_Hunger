@@ -1,4 +1,6 @@
+import { Button } from "@/components/primitives/button";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "../i18n";
 import { mutate, number, request } from "../api";
 import { useAction, useApp } from "../context";
 import { useResource } from "../hooks";
@@ -172,37 +174,37 @@ const GroupCard = memo(
             </span>
           </div>
           <div className="dino-group-tools">
-            <button
+            <Button
               type="button"
               className="button small ghost"
               onClick={() => onSelectAll(allSelected ? [] : ids)}
             >
               {allSelected ? "Deselect" : "Select all"}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="button small"
               onClick={() => onIgnore(ids)}
               title="These are not duplicates — hide this group without deleting files"
             >
               Not a duplicate
-            </button>
+            </Button>
             {someSelected && (
               <>
-                <button
+                <Button
                   type="button"
                   className="button small"
                   onClick={() => onMove(ids.filter((id) => selected.has(id)))}
                 >
                   Move
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="button small danger"
                   onClick={() => onDelete(ids.filter((id) => selected.has(id)))}
                 >
                   Soft-delete
-                </button>
+                </Button>
               </>
             )}
           </div>
@@ -218,7 +220,7 @@ const GroupCard = memo(
                 className={`dino-item ${isSelected ? "selected" : ""}`}
               >
                 <div className="dino-thumb-wrap">
-                  <button
+                  <Button
                     type="button"
                     className="dino-thumb"
                     onClick={() => onOpen(item)}
@@ -239,7 +241,7 @@ const GroupCard = memo(
                         {item.similarity.toFixed(0)}%
                       </span>
                     )}
-                  </button>
+                  </Button>
                   <label className="dino-check">
                     <input
                       type="checkbox"
@@ -269,14 +271,14 @@ const GroupCard = memo(
                     </p>
                   )}
                   <div className="dino-actions">
-                    <button
+                    <Button
                       type="button"
                       className="button tiny ghost"
                       onClick={() => onOpen(item)}
                     >
                       Preview
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       className="button tiny primary"
                       onClick={() =>
@@ -288,28 +290,28 @@ const GroupCard = memo(
                       title="Keep this, soft-delete the others"
                     >
                       Keep
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       className="button tiny ghost"
                       onClick={() => onReveal(item.id)}
                     >
                       Reveal
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       className="button tiny ghost"
                       onClick={() => onMove([item.id])}
                     >
                       Move
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       className="button tiny danger"
                       onClick={() => onDelete([item.id])}
                     >
                       Delete
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -341,6 +343,8 @@ const GroupCard = memo(
 
 export function Duplicates() {
   const [threshold, setThreshold] = useState<number | null>(null);
+  const t = useT();
+  const [mediaKind, setMediaKind] = useState<"all" | "photo" | "video">("all");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [viewer, setViewer] = useState<DupItem | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number[] | null>(null);
@@ -413,7 +417,11 @@ export function Duplicates() {
   }, [error]);
 
   // groups is already pruned; this is the render source of truth
-  const displayGroups = groups;
+  const displayGroups = useMemo(() => mediaKind === "all" ? groups : groups.flatMap(group => {
+    const items = group.items.filter(item => item.kind === mediaKind);
+    if (items.length < 2) return [];
+    return [items.length === group.items.length ? group : { ...group, items, suggestion: undefined }];
+  }), [groups, mediaKind]);
   const totalGroups = displayGroups.length;
   const totalPages = Math.max(1, Math.ceil(totalGroups / GROUPS_PER_PAGE));
 
@@ -691,8 +699,14 @@ export function Duplicates() {
       />
 
       {bootError && <ErrorNotice error={bootError} retry={hardRefresh} />}
-      {data && <Suspense fallback={null}><ResolverLauncher groups={data.groups.filter((g) => g.suggestion) as unknown as ResolverGroup[]} /></Suspense>}
+      {data && <Suspense fallback={null}><ResolverLauncher groups={displayGroups.filter((g) => g.suggestion) as unknown as ResolverGroup[]} /></Suspense>}
 
+      <div className="tabs" role="group" aria-label="Duplicate media type" style={{ marginBottom: 16 }}>
+        {([['all', t('common.all')], ['photo', t('common.photos')], ['video', t('common.videos')]] as const).map(([kind, label]) => (
+          <Button key={kind} type="button" className={mediaKind === kind ? 'active' : ''} aria-pressed={mediaKind === kind}
+            onClick={() => { setMediaKind(kind); setPage(1); setSelected(new Set()); }}>{label}</Button>
+        ))}
+      </div>
       <section className="dino-toolbar card-panel">
         <div className="dino-toolbar-row">
           <label className="dino-threshold">
@@ -708,14 +722,14 @@ export function Duplicates() {
             <strong>{(effectiveThreshold * 100).toFixed(0)}%</strong>
           </label>
           <div className="dino-toolbar-actions">
-            <button
+            <Button
               type="button"
               className="button small"
               onClick={() => hardRefresh()}
             >
               Refresh
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="button small primary"
               disabled={backfilling || remaining === 0}
@@ -726,7 +740,7 @@ export function Duplicates() {
                 : remaining > 0
                   ? `Embed remaining (${number(remaining)})`
                   : "Embeddings complete"}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -750,8 +764,8 @@ export function Duplicates() {
                 <strong>{number(filled)}</strong> / {number(total)} embedded
               </span>
               <span>
-                <strong>{number(stats.group_count)}</strong> groups ·{" "}
-                {number(stats.item_count)} files
+                <strong>{number(totalGroups)}</strong> groups ·{" "}
+                {number(displayGroups.reduce((sum, group) => sum + group.items.length, 0))} files
                 {quietUpdating ? " · updating…" : ""}
               </span>
               <span className="dino-device">
@@ -774,7 +788,7 @@ export function Duplicates() {
           icon="photo"
           title="No duplicates found"
           description={
-            remaining > 0
+            mediaKind !== "all" ? `No duplicate ${mediaKind === "video" ? "videos" : "photos"} in these results. Choose All to see other media.` : remaining > 0
               ? "Compute DINOv2 embeddings first, then refresh. Exact duplicates also appear once content hashes are filled."
               : "No exact or near-duplicate media at this threshold. Try lowering the similarity slider."
           }
@@ -857,7 +871,7 @@ export function Duplicates() {
           </label>
         </div>
         <div className="dialog-footer">
-          <button
+          <Button
             type="button"
             className="button"
             onClick={() => {
@@ -866,15 +880,15 @@ export function Duplicates() {
             }}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="button primary"
             disabled={!moveDest.trim()}
             onClick={() => void doMove()}
           >
             Move
-          </button>
+          </Button>
         </div>
       </Dialog>
     </>

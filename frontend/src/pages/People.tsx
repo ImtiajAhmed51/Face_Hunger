@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { Button } from "@/components/primitives/button";
+import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { exportZip, mutate, number, queryString } from "../api";
+import { mutate, number, queryString } from "../api";
 import { useAction, useApp } from "../context";
-import { useDebounced, useResource } from "../hooks";
+import { useDebounced, useResource, useSelection } from "../hooks";
 import { VirtualGrid } from "../virtual/VirtualGrid";
 import { useWindowedPages } from "../virtual/useWindowedPages";
+import { useMinCell } from "../virtual/useMinCell";
 import type { Person } from "../types";
 import { Icon } from "../components/Icon";
 import { MediaCollection } from "../components/MediaGrid";
 import { MergeDialog, RenameDialog } from "../components/PersonDialogs";
 import { PersonFaces } from "../components/PersonFaces";
-import { PackageExportDialog } from "../components/Packages";
 import { PersonVideoMoments } from "../components/VideoMoments";
 import {
   Badge,
@@ -31,12 +32,21 @@ const PEOPLE_SORT_OPTIONS = [
 ] as const;
 
 export function People() {
+  const minCell = useMinCell(150, 140, 150);
   const [q, setQ] = useState("");
   const query = useDebounced(q);
-  const [, setPage] = useState(1);
   const [sort, setSort] =
     useState<(typeof PEOPLE_SORT_OPTIONS)[number]["value"]>("faces");
   const navigate = useNavigate();
+  const [selecting, setSelecting] = useState(false);
+  const picks = useSelection("people-merge");
+  const picked = useRef(new Map<number, Person>());
+  const mergeAction = useAction();
+  const togglePerson = (person: Person) => {
+    if (picks.selected.has(person.id)) picked.current.delete(person.id);
+    else picked.current.set(person.id, person);
+    picks.toggle(person.id);
+  };
   const windowed = useWindowedPages<Person>(`/people?${queryString({ q: query, sort })}`, 96);
   const resource = {
     data: windowed.count || !windowed.loading ? { items: windowed.loaded, total: windowed.count } : undefined,
@@ -58,7 +68,6 @@ export function People() {
             value={q}
             onChange={(event) => {
               setQ(event.target.value);
-              setPage(1);
             }}
             placeholder="Find someone..."
           />
@@ -70,7 +79,6 @@ export function People() {
             value={sort}
             onChange={(event) => {
               setSort(event.target.value as typeof sort);
-              setPage(1);
             }}
           >
             {PEOPLE_SORT_OPTIONS.map((opt) => (
@@ -85,6 +93,41 @@ export function People() {
             ? `${number(resource.data.total)} people`
             : "Local face groups"}
         </span>
+        <Button
+          className="button"
+          aria-pressed={selecting}
+          onClick={() => {
+            setSelecting(!selecting);
+            picks.clear();
+            picked.current.clear();
+          }}
+        >
+          {selecting ? "Cancel select" : "Select to merge"}
+        </Button>
+        {selecting && picks.selected.size >= 2 && (
+          <Button
+            className="button primary"
+            disabled={mergeAction.busy}
+            onClick={() =>
+              void mergeAction.run(async () => {
+                const people = [...picks.selected].map((id) => picked.current.get(id)!).filter(Boolean);
+                // Keep the named profile, otherwise the one with the most faces.
+                const keep = [...people].sort(
+                  (x, y) => Number(!!y.name) - Number(!!x.name) || y.face_count - x.face_count,
+                )[0];
+                for (const person of people) {
+                  if (person.id !== keep.id) await mutate(`/people/${person.id}/merge`, { target_id: keep.id });
+                }
+                picks.clear();
+                picked.current.clear();
+                setSelecting(false);
+                resource.reload();
+              }, "Selected people merged into one. Each merge can be undone.")
+            }
+          >
+            Merge {picks.selected.size} selected
+          </Button>
+        )}
       </div>
       <ErrorNotice error={resource.error} retry={resource.reload} />
       {resource.loading && !resource.data ? (
@@ -100,15 +143,14 @@ export function People() {
           }
         >
           {q ? (
-            <button
+            <Button
               className="button"
               onClick={() => {
                 setQ("");
-                setPage(1);
-              }}
+                }}
             >
               Clear search
-            </button>
+            </Button>
           ) : (
             <Link to="/settings" className="button primary">
               <Icon name="folder" size={16} />
@@ -123,21 +165,32 @@ export function People() {
           count={windowed.count}
           getItem={windowed.getItem}
           onRange={windowed.onRange}
-          minCell={170}
-          gap={16}
+          minCell={minCell}
+          gap={10}
           aspect={1}
-          extra={108}
-          onOpen={(_, person) => navigate(`/people/${person.id}`)}
-          renderCell={(person) => person ? <PersonCard person={person} /> : <div className="cell-skeleton" aria-hidden="true" />}
+          extra={88}
+          onOpen={(_, person) => (selecting ? togglePerson(person) : navigate(`/people/${person.id}`))}
+          renderCell={(person) => person ? (
+            <PersonCard
+              person={person}
+              selecting={selecting}
+              selected={picks.selected.has(person.id)}
+              onToggle={() => togglePerson(person)}
+            />
+          ) : <div className="cell-skeleton" aria-hidden="true" />}
         />
       )}
     </>
   );
 }
 
-function PersonCard({ person }: { person: Person }) {
+function PersonCard({ person, selecting, selected, onToggle }: {
+  person: Person; selecting?: boolean; selected?: boolean; onToggle?: () => void;
+}) {
   return (
     <Link className="person-card" to={`/people/${person.id}`} tabIndex={-1}
+      style={selected ? { outline: "3px solid #5eead4", outlineOffset: -3 } : undefined}
+      onClick={(event) => { if (selecting) { event.preventDefault(); onToggle?.(); } }}
       aria-label={`${person.display_name}, ${number(person.face_count)} faces`}>
       <div className="person-portrait">
         <Thumbnail
@@ -230,20 +283,20 @@ function MoveMediaDialog({
           <ErrorNotice error={action.error} />
         </div>
         <div className="dialog-footer">
-          <button
+          <Button
             type="button"
             className="button"
             disabled={action.busy}
             onClick={onClose}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             className="button primary"
             disabled={action.busy || !destination.trim()}
           >
             {action.busy ? "Moving..." : "Move media & remove from index"}
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>
@@ -259,9 +312,8 @@ export function PersonProfile() {
       : null,
   );
   const navigate = useNavigate();
-  const action = useAction();
   const [dialog, setDialog] = useState<
-    "rename" | "merge" | "delete" | "restore" | "move" | "pack" | null
+    "rename" | "merge" | "delete" | "restore" | "move" | null
   >(null);
   const [tab, setTab] = useState<"all" | "photo" | "video" | "faces">("all");
   const person = resource.data;
@@ -317,50 +369,34 @@ export function PersonProfile() {
               )}
             </div>
             <div className="profile-actions">
-              <button className="button" onClick={() => setDialog("rename")}>
+              <Button className="button" onClick={() => setDialog("rename")}>
                 <Icon name="edit" size={16} />
                 Rename
-              </button>
-              <button className="button" onClick={() => setDialog("pack")}>
-                <Icon name="shield" size={16} />
-                Encrypted export
-              </button>
-              <button className="button" onClick={() => setDialog("merge")}>
+              </Button>
+
+              <Button className="button" onClick={() => setDialog("merge")}>
                 <Icon name="merge" size={16} />
                 Merge
-              </button>
-              <button
-                className="button primary"
-                disabled={action.busy}
-                onClick={() =>
-                  void action.run(
-                    () => exportZip(`/people/${person.id}/export`),
-                    "Person export downloaded.",
-                    false,
-                  )
-                }
-              >
-                <Icon name="download" size={16} />
-                {action.busy ? "Exporting..." : "Export"}
-              </button>
+              </Button>
+
               <details className="actions-menu">
                 <summary className="button">More actions</summary>
                 <div>
-                  <button onClick={() => setDialog("move")}>
+                  <Button onClick={() => setDialog("move")}>
                     <Icon name="folder" size={16} />
                     Move media to folder…
-                  </button>
-                  <button onClick={() => setDialog("restore")}>
+                  </Button>
+                  <Button onClick={() => setDialog("restore")}>
                     <Icon name="restore" size={16} />
                     Restore deleted faces
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     className="danger-text"
                     onClick={() => setDialog("delete")}
                   >
                     <Icon name="trash" size={16} />
                     Delete person's faces
-                  </button>
+                  </Button>
                 </div>
               </details>
             </div>
@@ -374,13 +410,13 @@ export function PersonProfile() {
                 ["faces", "Individual faces"],
               ] as const
             ).map(([value, label]) => (
-              <button
+              <Button
                 key={value}
                 aria-pressed={tab === value}
                 onClick={() => setTab(value)}
               >
                 {label}
-              </button>
+              </Button>
             ))}
           </div>
           {tab === "faces" ? (
@@ -403,9 +439,7 @@ export function PersonProfile() {
           {dialog === "rename" && (
             <RenameDialog person={person} onClose={() => setDialog(null)} />
           )}
-          {dialog === "pack" && (
-            <PackageExportDialog scope={{ type: "person", person_id: person.id }} onClose={() => setDialog(null)} />
-          )}
+
           {dialog === "merge" && (
             <MergeDialog
               person={person}

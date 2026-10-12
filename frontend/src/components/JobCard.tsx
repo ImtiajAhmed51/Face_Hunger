@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { mutate, number } from "../api";
@@ -82,7 +83,7 @@ export function JobCard({ compact = false }: { compact?: boolean }) {
       <div className="job-actions">
         {active ? (
           <>
-            <button
+            <Button
               className="button small"
               disabled={action.busy}
               onClick={() =>
@@ -102,14 +103,14 @@ export function JobCard({ compact = false }: { compact?: boolean }) {
                 size={14}
               />
               {job.status === "paused" ? "Resume" : "Pause"}
-            </button>
-            <button
+            </Button>
+            <Button
               className="button ghost small"
               onClick={() => setCancel(true)}
               disabled={action.busy}
             >
               Cancel scan
-            </button>
+            </Button>
           </>
         ) : (
           ["failed", "interrupted", "cancelled"].includes(job.status) && (

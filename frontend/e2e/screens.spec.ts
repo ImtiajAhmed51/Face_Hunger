@@ -45,7 +45,7 @@ test('events: list, detail, rename and undo', async ({ page, errors, axe }) => {
   await page.getByLabel('Rename').fill('Playwright trip');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { level: 1, name: 'Playwright trip' })).toBeVisible();
-  await page.locator('body').click({ position: { x: 5, y: 5 } });
+  await page.getByRole('button', { name: 'Rename', exact: true }).focus();
   await page.keyboard.press('ControlOrMeta+z');
   await expect(page.getByRole('heading', { level: 1, name: original ?? '' })).toBeVisible();
   await axe(page, 'event detail');
@@ -53,7 +53,7 @@ test('events: list, detail, rename and undo', async ({ page, errors, axe }) => {
 
 test('albums: create from a selection and open it', async ({ page, errors, axe }) => {
   void errors;
-  await go(page, '/photos');
+  await go(page, '/browse');
   const boxes = page.locator('.virtual-cell input[type=checkbox]');
   await boxes.nth(0).check();
   await boxes.nth(1).check();
@@ -72,7 +72,7 @@ test('albums: create from a selection and open it', async ({ page, errors, axe }
 
 test('memories on home', async ({ page, errors, axe }) => {
   void errors;
-  await go(page, '/');
+  await go(page, '/overview');
   const memories = page.locator('.memories');
   await expect(memories.getByRole('heading', { name: 'Memories' })).toBeVisible();
   await expect(memories.getByText('2 years ago today')).toBeVisible();
@@ -137,7 +137,7 @@ test('bangla: new screens switch language', async ({ page, errors, axe }) => {
 
 test('edit tools: rate, rotate, crop and revert without touching the original', async ({ page, errors, axe }) => {
   void errors;
-  await go(page, '/photos');
+  await go(page, '/browse');
   await page.getByRole('button', { name: /^Open MEMORY_0/ }).click();
   const panel = page.locator('.edit-panel');
   await expect(panel.getByRole('heading', { name: 'Edit' })).toBeVisible();
@@ -166,7 +166,7 @@ test('edit tools: rate, rotate, crop and revert without touching the original', 
 
 test('share safely: preview, export a zip of new files', async ({ page, errors, axe }) => {
   void errors;
-  await go(page, '/photos');
+  await go(page, '/browse');
   const boxes = page.locator('.virtual-cell input[type=checkbox]');
   await boxes.nth(0).check();
   await boxes.nth(1).check();
@@ -282,16 +282,35 @@ test('diagnostics: off by default, opt in, timings appear, redacted report, off 
   expect((await page.request.get('/api/diagnostics').then((r) => r.json())).events).toBe(0);
   await toggle.click();
   await expect(toggle).toBeChecked();
-  await go(page, '/photos');
+  await go(page, '/browse');
   await expect(page.locator('[role=gridcell]').first()).toBeVisible();
   await go(page, '/diagnostics');
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('rowheader', { name: /request · GET \.api\.media/ }).first()).toBeVisible();
-  await expect(page.getByRole('rowheader', { name: 'render · route.photos' })).toBeVisible();
+  await expect(page.getByRole('rowheader', { name: 'render · route.browse' })).toBeVisible();
   await axe(page, 'diagnostics');
   const report = await page.request.get('/api/diagnostics/report').then((r) => r.text());
   expect(report).not.toMatch(/\/Users\/|\/private\/|\/tmp\/|\.jpg|\.mp4/);
   await page.getByRole('button', { name: 'Delete recorded timings' }).click();
   await toggle.click();
   await expect(toggle).not.toBeChecked();
+});
+
+test('settings: a choice survives background refreshes and is saved (detection size 320)', async ({ page, errors }) => {
+  void errors;
+  await go(page, '/settings');
+  const size = page.getByLabel('Detection size');
+  await expect(size).toHaveValue('640');
+  await size.selectOption('320');
+  // Background activity re-fetches settings (here: a job starting and finishing). The unsaved choice must stay.
+  await page.request.post('/api/health/check', { headers: { 'X-LFS-Request': '1' }, data: {} });
+  await page.evaluate(() => fetch('/api/settings', { headers: { 'X-LFS-Request': '1' } }));
+  await page.waitForTimeout(6500);
+  await expect(size).toHaveValue('320');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.locator('.toast').filter({ hasText: 'Preferences saved.' })).toBeVisible();
+  expect((await page.request.get('/api/settings').then((r) => r.json())).detection_size).toBe(320);
+  await page.reload();
+  await expect(page.getByLabel('Detection size')).toHaveValue('320');
+  await page.request.patch('/api/settings', { headers: { 'X-LFS-Request': '1' }, data: { detection_size: 640 } });
 });

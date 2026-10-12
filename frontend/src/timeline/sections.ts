@@ -70,6 +70,7 @@ export function rowAt(rows: Row[], y: number): number {
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export function sectionLabel(section: Pick<Section, 'from' | 'to'>, locale?: string): string {
+  if (!section.from) return locale === 'bn' ? 'তারিখ নেই' : 'No date';
   const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) =>
     new Date(`${iso}T12:00:00`).toLocaleDateString(locale, opts);
   if (section.from === section.to) return fmt(section.from, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -90,6 +91,7 @@ export function scrubMarks(sections: Section[], rows: Row[]): ScrubMark[] {
   for (const row of rows) {
     if (row.kind !== 'header') continue;
     const day = sections[row.section].from;
+    if (!day) continue;
     const year = day.slice(0, 4);
     const month = Number(day.slice(5, 7));
     if (!seen.has(year)) { seen.add(year); marks.push({ label: year, year, top: row.top }); }

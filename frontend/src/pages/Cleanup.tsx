@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { Button } from "@/components/primitives/button";
+import { Fragment, useState } from "react";
 import { Link } from "react-router-dom";
-import { batch, mutate, number, percent } from "../api";
+import { batch, mutate, number } from "../api";
 import { useAction, useApp } from "../context";
 import { useResource, useSelection } from "../hooks";
 import type { Cleanup as CleanupData, Library, Media, Person } from "../types";
@@ -23,11 +24,15 @@ function DuplicatePair({
   a,
   b,
   similarity,
+  evidence,
+  confidence,
   onSkipped,
 }: {
   a: Person;
   b: Person;
   similarity: number;
+  confidence?: "high" | "medium" | "low";
+  evidence?: { a_media: number; b_media: number };
   onSkipped?: () => void;
 }) {
   const [target, setTarget] = useState(b.id);
@@ -40,28 +45,38 @@ function DuplicatePair({
   return (
     <article className="duplicate-card">
       <div className="duplicate-people">
-        {[a, b].map((person) => (
-          <Link to={`/people/${person.id}`} key={person.id}>
-            <Thumbnail
-              src={
-                person.representative_face_id
-                  ? `/api/faces/${person.representative_face_id}/thumbnail`
-                  : null
-              }
-              alt={person.display_name}
-              icon="people"
-            />
-            <strong>{person.display_name}</strong>
-            <span>{number(person.face_count)} faces</span>
-          </Link>
+        {[a, b].map((person, index) => (
+          <Fragment key={person.id}>
+            {index === 1 && (
+              <span className="duplicate-link" aria-hidden="true">
+                <Icon name="merge" />
+              </span>
+            )}
+            <Link to={`/people/${person.id}`}>
+              <Thumbnail
+                src={
+                  person.representative_face_id
+                    ? `/api/faces/${person.representative_face_id}/thumbnail`
+                    : null
+                }
+                alt={person.display_name}
+                icon="people"
+              />
+              <strong>{person.display_name}</strong>
+              <span>{number(person.face_count)} faces</span>
+            </Link>
+          </Fragment>
         ))}
-        <span className="duplicate-link">
-          <Icon name="merge" />
-        </span>
       </div>
       <div className="duplicate-details">
-        <Badge tone="amber">{percent(similarity)} similarity</Badge>
-        <p>Could these be the same person?</p>
+        {confidence && (
+          <Badge tone={confidence === "high" ? "teal" : confidence === "medium" ? "amber" : "red"}>
+            {confidence === "high" ? "Very likely same" : confidence === "medium" ? "Probably same" : "Maybe same"}
+          </Badge>
+        )}{" "}
+        <Badge tone="amber">Cosine score {similarity.toFixed(2)}</Badge>
+        <p>{evidence ? `Compared using ${evidence.a_media} and ${evidence.b_media} separate appearances.` : "Could these be the same person?"}</p>
+        <p className="muted small-text">This score is not the probability that they are the same person.</p>
         <label className="field">
           Keep this profile when merging
           <select
@@ -77,15 +92,15 @@ function DuplicatePair({
           </select>
         </label>
         <div className="inline-actions">
-          <button
+          <Button
             className="button primary small"
             disabled={action.busy}
             onClick={() => setMerge(true)}
           >
             <Icon name="merge" size={16} />
             Merge
-          </button>
-          <button
+          </Button>
+          <Button
             className="button small"
             disabled={action.busy}
             onClick={() =>
@@ -100,7 +115,7 @@ function DuplicatePair({
             }
           >
             Skip / not the same
-          </button>
+          </Button>
         </div>
       </div>
       <ConfirmDialog
@@ -156,7 +171,7 @@ function IssueMedia({ items, missing }: { items: Media[]; missing?: boolean }) {
         </label>
         <div className="inline-actions">
           {!missing && (
-            <button
+            <Button
               className="button small"
               disabled={active}
               title={
@@ -166,15 +181,15 @@ function IssueMedia({ items, missing }: { items: Media[]; missing?: boolean }) {
             >
               <Icon name="restore" size={16} />
               Retry failed files
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             className="button small danger-text"
             disabled={!selection.selected.size}
             onClick={() => setRemove(true)}
           >
             Remove selected records
-          </button>
+          </Button>
         </div>
       </div>
       {items.length ? (
@@ -273,20 +288,20 @@ function IssueMedia({ items, missing }: { items: Media[]; missing?: boolean }) {
             )}
           </div>
           <div className="dialog-footer">
-            <button
+            <Button
               type="button"
               className="button"
               disabled={action.busy}
               onClick={() => setRetry(false)}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               className="button primary"
               disabled={action.busy || !library || active}
             >
               {action.busy ? "Starting..." : "Retry failed files"}
-            </button>
+            </Button>
           </div>
         </form>
       </Dialog>
@@ -317,7 +332,7 @@ function SoftOriginalsPanel({
       <Empty
         icon="photo"
         title="No kept originals"
-        description="After a video is converted, the previous file is soft-kept as *.lfs_original. None are on disk right now."
+        description="Kept originals from earlier in-place conversions appear here. New manual conversions leave the original in place and put playback copies under Conversion backups."
       />
     );
   }
@@ -329,7 +344,7 @@ function SoftOriginalsPanel({
           {(totalBytes / (1024 * 1024)).toFixed(1)} MB on disk. Restore puts the
           original back in place (converted MP4 is kept as *.lfs_converted backup).
         </p>
-        <button
+        <Button
           className="button"
           disabled={action.busy}
           onClick={() =>
@@ -350,11 +365,11 @@ function SoftOriginalsPanel({
         >
           <Icon name="restore" size={16} />
           Restore all
-        </button>
-        <button className="button danger" onClick={onPurgeAll} disabled={action.busy}>
+        </Button>
+        <Button className="button danger" onClick={onPurgeAll} disabled={action.busy}>
           <Icon name="trash" size={16} />
           Delete all permanently
-        </button>
+        </Button>
       </div>
       <div className="soft-originals-list">
         {items.map((item) => (
@@ -371,7 +386,7 @@ function SoftOriginalsPanel({
               </span>
             </div>
             <div className="inline-actions">
-              <button
+              <Button
                 className="button small"
                 disabled={action.busy}
                 onClick={() =>
@@ -385,11 +400,11 @@ function SoftOriginalsPanel({
               >
                 <Icon name="restore" size={14} />
                 Restore
-              </button>
+              </Button>
               <a className="button small" href={`/api/media/${item.media_id}/original`} download>
                 Download
               </a>
-              <button
+              <Button
                 className="button small danger"
                 disabled={action.busy}
                 onClick={() =>
@@ -400,7 +415,7 @@ function SoftOriginalsPanel({
                 }
               >
                 Delete forever
-              </button>
+              </Button>
             </div>
           </article>
         ))}
@@ -433,7 +448,7 @@ function ConvertedBackupsPanel({
       <Empty
         icon="photo"
         title="No conversion backups"
-        description="When you restore a kept original, the converted MP4 is renamed to *.lfs_converted. None are on disk right now."
+        description="Manual conversion playback copies and older *.lfs_converted backups appear here. No generated copies are on disk right now."
       />
     );
   }
@@ -442,13 +457,12 @@ function ConvertedBackupsPanel({
       <div className="inline-actions" style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
         <p className="muted small-text" style={{ flex: 1, margin: 0, minWidth: "12rem" }}>
           {items.length} converted backup{items.length === 1 ? "" : "s"} ·{" "}
-          {(totalBytes / (1024 * 1024)).toFixed(1)} MB. These are leftover files from
-          restore (safe to delete if the restored original is fine).
+          {(totalBytes / (1024 * 1024)).toFixed(1)} MB. Includes generated playback copies and older restore backups. Deleting a playback copy frees space; converting again requires your confirmation.
         </p>
-        <button className="button danger" onClick={onPurgeAll} disabled={action.busy}>
+        <Button className="button danger" onClick={onPurgeAll} disabled={action.busy}>
           <Icon name="trash" size={16} />
           Delete all permanently
-        </button>
+        </Button>
       </div>
       <div className="soft-originals-list">
         {items.map((item) => (
@@ -465,7 +479,7 @@ function ConvertedBackupsPanel({
               </span>
             </div>
             <div className="inline-actions">
-              <button
+              <Button
                 className="button small danger"
                 disabled={action.busy}
                 onClick={() =>
@@ -476,7 +490,7 @@ function ConvertedBackupsPanel({
                 }
               >
                 Delete forever
-              </button>
+              </Button>
             </div>
           </article>
         ))}
@@ -485,6 +499,110 @@ function ConvertedBackupsPanel({
   );
 }
 
+
+function FaceTools({ diagnostics, onChanged }: { diagnostics?: Record<string, number>; onChanged: () => void }) {
+  const action = useAction();
+  const [nonfaces, setNonfaces] = useState<{ found: number; reasons: Record<string, number> } | null>(null);
+  const [plan, setPlan] = useState<{ would_merge: number } | null>(null);
+  const [level, setLevel] = useState<"conservative" | "balanced" | "aggressive">("balanced");
+  return (
+    <div className="health-line" style={{ flexDirection: "column", alignItems: "flex-start", gap: 10 }}>
+      <strong>Face tools</strong>
+      <span className="muted small-text">
+        Auto-organize runs by itself after every scan. It merges people who are the same individual, never merges
+        people who appear together in one frame, and every merge can be undone.
+      </span>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <select aria-label="Auto-organize strictness" value={level} onChange={(event) => setLevel(event.target.value as typeof level)}>
+          <option value="conservative">Conservative (fewest mistakes)</option>
+          <option value="balanced">Balanced (recommended)</option>
+          <option value="aggressive">Aggressive (merges the most)</option>
+        </select>
+        <Button
+          className="button primary"
+          disabled={action.busy}
+          onClick={() =>
+            void action.run(async () => {
+              const result = await mutate<{ merged: number }>("/cleanup/auto-identity", { apply: true, level });
+              onChanged();
+              return result;
+            }, "Auto-organize finished. Merged people can be undone from Health → Activity.")
+          }
+        >
+          {action.busy ? "Working..." : "Auto-organize now"}
+        </Button>
+      </div>
+      {diagnostics && (
+        <span className="muted small-text">
+          Scanned {number(diagnostics.people ?? 0)} people ({number(diagnostics.people_with_crops ?? 0)} with usable crops),
+          compared {number(diagnostics.pairs_compared ?? 0)} pairs; {number(diagnostics.below_threshold ?? 0)} too different,
+          {" "}{number(diagnostics.same_frame ?? 0)} appear together in one frame, {number(diagnostics.marked_separate ?? 0)} marked "not the same".
+        </span>
+      )}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Button
+          className="button"
+          disabled={action.busy}
+          onClick={() =>
+            void action.run(async () => {
+              setNonfaces(await mutate<{ found: number; reasons: Record<string, number> }>("/cleanup/nonfaces", { apply: false }));
+            }, "Non-face scan finished.")
+          }
+        >
+          1. Scan for non-faces
+        </Button>
+        {!!nonfaces?.found && (
+          <Button
+            className="button"
+            disabled={action.busy}
+            onClick={() =>
+              void action.run(async () => {
+                await mutate("/cleanup/nonfaces", { apply: true });
+                setNonfaces(null);
+                onChanged();
+              }, `Rejected ${nonfaces.found} likely non-faces. You can undo this.`)
+            }
+          >
+            Reject {number(nonfaces.found)} non-faces
+          </Button>
+        )}
+        <Button
+          className="button"
+          disabled={action.busy}
+          onClick={() =>
+            void action.run(async () => {
+              setPlan(await mutate<{ would_merge: number }>("/cleanup/merge-confident", { apply: false }));
+            }, "Merge preview ready.")
+          }
+        >
+          2. Preview confident merges
+        </Button>
+        {!!plan?.would_merge && (
+          <Button
+            className="button"
+            disabled={action.busy}
+            onClick={() =>
+              void action.run(async () => {
+                await mutate("/cleanup/merge-confident", { apply: true });
+                setPlan(null);
+                onChanged();
+              }, `Merged ${plan.would_merge} very-likely duplicate people. Each merge can be undone.`)
+            }
+          >
+            Merge {number(plan.would_merge)} very-likely duplicates
+          </Button>
+        )}
+      </div>
+      {nonfaces && (
+        <span className="muted small-text">
+          {nonfaces.found
+            ? `Found ${number(nonfaces.found)} likely non-faces: ${Object.entries(nonfaces.reasons).map(([k, v]) => `${v} ${k}`).join(", ")}.`
+            : "No likely non-faces found."}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export function Cleanup() {
   const resource = useResource<CleanupData>("/cleanup");
@@ -503,7 +621,7 @@ export function Cleanup() {
         title="Room to remember"
         description="Bring duplicate people together. Find missing files. Keep your collection healthy. Media duplicates live in the Duplicates tab."
         actions={
-          <button
+          <Button
             className="button"
             disabled={action.busy}
             onClick={() =>
@@ -515,7 +633,7 @@ export function Cleanup() {
           >
             <Icon name="shield" size={17} />
             {action.busy ? "Checking..." : "Check library health"}
-          </button>
+          </Button>
         }
       />
       <ErrorNotice error={resource.error} retry={resource.reload} />
@@ -536,7 +654,7 @@ export function Cleanup() {
         open={purgeConvertedOpen}
         onClose={() => setPurgeConvertedOpen(false)}
         title="Delete all conversion backups?"
-        description="This permanently deletes every *.lfs_converted backup from disk. Restored originals and current library files stay. This cannot be undone."
+        description="This deletes generated playback copies and older *.lfs_converted backups. Original videos and current library files stay. Playback copies require manual conversion again; deleted restore backups cannot be recovered."
         label="Delete all forever"
         confirmation="DELETE"
         onConfirm={async () => {
@@ -551,10 +669,10 @@ export function Cleanup() {
       {data && (
         <>
           <div className="cleanup-summary">
-            <button onClick={() => setTab("duplicates")}>
+            <Button onClick={() => setTab("duplicates")}>
               <span>Duplicate candidates</span>
               <strong>{number(data.duplicates)}</strong>
-            </button>
+            </Button>
             <Link to="/duplicates">
               <span>Media duplicates</span>
               <strong>→</strong>
@@ -567,19 +685,19 @@ export function Cleanup() {
               <span>Unreviewed faces</span>
               <strong>{number(data.unreviewed)}</strong>
             </Link>
-            <button onClick={() => setTab("failed")}>
+            <Button onClick={() => setTab("failed")}>
               <span>Failed files</span>
               <strong>{number(data.failed)}</strong>
-            </button>
-            <button onClick={() => setTab("missing")}>
+            </Button>
+            <Button onClick={() => setTab("missing")}>
               <span>Missing files</span>
               <strong>{number(data.missing)}</strong>
-            </button>
-            <button onClick={() => setTab("deleted")}>
+            </Button>
+            <Button onClick={() => setTab("deleted")}>
               <span>Deleted faces</span>
               <strong>{number(data.deleted_faces)}</strong>
-            </button>
-            <button onClick={() => setTab("originals")}>
+            </Button>
+            <Button onClick={() => setTab("originals")}>
               <span>Kept originals</span>
               <strong>
                 {number(
@@ -588,8 +706,8 @@ export function Cleanup() {
                     : data.soft_originals || 0,
                 )}
               </strong>
-            </button>
-            <button onClick={() => setTab("converted")}>
+            </Button>
+            <Button onClick={() => setTab("converted")}>
               <span>Conversion backups</span>
               <strong>
                 {number(
@@ -598,7 +716,7 @@ export function Cleanup() {
                     : data.converted_backups || 0,
                 )}
               </strong>
-            </button>
+            </Button>
           </div>
           {data.embedding_errors !== null && (
             <div
@@ -632,20 +750,23 @@ export function Cleanup() {
                 ["converted", "Conversion backups"],
               ] as const
             ).map(([value, label]) => (
-              <button
+              <Button
                 key={value}
                 aria-pressed={tab === value}
                 onClick={() => setTab(value)}
               >
                 {label}
-              </button>
+              </Button>
             ))}
           </div>
+          {tab === "duplicates" && (
+            <FaceTools diagnostics={data.duplicate_diagnostics} onChanged={() => resource.reload()} />
+          )}
           {tab === "duplicates" &&
             (data.possible_people.length ? (
               <>
                 <p className="muted small-text">
-                  Only stronger matches are shown. Use{" "}
+                  Pairs are ranked by how alike their best face crops are. Use{" "}
                   <strong>Skip / not the same</strong> to hide a pair forever
                   and load fresher suggestions. Merge only when you are sure.
                   For photo/video file duplicates, open the{" "}
@@ -694,18 +815,18 @@ export function Cleanup() {
                   role="group"
                   aria-label="Deleted record type"
                 >
-                  <button
+                  <Button
                     aria-pressed={deletedTab === "faces"}
                     onClick={() => setDeletedTab("faces")}
                   >
                     Face records
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     aria-pressed={deletedTab === "media"}
                     onClick={() => setDeletedTab("media")}
                   >
                     Media records
-                  </button>
+                  </Button>
                 </div>
                 <span className="small-text muted">
                   Original files are never deleted.

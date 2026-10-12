@@ -1,5 +1,6 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
-import { exportZip, mutate, number, request } from "../api";
+import { mutate, number, request } from "../api";
 import { undoAudit, type Audited } from "../audit";
 import { OrganizeActions } from "./OrganizeActions";
 import { useAction, useApp } from "../context";
@@ -19,7 +20,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   recency: "Recent",
 };
 
-/** Virtualized hybrid-search results with selection, export and undoable delete. */
+/** Virtualized hybrid-search results with selection and undoable delete. */
 export function HybridResults({ query }: { query: HybridQuery }) {
   const key = JSON.stringify(query);
   const windowed = useWindowedPages<HybridMedia>(`hybrid:${key}`, 120, (page, limit, signal) =>
@@ -28,7 +29,8 @@ export function HybridResults({ query }: { query: HybridQuery }) {
   const selection = useSelection(key);
   const action = useAction();
   const { pushUndo } = useApp();
-  const [viewer, setViewer] = useState<number | null>(null);
+  const [viewer, setViewer] = useState<{ id: number; index: number } | null>(null);
+  const openViewer = (id: number) => setViewer({ id, index: windowed.indexOf(item => item.id === id) });
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [anchor, setAnchor] = useState<number | null>(null);
   const ids = Array.from(selection.selected);
@@ -48,15 +50,12 @@ export function HybridResults({ query }: { query: HybridQuery }) {
         </div>
         {ids.length > 0 && (
           <div className="inline-actions" role="region" aria-label="Selected results actions">
-            <button className="button small" disabled={action.busy}
-              onClick={() => void action.run(() => exportZip("/export", { media_ids: ids }), "Selected media downloaded.", false)}>
-              <Icon name="download" size={16} />Export
-            </button>
+
             <OrganizeActions ids={ids} onDone={selection.clear} />
-            <button className="button small danger-text" disabled={action.busy} onClick={() => setDeleteOpen(true)}>
+            <Button className="button small danger-text" disabled={action.busy} onClick={() => setDeleteOpen(true)}>
               <Icon name="trash" size={16} />Delete
-            </button>
-            <button className="button ghost small" onClick={selection.clear}>Clear selection</button>
+            </Button>
+            <Button className="button ghost small" onClick={selection.clear}>Clear selection</Button>
           </div>
         )}
       </div>
@@ -75,7 +74,7 @@ export function HybridResults({ query }: { query: HybridQuery }) {
           windowed={windowed as unknown as ReturnType<typeof useWindowedPages<Media>>}
           selected={selection.selected}
           label="Search results"
-          onOpen={setViewer}
+          onOpen={openViewer}
           onClear={selection.clear}
           onSelectAll={() => selection.addRange(windowed.loaded.map((item) => item.id))}
           onDelete={() => { if (ids.length) setDeleteOpen(true); }}
@@ -87,7 +86,11 @@ export function HybridResults({ query }: { query: HybridQuery }) {
         />
       )}
       {viewer !== null && (
-        <MediaViewer id={viewer} ids={windowed.loaded.map((item) => item.id)} onClose={() => setViewer(null)} />
+        <MediaViewer id={viewer.id} onClose={() => setViewer(null)} paging={{ index: viewer.index, total: windowed.count,
+          onStep: async delta => {
+            const item = await windowed.getItemAt(viewer.index + delta);
+            if (item) setViewer({ id: item.id, index: viewer.index + delta });
+          } }} />
       )}
       <ConfirmDialog
         open={deleteOpen}

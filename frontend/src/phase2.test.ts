@@ -45,6 +45,13 @@ describe('timeline sections', () => {
     const marks = scrubMarks(sections, rows);
     expect(marks.filter(m => m.month === undefined).map(m => m.label).slice(0, 3)).toEqual(['2024', '2023', '2022']);
   });
+  it('keeps undated items in order without creating invalid scrubber marks', () => {
+    const sections = groupDays([['2024-01-01', 3], ['', 2]]);
+    const { rows } = layoutRows(sections, 4, 100, 52);
+    expect(sections[1].start).toBe(3);
+    expect(sectionLabel(sections[1], 'en-US')).toBe('No date');
+    expect(scrubMarks(sections, rows).every(mark => mark.year === '2024')).toBe(true);
+  });
   it('labels single days and ranges', () => {
     expect(sectionLabel({ from: '2024-03-18', to: '2024-03-01' }, 'en-US')).toBe('March 1 – 18, 2024');
     expect(sectionLabel({ from: '2024-03-20', to: '2024-03-20' }, 'en-US')).toContain('March 20, 2024');

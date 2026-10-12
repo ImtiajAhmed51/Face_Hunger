@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
 import { bytes, mutate, number } from "../api";
 import { useAction, useApp } from "../context";
@@ -29,7 +30,7 @@ interface BackupList { items: { name: string; bytes: number; created_at: string 
 
 const STORAGE_LABELS: Record<string, string> = {
   database: "Database", face_embeddings: "Face embeddings", media_embeddings: "Legacy visual embeddings",
-  vector_stores: "Embedding stores", thumbnails: "Thumbnails", video_previews: "Video previews", backups: "Backups & exports",
+  vector_stores: "Embedding stores", thumbnails: "Thumbnails", video_previews: "Video previews", backups: "Backups",
 };
 const TONE = { error: "red", warning: "amber", info: "" } as const;
 
@@ -65,11 +66,11 @@ export function Health() {
         title="Library health"
         description="Missing files, index integrity, storage and backups. Checks only report problems; nothing is changed or deleted."
         actions={
-          <button className="button primary" disabled={!!checking || action.busy}
+          <Button className="button primary" disabled={!!checking || action.busy}
             onClick={() => void action.run(() => mutate("/health/check", {}), "Integrity check started.")}>
             <Icon name="shield" size={16} />
             {checking ? `Checking… ${progressText(checking)}` : "Run integrity check"}
-          </button>
+          </Button>
         }
       />
       <ErrorNotice error={summary.error || library.error} retry={() => { summary.reload(); library.reload(); }} />
@@ -138,10 +139,10 @@ export function Health() {
             <section className="settings-section" aria-labelledby="embeddings-heading">
               <div className="section-heading">
                 <div><h2 id="embeddings-heading">Embeddings</h2><p>Coverage of each model's store</p></div>
-                <button className="button small" disabled={action.busy}
+                <Button className="button small" disabled={action.busy}
                   onClick={() => void action.run(() => mutate("/jobs", { kind: "embed_backfill", priority: 80 }), "Embedding job queued.")}>
                   <Icon name="spark" size={16} />Compute missing
-                </button>
+                </Button>
               </div>
               <ul className="health-bars">
                 {data.embeddings.map((space) => (
@@ -179,11 +180,11 @@ export function Health() {
             <section className="settings-section" aria-labelledby="backup-heading">
               <div className="section-heading"><div><h2 id="backup-heading">Backups</h2>
                 <p>Index, embeddings and people. Originals are never included.</p></div></div>
-              <button className="button small" disabled={!!exporting || action.busy}
+              <Button className="button small" disabled={!!exporting || action.busy}
                 onClick={() => void action.run(() => mutate("/backup/export", {}), "Backup started.")}>
                 <Icon name="download" size={16} />
                 {exporting ? `Backing up… ${progressText(exporting)}` : "Create backup"}
-              </button>
+              </Button>
               {restoring && <p className="small-text muted" role="status">Verifying backup… {progressText(restoring)}</p>}
               {!backups.data?.items.length ? (
                 <p className="muted small-text">No backups yet. They are written to your data folder under exports/.</p>
@@ -193,7 +194,7 @@ export function Health() {
                     <li key={item.name}>
                       <span>{new Date(item.created_at).toLocaleString()} · {bytes(item.bytes)}</span>
                       <a className="text-link" href={`/api/backup/files/${item.name}`} download>Download</a>
-                      <button className="text-link" onClick={() => setRestore(item.name)}>Restore…</button>
+                      <Button className="text-link" onClick={() => setRestore(item.name)}>Restore…</Button>
                     </li>
                   ))}
                 </ul>

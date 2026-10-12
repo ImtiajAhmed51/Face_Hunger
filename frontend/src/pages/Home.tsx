@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { mutate, number } from "../api";
@@ -45,7 +46,7 @@ export function EngineStatus({ engine }: { engine: Engine }) {
       </p>
       {engine.error && <ErrorNotice error={engine.error} />}
       {engine.state !== "ready" && (
-        <button
+        <Button
           className="button small"
           disabled={action.busy || engine.state === "loading"}
           onClick={() =>
@@ -56,7 +57,7 @@ export function EngineStatus({ engine }: { engine: Engine }) {
           {action.busy || engine.state === "loading"
             ? "Loading local model..."
             : "Load local model"}
-        </button>
+        </Button>
       )}
     </div>
   );

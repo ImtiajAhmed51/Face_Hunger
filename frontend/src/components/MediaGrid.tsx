@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import {
   useEffect,
   useMemo,
@@ -9,7 +10,6 @@ import {
   batch,
   bytes,
   dateLabel,
-  exportZip,
   mutate,
   number,
   queryString,
@@ -44,8 +44,18 @@ import { OrganizeActions } from './OrganizeActions';
 import { undoAudit, type Audited } from '../audit';
 import { useWindowedPages } from '../virtual/useWindowedPages';
 import { idsBetween } from '../virtual/geometry';
+import { useMinCell } from '../virtual/useMinCell';
 import { useLqip } from '../lqip';
 import { useConversionStatuses } from '../conversionStatuses';
+
+interface PurgeResult { deleted_files: number; removed_from_index: number; failed: { id: number; error: string }[] }
+
+/** A permanent delete that could not remove some files must say so, not report success. */
+function purgeProblem(result: PurgeResult): void {
+  if (!result.failed.length) return;
+  const done = result.removed_from_index;
+  throw new Error(`${result.failed.length} item(s) could not be deleted${done ? ` (${done} were)` : ""}. ${result.failed[0].error}`);
+}
 
 function getAspectRatio(item: Media): number {
   const w = item.width;
@@ -92,7 +102,7 @@ export function MediaCard({
               className="media-image"
               style={mosaic ? { aspectRatio: String(aspectRatio) } : undefined}
             >
-              <button
+              <Button
                 className="image-button"
                 onClick={() => onOpen(item.id)}
                 aria-label={`Open ${item.name}`}
@@ -101,13 +111,13 @@ export function MediaCard({
                   <VideoHoverPreview id={item.id} name={item.name} />
                 ) : (
                   <Thumbnail
-                    src={`/api/media/${item.id}/thumbnail${item.edit_version ? `?v=${item.edit_version}` : ""}`}
+                    src={`/api/media/${item.id}/thumbnail?size=384${item.edit_version ? `&v=${item.edit_version}` : ""}`}
                     alt={item.name}
                     icon="photo"
                     placeholder={item.edited ? undefined : placeholder}
                   />
                 )}
-              </button>
+              </Button>
               {onSelect && (
                 <label
                   className="select-check"
@@ -151,6 +161,12 @@ export function MediaCard({
                       : "Failed"}
                 </span>
               )}
+              {item.offline && !item.missing && !item.deleted_at && (
+                <span className="media-warning media-offline" title="The original is on a library that is offline. Thumbnails and search still work.">
+                  <Icon name="alert" size={13} />
+                  Offline
+                </span>
+              )}
               {item.kind === "video" && conversionMap[item.id] && (
                 <span
                   className={`media-convert-badge tone-${conversionMap[item.id].status}`}
@@ -164,7 +180,9 @@ export function MediaCard({
                       <Icon name="alert" size={12} /> Failed
                     </>
                   ) : conversionMap[item.id].status === "completed" ? (
-                    <>Ready</>
+                    <>Converted</>
+                  ) : conversionMap[item.id].status === "needs_conversion" ? (
+                    <>Convert to play</>
                   ) : conversionMap[item.id].status === "pending" ? (
                     <>Queued</>
                   ) : (
@@ -300,6 +318,7 @@ export function VirtualMediaGrid({
   label?: string;
 }) {
   const paintRef = usePaintSelect();
+  const minCell = useMinCell(160, 140, 112);
   const conversionMap = useConversionStatuses(windowed.loaded);
   const placeholders = useLqip(windowed.loaded.map((item) => item.id));
   return (
@@ -308,11 +327,11 @@ export function VirtualMediaGrid({
       count={windowed.count}
       getItem={windowed.getItem}
       onRange={windowed.onRange}
-      minCell={190}
+      minCell={minCell}
       minColumns={2}
-      gap={14}
+      gap={4}
       aspect={1}
-      extra={74}
+      extra={0}
       onOpen={(_, item) => onOpen(item.id)}
       onToggle={(index, item, range) => onSelect(item.id, index, range ? "range" : "toggle")}
       onSelectAll={onSelectAll}
@@ -328,6 +347,7 @@ export function VirtualMediaGrid({
 }
 
 const MEDIA_SORT_OPTIONS = [
+  { value: "indexed", label: "Recently added" },
   { value: "date", label: "Newest first" },
   { value: "size_desc", label: "Size · largest" },
   { value: "size_asc", label: "Size · smallest" },
@@ -342,7 +362,9 @@ export function MediaCollection({
   emptyTitle = "Nothing here just yet",
   emptyDescription = "Add a library in Settings and run a scan. Your indexed media will appear here.",
   deletedOnly = false,
+  initialSort = "date",
 }: {
+  initialSort?: (typeof MEDIA_SORT_OPTIONS)[number]["value"];
   filters?: MediaFilters;
   tools?: boolean;
   personId?: number;
@@ -357,7 +379,7 @@ export function MediaCollection({
   const [excluded, setExcluded] = useState(false);
   const [deleted, setDeleted] = useState(false);
   const [sort, setSort] =
-    useState<(typeof MEDIA_SORT_OPTIONS)[number]["value"]>("date");
+    useState<(typeof MEDIA_SORT_OPTIONS)[number]["value"]>(initialSort);
   const [excludePeople, setExcludePeople] = useState<number[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   // Grid is virtualized (infinite scroll, smooth at 100k items); mosaic keeps paged layout.
@@ -387,6 +409,8 @@ export function MediaCollection({
   const selection = useSelection(filterKey);
   const action = useAction();
   const [viewer, setViewer] = useState<number | null>(null);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const openViewer = (id: number) => { setViewerIndex(windowed.indexOf(item => item.id === id)); setViewer(id); };
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [emptyOpen, setEmptyOpen] = useState(false);
@@ -459,7 +483,7 @@ export function MediaCollection({
       open={purgeOpen}
       onClose={() => setPurgeOpen(false)}
       title={`Permanently delete ${selectedCount} file(s)?`}
-      description="WARNING: This permanently deletes the original photos/videos from disk. They cannot be recovered from this app. Index records will also be removed. Type DELETE to confirm."
+      description="WARNING: This permanently deletes the original photos/videos from disk. Files on a network share are deleted on the computer that shares them. They cannot be recovered from this app. Index records will also be removed. Type DELETE to confirm."
       label="Delete permanently"
       confirmation="DELETE"
       onConfirm={async () => {
@@ -470,8 +494,9 @@ export function MediaCollection({
           return next;
         });
         try {
-          await mutate("/media/purge", { media_ids: target, confirm: "DELETE" });
-          selection.remove(target);
+          const result = await mutate<PurgeResult>("/media/purge", { media_ids: target, confirm: "DELETE" });
+          selection.remove(target.filter((id) => !result.failed.some((f) => f.id === id)));
+          purgeProblem(result);
         } finally {
           setHiddenIds(new Set());
         }
@@ -485,12 +510,13 @@ export function MediaCollection({
       open={emptyOpen}
       onClose={() => setEmptyOpen(false)}
       title="Empty Deleted?"
-      description="WARNING: This permanently deletes ALL soft-deleted photos/videos from disk and removes their index records. This cannot be undone. Type DELETE to confirm."
+      description="WARNING: This permanently deletes ALL soft-deleted photos/videos from disk and removes their index records. Files on a network share are deleted on the computer that shares them. This cannot be undone. Type DELETE to confirm."
       label="Empty Deleted"
       confirmation="DELETE"
       onConfirm={async () => {
-        await mutate("/media/empty-deleted", { confirm: "DELETE" });
+        const result = await mutate<PurgeResult>("/media/empty-deleted", { confirm: "DELETE" });
         selection.clear();
+        purgeProblem(result);
       }}
       success="All soft-deleted files permanently removed from disk."
     />
@@ -528,23 +554,23 @@ export function MediaCollection({
             </select>
           </label>
           <div className="segmented" role="group" aria-label="Gallery layout">
-            <button
+            <Button
               type="button"
               aria-pressed={layout === "mosaic"}
               onClick={() => setLayout("mosaic")}
             >
               Mosaic
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               aria-pressed={layout === "grid"}
               onClick={() => setLayout("grid")}
             >
               Grid
-            </button>
+            </Button>
           </div>
           {!deletedOnly && !filters?.no_faces && (
-            <button
+            <Button
               type="button"
               className="button small"
               onClick={() => setPickerOpen(true)}
@@ -552,7 +578,7 @@ export function MediaCollection({
               <Icon name="hidden" size={16} />
               Hide people
               {excludePeople.length ? ` (${excludePeople.length})` : ""}
-            </button>
+            </Button>
           )}
           {!deletedOnly && (
             <>
@@ -575,7 +601,7 @@ export function MediaCollection({
             </>
           )}
           {deletedOnly && (
-            <button
+            <Button
               type="button"
               className="button small danger-text"
               disabled={action.busy || !(resource.data?.total)}
@@ -583,7 +609,7 @@ export function MediaCollection({
             >
               <Icon name="trash" size={16} />
               Empty Deleted
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -600,13 +626,13 @@ export function MediaCollection({
                 }
               />
             ))}
-            <button
+            <Button
               type="button"
               className="button ghost small"
               onClick={() => setExcludePeople([])}
             >
               Clear all
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -632,13 +658,13 @@ export function MediaCollection({
           />
         </div>
         <div className="dialog-footer">
-          <button
+          <Button
             type="button"
             className="button primary"
             onClick={() => setPickerOpen(false)}
           >
             Done
-          </button>
+          </Button>
         </div>
       </Dialog>
       <div className="collection-bar">
@@ -664,42 +690,16 @@ export function MediaCollection({
           </span>
           {resource.refreshing && <Badge>Updating</Badge>}
         </div>
-        <button
-          className="button small"
-          disabled={!resource.data?.total || action.busy || resource.loading}
-          onClick={() =>
-            void action.run(
-              () => exportZip("/export", { filters: actualFilters }),
-              "Matching originals and manifest downloaded.",
-              false,
-            )
-          }
-        >
-          <Icon name="download" size={16} />
-          {action.busy ? "Working..." : "Export results"}
-        </button>
+
       </div>
       {selectedCount > 0 && (
         <div className="selection-toolbar" role="region" aria-label="Selected media actions">
           <strong>{selectedCount} selected</strong>
           <div className="inline-actions">
-            <button
-              className="button small"
-              disabled={action.busy}
-              onClick={() =>
-                void action.run(
-                  () => exportZip("/export", { media_ids: ids }),
-                  "Selected media downloaded.",
-                  false,
-                )
-              }
-            >
-              <Icon name="download" size={16} />
-              Export
-            </button>
+
             {!deletedOnly && <OrganizeActions ids={ids} onDone={selection.clear} />}
             {personId && (
-              <button
+              <Button
                 className="button small"
                 disabled={action.busy}
                 onClick={() =>
@@ -717,11 +717,11 @@ export function MediaCollection({
               >
                 <Icon name="hidden" size={16} />
                 Exclude for person
-              </button>
+              </Button>
             )}
             {deletedOnly || pageSelected.some((item) => !!item.deleted_at) ? (
               <>
-                <button
+                <Button
                   className="button small"
                   disabled={action.busy}
                   onClick={() => {
@@ -740,33 +740,33 @@ export function MediaCollection({
                 >
                   <Icon name="restore" size={16} />
                   Restore
-                </button>
-                <button
+                </Button>
+                <Button
                   className="button small danger-text"
                   disabled={action.busy}
                   onClick={() => setPurgeOpen(true)}
                 >
                   <Icon name="trash" size={16} />
                   Delete permanently
-                </button>
+                </Button>
               </>
             ) : (
-              <button
+              <Button
                 className="button small danger-text"
                 disabled={action.busy}
                 onClick={() => setDeleteOpen(true)}
               >
                 <Icon name="trash" size={16} />
                 Delete
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               className="button ghost small"
               onClick={selection.clear}
               disabled={action.busy}
             >
               Clear selection
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -784,7 +784,7 @@ export function MediaCollection({
           windowed={windowed}
           selected={selection.selected}
           onSelect={handleVirtualSelect}
-          onOpen={setViewer}
+          onOpen={openViewer}
           onSelectAll={() => selection.addRange(items.map((item) => item.id))}
           onClear={selection.clear}
           onDelete={() => { if (selectedCount && !deletedOnly) setDeleteOpen(true); }}
@@ -795,7 +795,7 @@ export function MediaCollection({
           items={items}
           selected={selection.selected}
           onSelect={handleSelect}
-          onOpen={setViewer}
+          onOpen={openViewer}
           layout={layout}
         />
       )}
@@ -818,6 +818,10 @@ export function MediaCollection({
         <MediaViewer
           id={viewer}
           ids={items.map((item) => item.id)}
+          paging={virtual ? { index: viewerIndex, total: windowed.count, onStep: async delta => {
+            const item = await windowed.getItemAt(viewerIndex + delta);
+            if (item) { setViewerIndex(viewerIndex + delta); setViewer(item.id); }
+          } } : undefined}
           onClose={() => setViewer(null)}
         />
       )}

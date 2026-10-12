@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { bytes, dateLabel, mutate, number } from "../api";
 import { undoAudit } from "../audit";
@@ -168,10 +169,10 @@ export function DuplicateResolver({ groups, onClose, title }: { groups: Resolver
         <ErrorNotice error={action.error} />
       </div>
       <div className="dialog-footer">
-        <button className="button" onClick={onClose}>{t("common.close")}</button>
-        <button className="button primary" disabled={!totals.removed || action.busy} onClick={resolve}>
+        <Button className="button" onClick={onClose}>{t("common.close")}</Button>
+        <Button className="button primary" disabled={!totals.removed || action.busy} onClick={resolve}>
           {t("dupes.resolveAll", { count: number(totals.removed), size: bytes(totals.bytesFreed) })}
-        </button>
+        </Button>
       </div>
     </Dialog>
   );
@@ -193,14 +194,14 @@ export function ResolverLauncher({ groups }: { groups: ResolverGroup[] }) {
         <p className="small-text muted">{t("dupes.estimateHelp")}</p>
       </div>
       <div className="inline-actions">
-        <button className="button primary" disabled={!resolvable.length} onClick={() => setOpen("dupes")}>{t("dupes.review")}</button>
-        <button className="button" disabled={!bursts.data?.groups.length} onClick={() => setOpen("bursts")}>
+        <Button className="button primary" disabled={!resolvable.length} onClick={() => setOpen("dupes")}>{t("dupes.review")}</Button>
+        <Button className="button" disabled={!bursts.data?.groups.length} onClick={() => setOpen("bursts")}>
           {t("dupes.reviewBursts", { count: number(bursts.data?.groups.length ?? 0) })}
-        </button>
+        </Button>
         {!!bin.data?.files && (
-          <button className="button danger-text" onClick={() => setEmptying(true)}>
+          <Button className="button danger-text" onClick={() => setEmptying(true)}>
             {t("dupes.emptyBin", { size: bytes(bin.data.bytes) })}
-          </button>
+          </Button>
         )}
       </div>
       <ConfirmDialog open={emptying} onClose={() => setEmptying(false)} title={t("dupes.emptyBin", { size: bytes(bin.data?.bytes ?? 0) })}

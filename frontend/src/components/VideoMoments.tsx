@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { request, timeLabel } from "../api";
@@ -25,11 +26,11 @@ export function MomentResults({ text, people }: { text: string; people?: number[
       <div className="section-heading"><div><h2 id="moments-heading">{t("video.moments")}</h2><p>{t("video.momentsHelp")}</p></div></div>
       <div className="moment-grid">
         {items.map((m) => (
-          <button key={m.keyframe_id} className="moment-card" onClick={() => setOpen(m)}
+          <Button key={m.keyframe_id} className="moment-card" onClick={() => setOpen(m)}
             aria-label={`${m.name}, ${t("video.seek", { time: timeLabel(m.t) })}`}>
             <img src={`/api/keyframes/${m.keyframe_id}/image`} alt="" loading="lazy" />
             <span className="small-text"><strong>{timeLabel(m.t)}</strong> · <span className="muted">{m.name}</span></span>
-          </button>
+          </Button>
         ))}
       </div>
       {open && <MediaViewer id={open.media_id} timestamp={open.t} onClose={() => setOpen(null)} />}
@@ -57,8 +58,8 @@ export function PersonVideoMoments({ personId }: { personId: number }) {
               <strong>{m.name}</strong>
               <div className="video-chips">
                 {m.segments.map((s) => (
-                  <button key={s.start} className="badge" onClick={() => setOpen({ id: m.media_id, t: s.start })}
-                    aria-label={t("video.seek", { time: timeLabel(s.start) })}>{timeLabel(s.start)}–{timeLabel(s.end)}</button>
+                  <Button key={s.start} className="badge" onClick={() => setOpen({ id: m.media_id, t: s.start })}
+                    aria-label={t("video.seek", { time: timeLabel(s.start) })}>{timeLabel(s.start)}–{timeLabel(s.end)}</Button>
                 ))}
               </div>
             </div>

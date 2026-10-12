@@ -6,9 +6,15 @@ import { reconcileList } from './animatedList';
 import type { AnimatedEntry } from './animatedList';
 export type { AnimPhase, AnimatedEntry } from './animatedList';
 
-export function refreshData(): void {
+export function refreshData(options?: { removedPrefix?: string }): void {
+  const removed = (path: unknown) => typeof path === 'string' && !!options?.removedPrefix &&
+    (path.split('?')[0] === options.removedPrefix || path.startsWith(`${options.removedPrefix}/`));
+  if (options?.removedPrefix) {
+    void queryClient.cancelQueries({ predicate: query => removed(query.queryKey[1]) });
+    void queryClient.invalidateQueries({ predicate: query => removed(query.queryKey[1]), refetchType: 'none' });
+  }
   invalidateResourceRequests();
-  void queryClient.invalidateQueries({ predicate: query => !query.meta?.noGlobalRefresh });
+  void queryClient.invalidateQueries({ predicate: query => !query.meta?.noGlobalRefresh && !removed(query.queryKey[1]) });
   window.dispatchEvent(new Event('lfs:refresh'));
 }
 

@@ -1,3 +1,4 @@
+import { Button } from "@/components/primitives/button";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { batch, mutate, percent, timeLabel } from "../api";
@@ -22,7 +23,7 @@ export function FaceTile({
   return (
     <article className={`face-tile ${selected ? "selected" : ""}`}>
       <div className="face-image">
-        <button
+        <Button
           className="image-button"
           onClick={onOpen}
           aria-label={`Open source for ${face.display_name}, face ${face.id}`}
@@ -32,7 +33,7 @@ export function FaceTile({
             alt={face.display_name}
             icon="people"
           />
-        </button>
+        </Button>
         {onSelect && (
           <label className="select-check">
             <input
@@ -128,20 +129,20 @@ export function MoveFacesDialog({
             Original photos and videos stay untouched.
           </p>
           <div className="segmented" role="group" aria-label="Move destination">
-            <button
+            <Button
               type="button"
               aria-pressed={mode === "existing"}
               onClick={() => setMode("existing")}
             >
               Existing person
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               aria-pressed={mode === "new"}
               onClick={() => setMode("new")}
             >
               Split into new person
-            </button>
+            </Button>
           </div>
           {mode === "new" ? (
             <label className="field">
@@ -159,13 +160,13 @@ export function MoveFacesDialog({
                 <div className="chosen-person">
                   <Icon name="people" />
                   <strong>{target.display_name}</strong>
-                  <button
+                  <Button
                     className="button ghost small"
                     type="button"
                     onClick={() => setTarget(null)}
                   >
                     Change
-                  </button>
+                  </Button>
                 </div>
               )}
               <PersonPicker onSelect={setTarget} label="Move faces to" />
@@ -174,15 +175,15 @@ export function MoveFacesDialog({
           <ErrorNotice error={action.error} />
         </div>
         <div className="dialog-footer">
-          <button
+          <Button
             className="button"
             type="button"
             onClick={onClose}
             disabled={action.busy}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             className="button primary"
             disabled={
               action.busy || !faces.length || (mode === "existing" && !target)
@@ -193,7 +194,7 @@ export function MoveFacesDialog({
               : mode === "new"
                 ? "Create person & move"
                 : "Move faces"}
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>
@@ -210,6 +211,7 @@ export function FaceActions({
   allowPermanent?: boolean;
 }) {
   const action = useAction();
+  const { pushUndo } = useApp();
   const [dialog, setDialog] = useState<"move" | "delete" | "permanent" | null>(
     null,
   );
@@ -234,6 +236,10 @@ export function FaceActions({
   const run = async (fn: () => Promise<unknown>, message: string) => {
     if (await action.run(fn, message)) onDone?.();
   };
+  const review = async (decision: "yes" | "no") => {
+    const result = await mutate<{ audit_id?: number }>("/faces/review", { face_ids: active.map(face => face.id), decision });
+    if (result.audit_id !== undefined) pushUndo(`Reviewed ${active.length} faces`, undoAudit(result.audit_id));
+  };
   return (
     <div
       className="face-actions"
@@ -242,48 +248,44 @@ export function FaceActions({
     >
       {!!active.length && (
         <>
-          <button
+          <Button
             className="button small"
             disabled={action.busy}
             onClick={() =>
               void run(
                 () =>
-                  batch(active, (face) =>
-                    mutate(`/faces/${face.id}/review`, { decision: "yes" }),
-                  ),
+                  review("yes"),
                 "Faces confirmed.",
               )
             }
           >
             <Icon name="check" size={16} />
             Confirm
-          </button>
-          <button
+          </Button>
+          <Button
             className="button small"
             disabled={action.busy}
             onClick={() =>
               void run(
                 () =>
-                  batch(active, (face) =>
-                    mutate(`/faces/${face.id}/review`, { decision: "no" }),
-                  ),
+                  review("no"),
                 "Incorrect matches rejected.",
               )
             }
           >
             <Icon name="close" size={16} />
             Not them
-          </button>
-          <button
+          </Button>
+          <Button
             className="button small"
             disabled={action.busy}
             onClick={() => setDialog("move")}
           >
             <Icon name="merge" size={16} />
             Move / split
-          </button>
+          </Button>
           {!!pairs.length && (
-            <button
+            <Button
               className="button small"
               disabled={action.busy}
               onClick={() =>
@@ -309,20 +311,20 @@ export function FaceActions({
             >
               <Icon name={allExcluded ? "eye" : "hidden"} size={16} />
               {allExcluded ? "Include" : "Exclude"}
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             className="button small danger-text"
             disabled={action.busy}
             onClick={() => setDialog("delete")}
           >
             <Icon name="trash" size={16} />
             Delete
-          </button>
+          </Button>
         </>
       )}
       {!!deleted.length && (
-        <button
+        <Button
           className="button small"
           disabled={action.busy}
           onClick={() =>
@@ -335,16 +337,16 @@ export function FaceActions({
         >
           <Icon name="restore" size={16} />
           Restore
-        </button>
+        </Button>
       )}
       {allowPermanent && !!deleted.length && (
-        <button
+        <Button
           className="button small danger-text"
           disabled={action.busy}
           onClick={() => setDialog("permanent")}
         >
           Delete permanently
-        </button>
+        </Button>
       )}
       {dialog === "move" && (
         <MoveFacesDialog
