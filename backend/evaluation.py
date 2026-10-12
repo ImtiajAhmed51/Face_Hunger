@@ -31,7 +31,7 @@ def _labeled_pairs(db) -> List[Tuple[int, int, np.ndarray]]:
         JOIN media m ON m.id = f.media_id
         JOIN people p ON p.id = f.person_id
         WHERE f.deleted_at IS NULL AND m.deleted_at IS NULL AND m.missing = 0
-          AND f.review_state = 'confirmed'
+          AND f.review_state = 'confirmed' AND f.manual = 1
           AND TRIM(COALESCE(p.name, '')) != ''
         ORDER BY f.id
         """
@@ -68,7 +68,7 @@ def evaluate(db, store, matching_threshold: Optional[float] = None) -> Optional[
         return None
 
     # Build leave-one-out centroids
-    tp = fp = fn = tn = 0
+    tp = fp = fn = 0
     scores_correct: List[float] = []
     scores_wrong: List[float] = []
 
@@ -76,14 +76,19 @@ def evaluate(db, store, matching_threshold: Optional[float] = None) -> Optional[
         others = {k: v for k, v in by_person.items() if k != pid}
         if not others:
             continue
-        # Centroid of this person from all their faces
-        own_cent = normalize(np.mean([v for _, v in faces], axis=0))
+        if len(faces) < 2:
+            continue
+        own_sum = np.sum([v for _, v in faces], axis=0, dtype=np.float64)
         other_cents = {
             opid: normalize(np.mean([v for _, v in ofs], axis=0))
             for opid, ofs in others.items()
         }
         for fid, vec in faces:
             # Similarity to own person
+            try:
+                own_cent = normalize(own_sum - vec)
+            except ValueError:
+                continue
             sim_own = float(vec @ own_cent)
             scores_correct.append(sim_own)
             # Best wrong match
@@ -93,15 +98,11 @@ def evaluate(db, store, matching_threshold: Optional[float] = None) -> Optional[
             matched_wrong = best_wrong >= threshold
             if matched_own and not matched_wrong:
                 tp += 1
-            elif matched_wrong and matched_own:
-                # Ambiguous: count as FP for safety (prefer precision)
-                fp += 1
-            elif matched_wrong and not matched_own:
-                fp += 1
-            elif not matched_own:
-                fn += 1
             else:
-                tn += 1
+                fn += 1
+                if matched_wrong:
+                    fp += 1
+
 
     precision = tp / (tp + fp) if (tp + fp) else 1.0
     recall = tp / (tp + fn) if (tp + fn) else 0.0
@@ -115,7 +116,7 @@ def evaluate(db, store, matching_threshold: Optional[float] = None) -> Optional[
 
     return {
         "threshold": threshold,
-        "n_faces": len(rows),
+        "n_faces": len(scores_correct),
         "n_people": len(by_person),
         "tp": tp,
         "fp": fp,
@@ -123,7 +124,9 @@ def evaluate(db, store, matching_threshold: Optional[float] = None) -> Optional[
         "precision": round(precision, 4),
         "recall": round(recall, 4),
         "f_beta": round(f_beta, 4),
+        "false_match_rate": round(fp / len(scores_correct), 4) if scores_correct else None,
+        "missed_match_rate": round(fn / len(scores_correct), 4) if scores_correct else None,
         "mean_correct_sim": round(float(np.mean(scores_correct)), 4) if scores_correct else None,
         "mean_wrong_sim": round(float(np.mean(scores_wrong)), 4) if scores_wrong else None,
-        "note": "Leave-one-out on confirmed+named faces only. Expand the labeled set for reliable numbers.",
+        "note": "Leave-one-out on manually confirmed named faces only. Expand the labeled set for reliable numbers.",
     }

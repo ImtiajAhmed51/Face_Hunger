@@ -442,3 +442,37 @@ Short log of choices and dependencies. One entry per decision, newest last.
 - **No automatic sending, no upload button.** The only output is a JSON file the user downloads.
 - Render timings come from the page (route name + milliseconds) and are posted only while
   diagnostics are on; when off the page makes no extra request.
+
+# Network libraries
+
+- **Absolute path stays, relative identity is added.** Every media row gets `rel_path` (NFC, forward
+  slashes) and `rel_key` (NFC, case-folded, Windows trailing dots/spaces removed). `media.path` is
+  kept as "where it was last seen" because the whole app reads it; relinking rewrites it from
+  `rel_path` in one pass, so nothing is re-indexed. A file is matched by `rel_key`, which is what
+  prevents duplicates across NFC/NFD, letter case and mount-point changes.
+- **Offline is a library state, never a file state.** A library whose root does not answer a
+  bounded probe (3 s, in a helper thread so a dead mount cannot hang the server) is `offline`:
+  scans are refused or stopped, originals are not touched, nothing is marked missing.
+- **Missing needs proof.** A file is a missing candidate only if its folder was listed in this scan
+  and the listing lacked it; the root is probed again before writing; on network libraries the file
+  must be absent in two scans.
+- **Read-only is enforced below the features.** An interpreter audit hook refuses every write,
+  rename, delete, mkdir and utime under a network library root. XMP sidecars for those libraries
+  go to the local data folder; "free space" cleanup only hides the item. Chosen over patching each
+  writer because new code is covered automatically.
+- **Mounting**: AppleScript `mount volume` with the script on stdin (password never in argv or
+  logs); Keychain through `security -i` on stdin. No new dependency (`keyring` was not needed).
+  Trade-off: macOS mounts read-write when credentials are given; `mount_smbfs -o rdonly` would need
+  the password in the URL.
+- **No file events over SMB**: network libraries are polled (15 min default). A poll is a *quick*
+  scan that only stats known folders and lists the ones whose mtime changed; a full listing runs
+  every 24 h and on "Scan now", which also catches in-place edits that do not change a folder's mtime.
+- **Folder browser** answers only to a loopback client or a signed-in session (app lock), and needs
+  the CSRF header even for GET. Confirming a folder in the chooser adds it to the persisted allowed
+  roots (`allowed_roots` table), replacing manual `LFS_ALLOWED_ROOTS` edits.
+- **Read-ahead**: up to N readers (default 4) read upcoming files into the OS cache in discarded
+  1 MiB chunks; memory stays flat. A file that cannot be read in 120 s is recorded as unreadable and
+  the scan continues.
+- **One exception to read-only (owner's decision, 2026-10-10):** a permanent delete confirmed by typing
+  DELETE removes the original on the share too. The write guard lets the deleting thread unlink exactly
+  that path and nothing else; edits, sidecars, cleanup "free space", conversion and renames stay refused.

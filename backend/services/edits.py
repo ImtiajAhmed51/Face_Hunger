@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from .. import edits as model
+from ..netlib import is_protected
 
 FIELDS = ("rotation", "flip_h", "flip_v", "crop", "rating", "label", "flag")
 
@@ -79,6 +80,9 @@ class EditService:
         return [original.with_name(original.name + ".xmp"), original.with_suffix(".xmp")]
 
     def _sidecar_target(self, media_id: int, original: Path, current: Optional[str]) -> Path:
+        local = self.s.config.data_dir / "sidecars" / f"{media_id}.xmp"
+        if is_protected(original):
+            return local  # network library: read-only, the sidecar lives in the local data folder
         if current and Path(current).exists():
             return Path(current)
         for candidate in self.sidecar_candidates(original):

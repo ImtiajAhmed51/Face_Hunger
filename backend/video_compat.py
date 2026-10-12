@@ -1,12 +1,13 @@
 """Automatic lossless-first video conversion for browser playback.
 
 Flow: probe → remux (stream copy) or lossless re-encode → verify →
-finalize MP4 → soft-keep original (*.lfs_original) → update DB.
-Original is never permanently deleted; only renamed aside after success.
+finalize a separate cached MP4; never replace the source or update its database path.
+Original files and database media paths remain unchanged; verified playback copies are cached locally.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -28,7 +29,7 @@ _BROWSER_AUDIO = frozenset({"aac", "mp3", "mp4a", "opus", "vorbis", "flac"})
 
 # Stream-copy remux into MP4 when already H.264 (+ compatible audio)
 _REMUX_VIDEO = frozenset({"h264", "avc1", "avc"})
-_REMUX_AUDIO = frozenset({"aac", "mp3", "mp4a", "alac"})  # ac3 often fails in browsers
+_REMUX_AUDIO = frozenset({"aac", "mp3", "mp4a"})  # AC3/ALAC need browser-compatible audio encoding
 
 # Callback: (media_id, new_path, new_name, size, mtime_ns, width, height, duration) -> None
 DbUpdateFn = Callable[[int, Path, str, int, int, Optional[int], Optional[int], Optional[float], Optional[Path]], None]
@@ -66,6 +67,8 @@ class ProbeInfo:
         if fmt not in _BROWSER_CONTAINERS and "mp4" not in fmt_blob:
             return False
         vc = (self.video_codec or "").lower()
+        if vc in ("h264", "avc1", "avc") and self.pix_fmt not in (None, "yuv420p", "yuvj420p"):
+            return False
         if not vc or vc not in _BROWSER_VIDEO:
             return False
         if vc in ("hevc", "h265", "hev1", "hvc1"):
@@ -78,6 +81,8 @@ class ProbeInfo:
     def can_remux_to_mp4(self) -> bool:
         vc = (self.video_codec or "").lower()
         ac = (self.audio_codec or "").lower()
+        if vc in _REMUX_VIDEO and self.pix_fmt not in (None, "yuv420p", "yuvj420p"):
+            return False
         if vc not in _REMUX_VIDEO:
             return False
         if ac and ac not in _REMUX_AUDIO:
@@ -97,7 +102,7 @@ class ConversionState:
 
 
 class VideoCompatService:
-    """On-demand conversion with real FFmpeg progress, safe replace, per-media locks."""
+    """On-demand playback copies with FFmpeg progress and per-media locks."""
 
     # Only one heavy FFmpeg job at a time — protects MacBook Air / shared machines.
     MAX_CONCURRENT = 1
@@ -113,6 +118,12 @@ class VideoCompatService:
         self._running: set[int] = set()  # media_ids currently inside FFmpeg
         self._ffmpeg_slots = threading.Semaphore(self.MAX_CONCURRENT)
         self._cleanup_stale_temps()
+
+    def playback_path(self, media_id: int, source: Path) -> Path:
+        stat = source.stat()
+        identity = f"browser-v1:{source.resolve()}:{stat.st_size}:{stat.st_mtime_ns}"
+        key = hashlib.sha256(identity.encode()).hexdigest()[:24]
+        return self.work_dir / f"{media_id}-{key}.mp4"
 
     def _cleanup_stale_temps(self) -> None:
         """Remove incomplete temp outputs left after a crash."""
@@ -275,6 +286,7 @@ class VideoCompatService:
         source: Path,
         *,
         start_if_needed: bool = True,
+        force: bool = False,
     ) -> tuple[bool, ConversionState]:
         """Return (ready_to_serve_original_or_converted, state).
 
@@ -291,11 +303,11 @@ class VideoCompatService:
             )
             return False, state
 
-        existing = self.get_state(media_id)
-        if existing.status in ("completed", "ready") and existing.ready:
-            # Path may have been replaced — re-check file still exists
-            if source.is_file() or Path(str(source).rsplit(".", 1)[0] + ".mp4").is_file():
-                return True, existing
+        cached = self.playback_path(media_id, source)
+        if not force and cached.is_file() and cached.stat().st_size > 0 and (cached_probe := self.probe(cached)) and cached_probe.browser_compatible():
+            state = self._set_state(media_id, status="completed", progress=100,
+                stage="Ready", ready=True, mode="cached", error=None, indeterminate=False)
+            return True, state
 
         with self._lock:
             if media_id in self._active:
@@ -304,7 +316,7 @@ class VideoCompatService:
                 )
 
         needs, probe = self.needs_conversion(source)
-        if not needs:
+        if not needs and not force:
             state = self._set_state(
                 media_id,
                 status="completed",
@@ -321,6 +333,8 @@ class VideoCompatService:
             # Status check only — do NOT mark as active "pending" job.
             # "pending" is reserved for an explicitly started conversion queue.
             existing_idle = self.get_state(media_id)
+            if existing_idle.status == "failed":
+                return False, existing_idle
             if existing_idle.status in (
                 "pending",
                 "analyzing",
@@ -396,7 +410,7 @@ class VideoCompatService:
 
         thread = threading.Thread(
             target=self._convert_worker,
-            args=(media_id, source, probe),
+            args=(media_id, source, probe, force),
             name=f"video-convert-{media_id}",
             daemon=True,
         )
@@ -408,6 +422,7 @@ class VideoCompatService:
         media_id: int,
         source: Path,
         probe: Optional[ProbeInfo],
+        force: bool = False,
     ) -> None:
         media_lock = self._media_lock(media_id)
         tmp: Optional[Path] = None
@@ -449,7 +464,7 @@ class VideoCompatService:
                 if probe is None:
                     probe = self.probe(source)
 
-                if probe is not None and probe.browser_compatible():
+                if not force and probe is not None and probe.browser_compatible():
                     self._set_state(
                         media_id,
                         status="completed",
@@ -461,23 +476,13 @@ class VideoCompatService:
                     )
                     return
 
-                remux = probe is not None and probe.can_remux_to_mp4()
+                remux = not force and probe is not None and probe.can_remux_to_mp4()
                 mode = "remux" if remux else "lossless"
                 duration = probe.duration if probe else None
 
-                # Temp next to source when possible (same filesystem → atomic replace)
-                stem = source.stem
-                parent = source.parent
-                tmp = parent / f".{stem}.converting.{media_id}.mp4"
-                try:
-                    # Ensure we can write next to source
-                    parent.mkdir(parents=True, exist_ok=True)
-                    with open(tmp, "ab"):
-                        pass
-                    tmp.unlink(missing_ok=True)
-                except OSError:
-                    # Fall back to work dir
-                    tmp = self.work_dir / f"{media_id}_{stem}.converting.mp4"
+                # Generated playback copies stay in application storage, even for read-only shares.
+                final = self.playback_path(media_id, source)
+                tmp = self.work_dir / f"{media_id}.converting.mp4"
 
                 if tmp.exists():
                     try:
@@ -531,7 +536,7 @@ class VideoCompatService:
                     return
 
                 out_probe = self.probe(tmp)
-                if out_probe is None or not out_probe.video_codec:
+                if out_probe is None or not out_probe.browser_compatible():
                     self._safe_unlink(tmp)
                     self._set_state(
                         media_id,
@@ -560,63 +565,10 @@ class VideoCompatService:
                     indeterminate=True,
                 )
 
-                final = source.with_suffix(".mp4")
-                same_path = final.resolve() == source.resolve()
-                soft_kept: Optional[Path] = None
-
-                try:
-                    if same_path:
-                        # Source is already .mp4 (re-encode in place): soft-keep original first
-                        soft = self._soft_delete_path(source, media_id)
-                        try:
-                            os.replace(str(source), str(soft))
-                        except OSError as exc:
-                            self._safe_unlink(tmp)
-                            self._set_state(
-                                media_id,
-                                status="failed",
-                                progress=0,
-                                stage="Conversion failed",
-                                error=f"Could not soft-keep original: {exc}",
-                                ready=False,
-                            )
-                            return
-                        os.replace(str(tmp), str(final))
-                        tmp = None
-                        soft_kept = soft
-                        log.info(
-                            "Soft-kept original media_id=%s at %s", media_id, soft
-                        )
-                    else:
-                        os.replace(str(tmp), str(final))
-                        tmp = None
-                        # Soft-delete original (rename aside) — never permanent unlink
-                        if source.resolve() != final.resolve() and source.is_file():
-                            try:
-                                soft = self._soft_delete_path(source, media_id)
-                                os.replace(str(source), str(soft))
-                                soft_kept = soft
-                                log.info(
-                                    "Soft-kept original media_id=%s at %s",
-                                    media_id, soft,
-                                )
-                            except OSError as exc:
-                                log.warning(
-                                    "Could not soft-keep original %s: %s "
-                                    "(MP4 is ready; original still at source if move failed)",
-                                    source, exc,
-                                )
-                except OSError as exc:
-                    self._safe_unlink(tmp)
-                    self._set_state(
-                        media_id,
-                        status="failed",
-                        progress=0,
-                        stage="Conversion failed",
-                        error=f"Could not finalize converted file: {exc}",
-                        ready=False,
-                    )
-                    return
+                if final != self.playback_path(media_id, source):
+                    raise RuntimeError("Source changed during conversion; retry this video")
+                os.replace(tmp, final)
+                tmp = None
 
                 if not final.is_file() or final.stat().st_size <= 0:
                     self._set_state(
@@ -628,40 +580,6 @@ class VideoCompatService:
                         ready=False,
                     )
                     return
-
-                st = final.stat()
-                new_name = final.name
-                width = out_probe.width
-                height = out_probe.height
-                out_dur = out_probe.duration
-
-                if self.on_replaced:
-                    try:
-                        self.on_replaced(
-                            media_id,
-                            final,
-                            new_name,
-                            int(st.st_size),
-                            int(st.st_mtime_ns),
-                            width,
-                            height,
-                            out_dur,
-                            soft_kept,
-                        )
-                    except Exception as exc:
-                        log.exception("DB update after replace failed media_id=%s", media_id)
-                        # File is already replaced — mark completed but note DB issue
-                        self._set_state(
-                            media_id,
-                            status="completed",
-                            progress=100,
-                            stage="Ready",
-                            ready=True,
-                            mode=mode,
-                            error=f"File replaced but database update failed: {exc}",
-                            indeterminate=False,
-                        )
-                        return
 
                 self._set_state(
                     media_id,

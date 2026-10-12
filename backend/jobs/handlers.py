@@ -89,7 +89,10 @@ def make_ingest(services):
                 ctx.progress(current=raw, processed=len(done), total=len(paths))
                 if not path.exists():
                     with services.db.connect() as conn:
-                        missing += conn.execute("UPDATE media SET missing=1 WHERE path=? AND missing=0", (raw,)).rowcount
+                        # Only on a local library that is reachable right now; network libraries decide this in their scans.
+                        missing += conn.execute(
+                            "UPDATE media SET missing=1 WHERE path=? AND missing=0 AND library_id IN "
+                            "(SELECT id FROM libraries WHERE status='online' AND root_kind!='network')", (raw,)).rowcount
                     services.cluster.invalidate()
                 else:
                     found = library_for(services.db, services.config, path.resolve())
@@ -263,6 +266,22 @@ def make_quality_scoring(services):
     return handler
 
 
+def make_auto_identity(services):
+    """Merge People that are the same individual (see backend/auto_identity.py). Idempotent."""
+    def handler(ctx: JobContext):
+        from .. import auto_identity
+
+        settings = services.db.settings()
+        if not settings.get("auto_identity", True) and not ctx.payload.get("force"):
+            return {"processed": 1, "total": 1, "merged": 0, "skipped": "disabled"}
+        ctx.progress(force=True, phase="matching identities", processed=0, total=1)
+        level = ctx.payload.get("level") or settings.get("auto_identity_level", "balanced")
+        result = auto_identity.run(services, level=level, apply=True, checkpoint=ctx.checkpoint)
+        return {"processed": 1, "total": 1, "merged": result["merged"], "level": level}
+
+    return handler
+
+
 def make_event_detection(services):
     """Full detection the first time (or on request), then incremental from a media-id watermark."""
     def handler(ctx: JobContext):
@@ -378,6 +397,7 @@ def register_all(services) -> None:
     jobs.register("sidecar_sync", make_sidecar_sync(services))
     jobs.register("video_analysis", make_video_analysis(services))
     jobs.register("event_detection", make_event_detection(services))
+    jobs.register("auto_identity", make_auto_identity(services))
     jobs.register("quality_scoring", make_quality_scoring(services))
     jobs.register("metadata_backfill", make_metadata_backfill(services))
     jobs.register("integrity_check", make_integrity_check(services))

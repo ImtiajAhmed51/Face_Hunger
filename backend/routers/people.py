@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from ..deps import cluster, config, db, services
 from ..schemas import MergeBody, MoveMediaBody, NameBody
 from ..services.exporting import _stream_export
-from ..services.presenters import _now, _page, _person_row, _require_csrf
+from ..services.presenters import _face_row, _now, _page, _person_row, _require_csrf, _review_threshold
 
 router = APIRouter()
 
@@ -76,6 +76,24 @@ def get_person(person_id: int):
     if not row:
         raise HTTPException(404, "Person not found")
     return _person_row(row)
+
+
+@router.get("/api/people/{person_id}/faces")
+def person_faces(person_id: int, page: int = 1, limit: int = 60, deleted: bool = False):
+    """Bounded face pages, including every video track, without per-media requests."""
+    if not db.one("SELECT id FROM people WHERE id=?", (person_id,)):
+        raise HTTPException(404, "Person not found")
+    page, limit = max(1, page), max(1, min(limit, 120))
+    where = "f.person_id=? AND f.deleted_at IS " + ("NOT NULL" if deleted else "NULL AND m.deleted_at IS NULL")
+    total = db.one(f"SELECT COUNT(*) c FROM faces f JOIN media m ON m.id=f.media_id WHERE {where}", (person_id,))["c"]
+    rows = db.all(
+        f"""SELECT f.*, p.name AS _person_name,
+            EXISTS(SELECT 1 FROM exclusions e WHERE e.person_id=f.person_id AND e.media_id=f.media_id) AS _excluded
+            FROM faces f JOIN media m ON m.id=f.media_id LEFT JOIN people p ON p.id=f.person_id
+            WHERE {where} ORDER BY COALESCE(m.captured_at,m.indexed_at) DESC, m.id DESC, f.timestamp, f.id
+            LIMIT ? OFFSET ?""", (person_id, limit, (page - 1) * limit))
+    threshold = _review_threshold()
+    return _page([_face_row(row, threshold) for row in rows], total, page, limit)
 
 
 @router.get("/api/clusters")

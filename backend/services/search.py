@@ -51,8 +51,8 @@ def build_filters(q: dict) -> tuple[list[str], list[Any]]:
         where.append("m.captured_at <= ?")
         params.append(d + "T23:59:59" if len(d) == 10 else d)
     if (q.get("name") or "").strip():
-        where.append("m.name LIKE ?")
-        params.append(f"%{q['name'].strip()}%")
+        where.append("(m.name LIKE ? OR m.path LIKE ?)")
+        params.extend([f"%{q['name'].strip()}%", f"%{q['name'].strip()}%"] )
     active_face = ("f.media_id = m.id AND f.deleted_at IS NULL AND f.review_state != 'rejected' "
                    "AND NOT EXISTS (SELECT 1 FROM exclusions e WHERE e.media_id=f.media_id AND e.person_id=f.person_id)")
     people = [int(p) for p in q.get("people") or []]
@@ -137,8 +137,14 @@ class HybridSearch:
         if not row:
             return None, f"Face {face_id} not found"
         space = self.s.vectors.get(FACE_ARCFACE.key)
-        vec = space.vector(int(face_id))
+        try:
+            vec = space.vector(int(face_id))
+        except ValueError:
+            return None, "The selected face embedding is unavailable or corrupt; retry indexing this media item."
+        if vec is None:
+            return None, f"Face {face_id} has no embedding"
         if space._ready:
+            space.ensure_ready()
             keys, sims = space.ann.search(vec, max(want * 4, 2000))
         else:
             keys, sims = self._face_bruteforce(vec, max(want * 4, 2000))
@@ -146,9 +152,10 @@ class HybridSearch:
         if not len(keys):
             return [], None
         media = {}
+        from ..clustering import ACTIVE
         rows = self.s.db.all(
-            f"SELECT id, media_id FROM faces WHERE deleted_at IS NULL AND id IN ({','.join('?' * len(keys))})",
-            tuple(int(k) for k in keys))
+            f"SELECT f.id,f.media_id FROM faces f JOIN media m ON m.id=f.media_id WHERE {ACTIVE} "
+            f"AND f.id IN ({','.join('?' * len(keys))})", tuple(int(k) for k in keys))
         by_face = {r["id"]: r["media_id"] for r in rows}
         allowed_set = set(allowed.tolist()) if allowed is not None else None
         for key, sim in zip(keys.tolist(), sims.tolist()):
@@ -160,25 +167,37 @@ class HybridSearch:
         return sorted(media.items(), key=lambda kv: -kv[1]), None
 
     def _face_bruteforce(self, vec, k):
-        """Exact scan over embeddings.bin while the face ANN index is being built."""
-        store = self.s.store
-        n = store.path.stat().st_size // (512 * 4)
-        if not n:
-            return np.zeros(0, np.int64), np.zeros(0, np.float32)
-        mm = np.memmap(store.path, dtype="<f4", mode="r", shape=(n, 512))
-        sims = np.empty(n, np.float32)
-        for start in range(0, n, 65536):
-            sims[start:start + 65536] = mm[start:start + 65536] @ vec
-        k = min(k, n)
-        top = np.argpartition(-sims, k - 1)[:k]
-        top = top[np.argsort(-sims[top])]
-        offsets = (top * 512 * 4).tolist()
-        rows = self.s.db.all(
-            f"SELECT id, embedding_offset FROM faces WHERE embedding_offset IN ({','.join('?' * len(offsets))})",
-            tuple(offsets))
-        by_offset = {r["embedding_offset"]: r["id"] for r in rows}
-        pairs = [(by_offset[o], float(sims[i])) for i, o in zip(top.tolist(), offsets) if o in by_offset]
-        return np.array([p[0] for p in pairs], np.int64), np.array([p[1] for p in pairs], np.float32)
+        """Exact, bounded scan of authoritative active face records.
+
+        Append-only vector files also contain old/uncommitted records. Ranking
+        the whole file first lets those orphan bytes crowd valid faces out of
+        the result window, especially after retries and forced re-indexing.
+        """
+        from ..clustering import ACTIVE
+        k = max(1, int(k))
+        best_keys, best_scores = np.zeros(0, np.int64), np.zeros(0, np.float32)
+        last = 0
+        while True:
+            rows = self.s.db.all("SELECT f.id,f.embedding_offset,f.embedding_sha FROM faces f JOIN media m ON m.id=f.media_id "
+                                 "WHERE f.id>? AND " + ACTIVE + " ORDER BY f.id LIMIT 256", (last,))
+            if not rows:
+                break
+            keys, vectors = [], []
+            for row in rows:
+                try:
+                    vectors.append(self.s.store.read(row["embedding_offset"], row["embedding_sha"]))
+                    keys.append(row["id"])
+                except ValueError:
+                    continue
+            if keys:
+                scores = np.concatenate((best_scores, np.stack(vectors) @ vec))
+                ids = np.concatenate((best_keys, np.asarray(keys, np.int64)))
+                size = min(k, len(scores))
+                top = np.argpartition(-scores, size - 1)[:size]
+                best_keys, best_scores = ids[top], scores[top]
+            last = rows[-1]["id"]
+        order = np.argsort(-best_scores, kind="stable")
+        return best_keys[order], best_scores[order]
 
     def _start_face_sync(self, space):
         if self._face_sync is None or not self._face_sync.is_alive():

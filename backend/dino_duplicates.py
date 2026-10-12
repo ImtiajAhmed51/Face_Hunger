@@ -96,6 +96,9 @@ def _load_vectors(db, space) -> tuple[list[dict], np.ndarray]:
     return items, np.stack(vectors, axis=0).astype(np.float32)
 
 
+_group_cache: dict = {}
+
+
 def find_duplicate_groups(
     db,
     space,
@@ -130,6 +133,20 @@ def find_duplicate_groups(
         if similarity is not None:
             base["similarity"] = round(float(similarity) * 100, 1)
         return base
+
+    # Which items belong together only changes when the indexed set or its vectors change. The grouping
+    # (an exact nearest-neighbour pass over every vector) is remembered for that state; rows are still
+    # read fresh on every call, so names, favourites and edits are never stale.
+    vectors = db.one("SELECT COUNT(*) AS n, COALESCE(MAX(rowid), 0) AS top FROM media_vectors WHERE model_key=?",
+                     (space.key,)) if space is not None else {"n": 0, "top": 0}
+    state = (str(getattr(db, "path", "")), getattr(space, "key", None), threshold, limit, len(all_rows),
+             sum(r["id"] for r in all_rows), sum(1 for r in all_rows if r.get("content_hash")), vectors["n"], vectors["top"])
+    cached = _group_cache.get("groups")
+    if cached is not None and cached[0] == state:
+        by_id = {r["id"]: r for r in all_rows}
+        return [{**{k: v for k, v in g.items() if k != "members"},
+                 "items": [serialize(by_id[i], s / 100.0 if s is not None else None) for i, s in g["members"] if i in by_id]}
+                for g in cached[1]]
 
     groups: list[dict] = []
     seen: set[int] = set()
@@ -254,4 +271,7 @@ def find_duplicate_groups(
         g["fingerprint"] = fp
         if fp not in ignored:
             filtered.append(g)
-    return filtered[:limit]
+    result = filtered[:limit]
+    _group_cache["groups"] = (state, [{**{k: v for k, v in g.items() if k != "items"},
+                                       "members": [(it["id"], it.get("similarity")) for it in g["items"]]} for g in result])
+    return result

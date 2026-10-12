@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..deps import cluster, db
-from ..schemas import BackfillBody, SeparateBody
+from ..deps import cluster, db, services, store
+from ..schemas import AutoIdentityBody, BackfillBody, MergeConfidentBody, NonFaceBody, SeparateBody
 from ..services.presenters import (
     _cleanup_counts,
     _media_row,
@@ -28,69 +29,14 @@ def get_cleanup():
     missing_media = [_media_row(r) for r in db.all(
         "SELECT * FROM media WHERE missing=1 AND deleted_at IS NULL ORDER BY id DESC LIMIT 50"
     )]
-    # possible people pairs by centroid cosine similarity
-    # Prefer strong matches; pairs marked separate never reappear.
-    possible: list[dict] = []
+    possible = []
+    diagnostics = {}
     try:
-        people_rows = db.all(
-            """SELECT id, name, centroid, face_count, representative_face_id
-               FROM people WHERE face_count > 0 AND centroid IS NOT NULL
-               ORDER BY face_count DESC LIMIT 400"""
-        )
-        import numpy as np
-
-        from .embeddings import normalize
-
-        vectors = []
-        ids = []
-        for r in people_rows:
-            try:
-                raw = r["centroid"]
-                if raw is None:
-                    continue
-                v = normalize(np.frombuffer(bytes(raw), dtype="<f4"))
-                vectors.append(v)
-                ids.append(r)
-            except Exception:
-                continue
-
-        separated = set()
-        for row in db.all("SELECT person_a, person_b FROM separate_people"):
-            separated.add((row["person_a"], row["person_b"]))
-
-        if len(vectors) >= 2:
-            matrix = np.stack(vectors)
-            match_th = float(_settings().get("matching_threshold", 0.48))
-            # Strong suggestions only — avoids noisy near-miss pairs
-            threshold = max(0.42, match_th)
-            scored: list[tuple[float, int, int]] = []
-            n = len(ids)
-            for i in range(n):
-                sims = matrix[i] @ matrix[i + 1 :].T
-                for offset, sim in enumerate(sims):
-                    j = i + 1 + offset
-                    a_id, b_id = ids[i]["id"], ids[j]["id"]
-                    pair = (min(a_id, b_id), max(a_id, b_id))
-                    if pair in separated:
-                        continue
-                    sim_f = float(sim)
-                    if sim_f < threshold:
-                        continue
-                    # Drop weak singleton noise unless similarity is very high
-                    fa = int(ids[i].get("face_count") or 0)
-                    fb = int(ids[j].get("face_count") or 0)
-                    if min(fa, fb) < 2 and sim_f < match_th + 0.08:
-                        continue
-                    scored.append((sim_f, i, j))
-            scored.sort(reverse=True)
-            for sim, i, j in scored[:40]:
-                possible.append({
-                    "a": _person_row(ids[i]),
-                    "b": _person_row(ids[j]),
-                    "similarity": sim,
-                })
+        from ..merge_evidence import suggestions
+        for pair in suggestions(db, store, cluster, _settings().get('matching_threshold', .48), diagnostics):
+            possible.append({**pair, 'a': _person_row(pair['a']), 'b': _person_row(pair['b'])})
     except Exception:
-        pass
+        logging.getLogger(__name__).exception("Duplicate-people evidence scan failed")
 
     # Frontend "Duplicate candidates" count uses `duplicates` — show pair count there
     counts["duplicates"] = len(possible)
@@ -103,6 +49,7 @@ def get_cleanup():
     return {
         **counts,
         "possible_people": possible,
+        "duplicate_diagnostics": diagnostics,
         "failed_media": failed_media,
         "missing_media": missing_media,
         "soft_originals": soft_originals,
@@ -115,8 +62,8 @@ def get_cleanup():
 def backfill_hashes(request: Request, body: BackfillBody = BackfillBody()):
     """Fill content_hash + phash for media missing them (no face re-detection)."""
     _require_csrf(request)
-    from . import duplicates as dup_mod
-    from .media_processing import frame_at, load_image
+    from .. import duplicates as dup_mod
+    from ..media_processing import frame_at, load_image
 
     limit = max(1, min(int(body.limit or 150), 500))
     rows = db.all(
@@ -204,3 +151,108 @@ def cleanup_separate(body: SeparateBody, request: Request):
         )
     cluster.invalidate()
     return {"ok": True}
+
+
+def _nonface_candidates(min_detection: float, min_size: int, min_quality: float):
+    """Faces that are almost certainly not faces (or too tiny/weak to identify).
+
+    Never touches faces the user has confirmed, created manually, or that belong to a named person.
+    """
+    import json
+
+    import numpy as np
+
+    from ..engine import Engine
+
+    rows = db.all(
+        """SELECT f.id, f.person_id, f.review_state, f.manual, f.detection, f.quality, f.bbox, f.landmarks,
+                  m.width, m.height
+           FROM faces f JOIN media m ON m.id=f.media_id
+           LEFT JOIN people p ON p.id=f.person_id
+           WHERE f.deleted_at IS NULL AND m.deleted_at IS NULL
+             AND f.review_state='unreviewed' AND f.manual=0
+             AND TRIM(COALESCE(p.name,''))=''""")
+    found = []
+    for row in rows:
+        reason = None
+        try:
+            bbox = json.loads(row["bbox"])
+            if float(row["detection"]) < min_detection:
+                reason = "low detection score"
+            elif min(bbox[2:]) < min_size:
+                reason = "too small"
+            elif float(row["quality"] if row["quality"] is not None else .5) < min_quality:
+                reason = "very low quality"
+            elif row["landmarks"] and not Engine._valid_landmarks(
+                    np.asarray(json.loads(row["landmarks"])), bbox, row["width"] or 1e9, row["height"] or 1e9):
+                reason = "landmarks do not form a face"
+        except (ValueError, TypeError, KeyError, IndexError):
+            reason = "unreadable record"
+        if reason:
+            found.append({"id": row["id"], "person_id": row["person_id"], "reason": reason})
+    return found
+
+
+@router.post("/api/cleanup/nonfaces")
+def cleanup_nonfaces(body: NonFaceBody, request: Request):
+    """Dry-run by default. With apply=true, mark likely non-faces as rejected (reversible via Undo)."""
+    _require_csrf(request)
+    found = _nonface_candidates(body.min_detection, body.min_size, body.min_quality)
+    reasons: dict[str, int] = {}
+    for item in found:
+        reasons[item["reason"]] = reasons.get(item["reason"], 0) + 1
+    result = {"found": len(found), "reasons": reasons, "sample_face_ids": [i["id"] for i in found[:24]],
+              "applied": False, "audit_id": None}
+    if not body.apply or not found:
+        return result
+    import json
+    lib = services().library
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        ids = [i["id"] for i in found]
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            conn.execute(f"UPDATE faces SET review_state='rejected' WHERE id IN ({','.join('?' * len(chunk))}) "
+                         "AND review_state='unreviewed' AND manual=0", chunk)
+        people = sorted({i["person_id"] for i in found if i["person_id"] is not None})
+        cluster.refresh(conn, people)
+        entry = lib._log(conn, "cleanup.nonfaces", f"Rejected {len(ids)} likely non-face detection(s)",
+                         {"face_ids": ids, "people": people}, len(ids))
+    cluster.invalidate()
+    return {**result, "applied": True, "audit_id": entry}
+
+
+@router.post("/api/cleanup/merge-confident")
+def cleanup_merge_confident(body: MergeConfidentBody, request: Request):
+    """Merge only 'high' confidence duplicate-people pairs. Dry-run by default; every merge is undoable."""
+    _require_csrf(request)
+    from ..merge_evidence import suggestions
+    pairs = [p for p in suggestions(db, store, cluster, _settings().get("matching_threshold", .48))
+             if p["confidence"] == "high"]
+    plan, used = [], set()
+    for pair in pairs:
+        a, b = pair["a"], pair["b"]
+        if a["id"] in used or b["id"] in used:
+            continue
+        # Never auto-merge named people into each other; keep the named / larger one as the target.
+        if (a.get("name") or "").strip() and (b.get("name") or "").strip():
+            continue
+        target, source = (a, b) if ((a.get("name") or "").strip() or a["face_count"] >= b["face_count"]) else (b, a)
+        plan.append({"source": source["id"], "target": target["id"], "scores": pair["scores"]})
+        used.update((a["id"], b["id"]))
+        if len(plan) >= body.limit:
+            break
+    if not body.apply:
+        return {"would_merge": len(plan), "plan": plan, "applied": False}
+    audit_ids = []
+    for item in plan:
+        audit_ids.append(services().library.merge_people(item["source"], item["target"])["audit_id"])
+    return {"would_merge": len(plan), "plan": plan, "applied": True, "audit_ids": audit_ids}
+
+
+@router.post("/api/cleanup/auto-identity")
+def cleanup_auto_identity(body: AutoIdentityBody, request: Request):
+    """Let the system decide which People are the same individual. Dry-run unless apply=true."""
+    _require_csrf(request)
+    from .. import auto_identity
+    return auto_identity.run(services(), level=body.level, apply=body.apply)

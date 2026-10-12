@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -97,6 +98,9 @@ DEFAULTS = {
     # Drop weak detections earlier so they never hit the review queue.
     "min_face_quality": 0.35,
     # When true, high-confidence matches skip the review queue.
+    # Merge People that are the same individual automatically after every scan.
+    "auto_identity": True,
+    "auto_identity_level": "balanced",   # conservative | balanced | aggressive
     "auto_confirm": True,
     # Auto-confirm at this cosine similarity (can be lower than review_threshold).
     # Default 0.52 sits between matching (0.48) and review (0.62).
@@ -114,6 +118,7 @@ DEFAULTS = {
 class Database:
     def __init__(self, path: Path):
         self.path = path
+        self._readers = threading.local()
         path.parent.mkdir(parents=True, exist_ok=True)
         had_data = path.is_file() and path.stat().st_size > 0
         with self.connect() as conn:
@@ -212,13 +217,42 @@ class Database:
         finally:
             conn.close()
 
+    def _reader(self):
+        """One long-lived read connection per thread.
+
+        Screens issue thousands of small SELECTs (several per item); opening a connection for each one
+        cost more than the query. Readers are autocommit, so they never hold a transaction or a lock.
+        """
+        local = self._readers
+        conn = getattr(local, "conn", None)
+        if conn is None or getattr(local, "path", None) != str(self.path):
+            if conn is not None:
+                try:
+                    conn.close()
+                except sqlite3.Error:
+                    pass
+            conn = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA query_only=ON")
+            local.conn, local.path = conn, str(self.path)
+        return conn
+
     def all(self, sql, params=()):
-        with self.connect() as conn:
-            return [dict(r) for r in conn.execute(sql, params)]
+        head = sql.lstrip()[:8].upper()
+        if not head.startswith(("SELECT", "WITH", "PRAGMA")):
+            with self.connect() as conn:
+                return [dict(r) for r in conn.execute(sql, params)]
+        try:
+            return [dict(r) for r in self._reader().execute(sql, params)]
+        except sqlite3.ProgrammingError:
+            # The cached connection was closed under us: start a fresh one once.
+            self._readers.conn = None
+            return [dict(r) for r in self._reader().execute(sql, params)]
 
     def one(self, sql, params=()):
         rows = self.all(sql, params)
         return rows[0] if rows else None
 
     def settings(self):
-        return {r["key"]: json.loads(r["value"]) for r in self.all("SELECT * FROM settings")}
+        return {r["key"]: json.loads(r["value"]) for r in self.all("SELECT * FROM settings WHERE key NOT IN ('app_lock', 'admin_face_lock', 'local_match_model', 'local_match_training')")}

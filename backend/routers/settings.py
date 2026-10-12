@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from .. import evaluation as evaluation_mod
 from .. import threshold_tuning
-from ..deps import cluster, config, db, engine, services, store
+from ..deps import cluster, config, db, services, store
 from ..media_processing import load_image
 from ..ops.health import dir_usage
 from ..schemas import MaintenanceBody, SettingsPatch
@@ -25,7 +25,7 @@ from ..services.presenters import (
 router = APIRouter()
 
 @router.get("/api/settings")
-def get_settings():
+def get_settings(storage: bool = True):
     s = _settings()
     db_path = config.data_dir / "index.sqlite"
     emb_path = config.data_dir / "embeddings.bin"
@@ -37,8 +37,8 @@ def get_settings():
             "embeddings": str(emb_path),
             "thumbnails": str(thumb_dir),
         },
-        "storage_bytes": {"database": dir_usage(db_path)[0], "embeddings": dir_usage(emb_path)[0],
-                          "thumbnails": dir_usage(thumb_dir)[0]},
+        **({"storage_bytes": {"database": dir_usage(db_path)[0], "embeddings": dir_usage(emb_path)[0],
+                              "thumbnails": dir_usage(thumb_dir)[0]}} if storage else {}),
         "roots": [str(p) for p in config.roots],
     }
 
@@ -77,10 +77,12 @@ def patch_settings(body: SettingsPatch, request: Request):
                 "INSERT INTO settings(key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (key, json.dumps(value)),
             )
+            # Through configure(): the engine is reached via a proxy that cannot take attribute assignment,
+            # and configure also updates a detector that is already loaded.
             if key == "detection_size":
-                engine.detection_size = int(value)
+                services().engine.configure(detection_size=int(value))
             if key == "multi_scale":
-                engine.multi_scale = bool(value)
+                services().engine.configure(multi_scale=bool(value))
     cluster.invalidate()
     return get_settings()
 
@@ -91,7 +93,8 @@ def autotune_threshold(request: Request):
     report = threshold_tuning.autotune(db, cluster)
     if report is None:
         raise HTTPException(
-            400, f"Need at least {threshold_tuning.MIN_SAMPLES} reviewed faces first."
+            400, f"Need at least {threshold_tuning.MIN_SAMPLES} scored human reviews, including 10 matches and 10 non-matches. "
+                 "Automatic confirmations and legacy reassignment scores are excluded."
         )
     return report
 
@@ -166,7 +169,7 @@ def maintenance(body: MaintenanceBody, request: Request):
             import numpy as np
             from PIL import Image
 
-            from .media_processing import frame_at
+            from ..media_processing import frame_at
 
             skip_suffix = {".mkv", ".webm"}
             thumb_dir = config.data_dir / "thumbnails"

@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -23,13 +24,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.db import Database  # noqa: E402
 from backend.duplicates import content_hash, image_phash  # noqa: E402
+from backend.embeddings import EmbeddingStore  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     args = parser.parse_args()
-    root = Path(args.root)
+    root = Path(args.root).resolve()
+    temporary = Path(tempfile.gettempdir()).resolve()
+    if root == temporary or not root.is_relative_to(temporary):
+        parser.error("UI fixtures may only be created in a dedicated directory under the system temporary directory")
     if root.exists():
         shutil.rmtree(root)
     lib = root / "library"
@@ -79,6 +84,12 @@ def main() -> int:
         img.save(p, quality=88)
         day = start + timedelta(days=i // 4)
         add(p, img, f"{day.isoformat()}T{9 + (i % 4) * 2:02d}:00:00", gps=(21.43 + i * 0.01, 92.0))
+    # A second/third page exercises uncached viewer navigation without large test assets.
+    for i in range(125):
+        img = Image.fromarray(rng.integers(0, 256, (64, 96, 3), dtype=np.uint8))
+        p = lib / "camera" / f"PAGE_{i:03d}.jpg"
+        img.save(p, quality=80)
+        add(p, img, "2000-01-01T12:00:00")
     with db.connect() as conn:
         conn.execute("INSERT INTO libraries(id, path, name) VALUES (1, ?, 'UI fixture')", (str(lib),))
         for i, r in enumerate(rows, start=1):
@@ -115,6 +126,18 @@ def main() -> int:
                     data / "thumbnails" / f"face-{face_id}.jpg")
                 face_id += 1
         conn.execute("UPDATE people SET representative_face_id=(SELECT MIN(id) FROM faces WHERE person_id=people.id)")
+    # Corrections/split/merge need valid vectors, even when inference is disabled.
+    store = EmbeddingStore(data / "embeddings.bin")
+    try:
+        with db.connect() as conn:
+            for face in conn.execute("SELECT id,person_id FROM faces").fetchall():
+                vector = np.zeros(512, dtype=np.float32)
+                vector[face["person_id"] - 1] = 1
+                offset, sha = store.append(vector)
+                conn.execute("UPDATE faces SET embedding_offset=?,embedding_sha=? WHERE id=?", (offset, sha, face["id"]))
+            conn.execute("UPDATE faces SET review_state='unreviewed' WHERE id IN (4,8)")
+    finally:
+        store.close()
     print(f"{len(rows) + 1} media in {lib}; data dir {data}")
     return 0
 

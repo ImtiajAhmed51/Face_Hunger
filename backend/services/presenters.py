@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import HTTPException, Request
 
 from ..deps import db, video_compat
+from ..netlib import is_protected
 
 
 def _now() -> str:
@@ -154,6 +155,30 @@ def _edit_fields(media_id: int) -> dict:
             "edited": bool(e["rotation"] or e["flip_h"] or e["flip_v"] or e["crop"])}
 
 
+_kept_cache: dict[str, tuple[float, tuple[str, ...]]] = {}
+
+
+def _kept_originals(folder: str) -> tuple[str, ...]:
+    """Names of ``*.lfs_original`` files in a folder, listed once per folder every few seconds
+    instead of once per item (a page of 60 photos from one folder used to list it 60 times)."""
+    import os
+    import time
+
+    now = time.monotonic()
+    hit = _kept_cache.get(folder)
+    if hit and now - hit[0] < 5.0:
+        return hit[1]
+    try:
+        with os.scandir(folder) as entries:
+            names = tuple(e.name for e in entries if e.name.endswith(".lfs_original") and e.is_file())
+    except OSError:
+        names = ()
+    if len(_kept_cache) > 2000:
+        _kept_cache.clear()
+    _kept_cache[folder] = (now, names)
+    return names
+
+
 def _media_row(row: dict) -> dict:
     face_count = db.one(
         "SELECT COUNT(*) AS c FROM faces WHERE media_id=? AND deleted_at IS NULL",
@@ -171,6 +196,7 @@ def _media_row(row: dict) -> dict:
         "size": int(row.get("size") or 0),
         "status": row.get("status") or "indexed",
         "missing": bool(row.get("missing")),
+        "offline": row.get("library_id") in _offline_ids(),
         "deleted_at": row.get("deleted_at"),
         "face_count": int((face_count or {}).get("c") or 0),
         "people": _media_people(row["id"]),
@@ -186,11 +212,18 @@ def _media_row(row: dict) -> dict:
     }
     # Soft-kept pre-conversion original (for frontend)
     orig = row.get("original_path")
-    if orig:
+    if is_protected(row.get("path") or ""):
+        # Network libraries are read-only: nothing is ever converted there, so there is no kept original
+        # to look for, and no reason to list a folder on the share for every tile on the screen.
+        out["original_path"] = None
+        out["original_name"] = None
+        out["has_original"] = False
+    elif orig:
         op = Path(orig)
-        out["original_path"] = str(op) if op.is_file() else None
-        out["original_name"] = op.name if op.is_file() else None
-        out["has_original"] = op.is_file()
+        present = op.is_file()
+        out["original_path"] = str(op) if present else None
+        out["original_name"] = op.name if present else None
+        out["has_original"] = present
     else:
         # Heuristic: sibling *.lfs_original from current stem
         out["original_path"] = None
@@ -198,18 +231,14 @@ def _media_row(row: dict) -> dict:
         out["has_original"] = False
         try:
             cur = Path(row["path"]) if row.get("path") else None
-            if cur is not None and cur.parent.is_dir():
+            if cur is not None:
                 stem = cur.stem
-                for cand in cur.parent.iterdir():
-                    if cand.name.endswith(".lfs_original") and (
-                        cand.name.startswith(stem + ".")
-                        or cand.name.startswith(stem + ".lfs")
-                    ):
-                        if cand.is_file():
-                            out["original_path"] = str(cand)
-                            out["original_name"] = cand.name
-                            out["has_original"] = True
-                            break
+                for name in _kept_originals(str(cur.parent)):
+                    if name.startswith(stem + ".") or name.startswith(stem + ".lfs"):
+                        out["original_path"] = str(cur.parent / name)
+                        out["original_name"] = name
+                        out["has_original"] = True
+                        break
         except OSError:
             pass
 
@@ -226,9 +255,12 @@ def _media_row(row: dict) -> dict:
 def _face_row(row: dict, review_threshold: float, media_id: Optional[int] = None) -> dict:
     mid = media_id or row["media_id"]
     person_id = row.get("person_id")
-    person = db.one("SELECT name FROM people WHERE id=?", (person_id,)) if person_id else None
+    person = ({"name": row["_person_name"]} if "_person_name" in row else
+              db.one("SELECT name FROM people WHERE id=?", (person_id,)) if person_id else None)
     excluded = False
-    if person_id is not None:
+    if "_excluded" in row:
+        excluded = bool(row["_excluded"])
+    elif person_id is not None:
         excluded = db.one(
             "SELECT 1 AS x FROM exclusions WHERE person_id=? AND media_id=?",
             (person_id, mid),
@@ -253,6 +285,23 @@ def _face_row(row: dict, review_threshold: float, media_id: Optional[int] = None
     }
 
 
+def _offline_ids() -> set:
+    try:
+        from ..deps import services
+
+        return services().libraries.offline_ids
+    except Exception:
+        return set()
+
+
+def offline_guard(row: dict) -> None:
+    """Originals of an offline library are not touched (a dead share can hang): answer calmly instead."""
+    if row.get("library_id") in _offline_ids():
+        raise HTTPException(503, {"offline": True, "message": "The original is on a library that is offline right now. "
+                                                              "Thumbnails and search still work; it opens again when the library is back."},
+                            headers={"Retry-After": "30"})
+
+
 def _job_row(row: Optional[dict]) -> Optional[dict]:
     if not row:
         return None
@@ -269,6 +318,7 @@ def _job_row(row: Optional[dict]) -> Optional[dict]:
         "failed": int(row.get("failed") or 0),
         "current_file": row.get("current_file"),
         "error": row.get("error"),
+        "extra": json.loads(row["extra"]) if row.get("extra") else None,
     }
 
 

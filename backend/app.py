@@ -9,10 +9,11 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import Config
+from .netlib import ReadOnlyLibrary
 from .ops.logging import RequestIdMiddleware
 from .routers import (
     assistant,
@@ -25,6 +26,7 @@ from .routers import (
     exclusions,
     export,
     faces,
+    fs,
     geo,
     health,
     jobs,
@@ -40,6 +42,7 @@ from .routers import (
     review,
     search,
     settings,
+    shares,
     sharing,
     storage,
     video,
@@ -77,6 +80,8 @@ ROUTERS = (
     storage.router,
     plugins.router,
     lock.router,
+    fs.router,
+    shares.router,
     diagnostics.router,
 )
 
@@ -111,6 +116,11 @@ def create_app(config: Optional[Config] = None, services: Optional[Services] = N
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    @app.exception_handler(ReadOnlyLibrary)
+    async def read_only_library(_request, _exc):
+        return JSONResponse({"detail": "This item is on a network library, which Face Hunger never changes. "
+                                       "Change or delete the file on the computer that shares it.", "read_only": True}, status_code=409)
+
     for router in ROUTERS:
         app.include_router(router)
     _mount_frontend(app, config)

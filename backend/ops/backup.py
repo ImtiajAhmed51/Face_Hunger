@@ -38,7 +38,7 @@ FORMAT = "face-hunger-backup"
 FORMAT_VERSION = 1
 PENDING = "restore-pending"
 DB_NAME = "index.sqlite"
-LIVE_FILES = (DB_NAME, f"{DB_NAME}-wal", f"{DB_NAME}-shm", "embeddings.bin", "media_embeddings.bin")
+LIVE_FILES = (DB_NAME, f"{DB_NAME}-wal", f"{DB_NAME}-shm", "embeddings.bin", "media_embeddings.bin", "face-model.json")
 
 
 class BackupError(ValueError):
@@ -61,7 +61,7 @@ def _sha256(path: Path, checkpoint: Callable[[], None] = lambda: None) -> str:
 
 def _payload_files(data_dir: Path, include_thumbnails: bool) -> list[tuple[str, Path]]:
     files = []
-    for name in ("embeddings.bin", "media_embeddings.bin"):
+    for name in ("embeddings.bin", "media_embeddings.bin", "face-model.json"):
         if (data_dir / name).is_file():
             files.append((name, data_dir / name))
     vectors = data_dir / "vectors"
@@ -136,7 +136,7 @@ def _expected_name(name: str) -> bool:
     path = Path(name)
     if path.is_absolute() or ".." in path.parts or "\\" in name or name != path.as_posix():
         return False
-    if name in (DB_NAME, "embeddings.bin", "media_embeddings.bin"):
+    if name in (DB_NAME, "embeddings.bin", "media_embeddings.bin", "face-model.json"):
         return True
     return len(path.parts) == 2 and ((path.parts[0] == "vectors" and path.suffix == ".f32")
                                      or (path.parts[0] == "thumbnails" and path.suffix == ".jpg"))

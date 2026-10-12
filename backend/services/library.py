@@ -73,6 +73,40 @@ class LibraryService:
         return {"ok": True, "undone": entry_id, "summary": row["summary"]}
 
     # -- albums -----------------------------------------------------------------
+    def _undo_faces_review(self, conn, data):
+        ids = [face["id"] for face in data["faces"]]
+        current = {r["id"]: r for r in conn.execute(f"SELECT * FROM faces WHERE id IN ({_ph(ids)})", ids)}
+        for face in data["faces"]:
+            row = current.get(face["id"])
+            if not row or row["person_id"] != face["person_id"] or row["review_state"] != data["after"] or row["deleted_at"]:
+                raise UndoError("Some faces changed since this review; undo their later corrections first")
+        conn.executemany("UPDATE faces SET review_state=?,manual=? WHERE id=?",
+                         [(f["review_state"], f["manual"], f["id"]) for f in data["faces"]])
+        for table in ("rejections", "hard_negatives", "face_match_feedback"):
+            conn.execute(f"DELETE FROM {table} WHERE face_id IN ({_ph(ids)})", ids)
+            self._insert(conn, table, data.get(table, []))
+        for pid in {f["person_id"] for f in data["faces"] if f["person_id"]}:
+            rep = conn.execute("""SELECT id FROM faces WHERE person_id=? AND deleted_at IS NULL AND review_state!='rejected'
+                ORDER BY CASE review_state WHEN 'confirmed' THEN 0 ELSE 1 END, quality DESC, detection DESC, id LIMIT 1""", (pid,)).fetchone()
+            conn.execute("UPDATE people SET representative_face_id=? WHERE id=?", (rep["id"] if rep else None, pid))
+
+    def _undo_cleanup_nonfaces(self, conn, data):
+        ids = data["face_ids"]
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            conn.execute(f"UPDATE faces SET review_state='unreviewed' WHERE id IN ({_ph(chunk)}) AND review_state='rejected' AND manual=0", chunk)
+        if data.get("people"):
+            self.s.cluster.refresh(conn, data["people"])
+
+    def _undo_cluster_noise(self, conn, data):
+        for face in data["faces"]:
+            row = conn.execute("SELECT person_id,manual,review_state,deleted_at FROM faces WHERE id=?", (face["id"],)).fetchone()
+            if not row or row[0] is not None or row[1] or row[2] != "unreviewed" or row[3]:
+                raise UndoError("Some faces changed since reconciliation; undo their later corrections first")
+            conn.execute("UPDATE faces SET person_id=?,similarity=? WHERE id=?",
+                         (face["person_id"], face.get("similarity"), face["id"]))
+        self.s.cluster.refresh(conn, [f["person_id"] for f in data["faces"]])
+
     def create_album(self, name: str, media_ids: Iterable[int] = ()) -> dict:
         with self.db.connect() as conn:
             album_id = conn.execute("INSERT INTO albums(name) VALUES (?)", (name,)).lastrowid
@@ -312,7 +346,7 @@ class LibraryService:
         ids = list(dict.fromkeys(face_ids))
         with self.db.connect() as conn:
             rows = [dict(r) for r in conn.execute(
-                f"SELECT id, person_id, manual, review_state FROM faces WHERE id IN ({_ph(ids)})", tuple(ids))] if ids else []
+                f"SELECT id, person_id, manual, review_state, similarity FROM faces WHERE id IN ({_ph(ids)})", tuple(ids))] if ids else []
             if len(rows) != len(ids):
                 raise KeyError("One or more faces not found")
             if expect_person is not None and any(r["person_id"] != expect_person for r in rows):
@@ -322,7 +356,7 @@ class LibraryService:
                 target_id = created = conn.execute("INSERT INTO people(name) VALUES (?)", ((name or "").strip() or None,)).lastrowid
             elif not conn.execute("SELECT 1 FROM people WHERE id=?", (target_id,)).fetchone():
                 raise KeyError("Target person not found")
-            conn.execute(f"UPDATE faces SET person_id=?, manual=1, review_state='confirmed' WHERE id IN ({_ph(ids)})",
+            conn.execute(f"UPDATE faces SET person_id=?, manual=1, similarity=NULL, review_state='confirmed' WHERE id IN ({_ph(ids)})",
                          (target_id, *ids))
             touched = {r["person_id"] for r in rows if r["person_id"]} | {target_id}
             self.s.cluster.refresh(conn, list(touched))
@@ -338,8 +372,8 @@ class LibraryService:
     def _undo_people_split(self, conn, d):
         touched = {d["target"]}
         for r in d["faces"]:
-            conn.execute("UPDATE faces SET person_id=?, manual=?, review_state=? WHERE id=?",
-                         (r["person_id"], r["manual"], r["review_state"], r["id"]))
+            conn.execute("UPDATE faces SET person_id=?, manual=?, review_state=?, similarity=? WHERE id=?",
+                         (r["person_id"], r["manual"], r["review_state"], r.get("similarity"), r["id"]))
             if r["person_id"]:
                 touched.add(r["person_id"])
         if d["created"] and not conn.execute("SELECT 1 FROM faces WHERE person_id=? LIMIT 1", (d["created"],)).fetchone():

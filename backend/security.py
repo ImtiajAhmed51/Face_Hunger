@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 DEV_ORIGINS = {"127.0.0.1:5173", "localhost:5173"}
-OPEN_PATHS = {"/api/lock", "/api/lock/unlock", "/api/health/live"}
+OPEN_PATHS = {"/api/lock", "/api/lock/unlock", "/api/health/live", "/api/lock/face/challenge", "/api/lock/face/unlock"}
 COOKIE = "lfs_session"
 SESSION_SECONDS = 12 * 3600
 MAX_FAILURES, LOCKOUT_SECONDS = 5, 60
@@ -33,7 +33,7 @@ APP_CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inli
            "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'")
 HEADERS = [(b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"no-referrer"),
            (b"x-frame-options", b"SAMEORIGIN"), (b"cross-origin-resource-policy", b"same-origin"),
-           (b"permissions-policy", b"camera=(), microphone=(), geolocation=(), payment=(), usb=()")]
+           (b"permissions-policy", b"camera=(self), microphone=(), geolocation=(), payment=(), usb=()")]
 
 
 def _hostname(value: str) -> str:
@@ -107,6 +107,17 @@ class AppLock:
                 self._failures.append(time.monotonic())
         return ok
 
+    def record_face_attempt(self, matched: bool) -> None:
+        with self._lock:
+            if matched:
+                self._failures.clear()
+            else:
+                self._failures.append(time.monotonic())
+
+    def invalidate_sessions(self) -> None:
+        with self._lock:
+            self._sessions.clear()
+
     def open_session(self) -> str:
         token = secrets.token_urlsafe(32)
         with self._lock:
@@ -145,7 +156,7 @@ class AppLock:
         if self._env:
             raise ValueError("The app lock is set by LFS_APP_PASSWORD; remove it there.")
         with self.db.connect() as conn:
-            conn.execute("DELETE FROM settings WHERE key='app_lock'")
+            conn.execute("DELETE FROM settings WHERE key IN ('app_lock', 'admin_face_lock')")
         with self._lock:
             self._sessions.clear()
 

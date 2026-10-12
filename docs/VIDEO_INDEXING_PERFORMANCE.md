@@ -1,0 +1,23 @@
+# Video indexing performance
+
+Current default sampling is three seconds with adaptive sampling enabled. Motion can lower the effective interval to 1.2 seconds, increasing inference work about 2.5 times relative to a fixed three-second interval. All selected frames still use the existing local face model, alignment and embeddings. CPU is currently selected in the launched service because the installed CoreML detector failed on real dynamic outputs.
+
+Track-boundary refinement previously opened the source video again for every probe timestamp. It now uses one decoder for all probes, retaining the same full-resolution OpenCV seek semantics and source coordinates. Failing seeks retain FFmpeg fallback. Cancellation/errors close the decoder. No frames are automatically removed, resized or skipped by this optimization, and originals are untouched.
+
+One read-only test on an existing video extracted timestamps 0,3,6,9 seconds in 1.263 seconds using four opens and 0.382 seconds using one open. The resulting arrays were pixel-identical. This is one extraction measurement, affected by filesystem caches, not an end-to-end indexing benchmark or universal speedup. Main sequential sampling, inference and content hashing still cost time, particularly on network volumes and long videos.
+
+Settings now exposes **Adaptive video sampling** alongside the existing interval input. Turning adaptive sampling off prevents motion from increasing inference frequency. A user-selected 5–8-second fixed interval can reduce work, with the explicit tradeoff of missing brief appearances. Existing settings are not automatically changed. Sampling preferences are read when a scan starts, so save preferences before starting the next scan.
+
+Verification covers decoder reuse, fallback, cancellation, existing full video indexing/tracking tests, plus saving and refreshing settings on mobile/tablet/desktop in an isolated fixture app. No production library was used for write experiments.
+
+## Resumable staging and profiling
+
+Video detections now commit to `data/indexing_checkpoints/<media-id>.sqlite` after each sampled frame, together with the next sample position, adaptive-motion state and thumbnail. A retry through the normal scan resumes matching work from that checkpoint; this does not automatically restart an interrupted job. Tracker state is reconstructed from validated cached embeddings, without rerunning recognition on the completed prefix. Refinement completion and a fully staged result are checkpointed too. Publication remains the existing per-media transaction, and successful publication removes the staging cache.
+
+Source identity/stat, recognition-model metadata, sampling/detection settings and embedding-store identity must match. Incompatible or corrupt staging is regenerated; authoritative faces, confirmed assignments and original media are retained. Cached embeddings are checksum-validated before reuse. Checkpoints temporarily consume disk space for generated face crops and records. Append-only embedding storage can retain unused vectors after an interrupted attempt, as before; this is not original-media duplication.
+
+OpenCV seeks to the next sample when the reported position is consistent; otherwise it decodes and skips the prefix. Thus inference recovery is reliable even when a codec cannot seek efficiently. FFmpeg fallback also accepts the saved sampling offset. Real fixed/adaptive sampler tests compare resumed timestamps and pixel hashes against uninterrupted output. A synthetic interrupted four-frame test requires four inference calls overall rather than six from restarting, and verifies atomic publication, no duplicate face rows, unchanged source bytes and cache removal. This is a work-count test, not an end-to-end speed or recognition-accuracy benchmark.
+
+Each published media item logs `Index pipeline profile` with media ID, kind, stage seconds (metadata, decode, inference, embedding writes, face thumbnails, hashing and publication), sampled-frame/inference counts and reused checkpoint faces. These timers are diagnostic approximations: EOF overhead and some media-preview work are outside the individual timers. They do not expose the source path. Use representative completed scans to identify the next bottleneck before increasing concurrency.
+
+The existing bounded network read-ahead and unchanged-media skip remain. No extra inference workers, approximate track-based embedding substitution, model download or acceleration change was added. Similar-looking/new faces still receive recognition; only existing exact-frame reuse and validated checkpoint reuse avoid work. CPU remains the reliable provider for the current detector; no new CoreML speedup is claimed.

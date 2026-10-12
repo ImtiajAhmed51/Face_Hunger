@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from pydantic import BaseModel, Field
 
 from ..deps import services
 from ..schemas import LockPasswordBody, LockSetBody
@@ -15,7 +16,8 @@ router = APIRouter()
 def _status(request: Request) -> dict:
     lock = services().lock
     return {"enabled": lock.enabled, "unlocked": (not lock.enabled) or lock.valid(request.cookies.get(COOKIE)),
-            "managed_by_environment": lock.managed_by_environment}
+            "managed_by_environment": lock.managed_by_environment,
+            **({"face_enabled": True} if services().face_lock.enabled else {})}
 
 
 def _check(password: str) -> None:
@@ -28,7 +30,7 @@ def _check(password: str) -> None:
 
 
 def _start_session(request: Request, response: Response) -> None:
-    response.set_cookie(COOKIE, services().lock.open_session(), max_age=SESSION_SECONDS, httponly=True, samesite="strict",
+    response.set_cookie(COOKIE, services().lock.open_session(), max_age=None if services().face_lock.enabled else SESSION_SECONDS, httponly=True, samesite="strict",
                         secure=request.url.scheme == "https", path="/")
 
 
@@ -80,3 +82,67 @@ def remove_password(body: LockPasswordBody, request: Request, response: Response
         raise HTTPException(400, str(exc)) from exc
     response.delete_cookie(COOKIE, path="/")
     return {"enabled": False, "unlocked": True, "managed_by_environment": False}
+
+
+class FaceEnrollBody(BaseModel):
+    password: str = Field(min_length=8, max_length=1024)
+    images: list[str] = Field(min_length=3, max_length=3)
+
+
+class FaceUnlockBody(BaseModel):
+    challenge: str = Field(max_length=128)
+    image: str = Field(max_length=2_000_000)
+
+
+@router.post("/api/lock/face/enroll")
+def enroll_face(body: FaceEnrollBody, request: Request, response: Response):
+    _require_csrf(request)
+    lock = services().lock
+    if lock.enabled:
+        _check(body.password)
+    template = services().face_lock.enroll(body.images)
+    if not lock.enabled:
+        lock.set_password(body.password)
+    services().face_lock.save(template)
+    lock.invalidate_sessions()
+    _start_session(request, response)
+    return _status(request) | {"enabled": True, "unlocked": True, "face_enabled": True}
+
+
+@router.post("/api/lock/face/challenge")
+def face_challenge(request: Request):
+    _require_csrf(request)
+    wait = services().lock.retry_after()
+    if wait:
+        raise HTTPException(429, f"Try again in {wait} seconds")
+    return {"challenge": services().face_lock.challenge()}
+
+
+@router.post("/api/lock/face/unlock")
+def unlock_face(body: FaceUnlockBody, request: Request, response: Response):
+    _require_csrf(request)
+    lock = services().lock
+    wait = lock.retry_after()
+    if wait:
+        raise HTTPException(429, f"Try again in {wait} seconds")
+    try:
+        matched = services().face_lock.verify(body.challenge, body.image)
+    except HTTPException:
+        lock.record_face_attempt(False)
+        raise
+    lock.record_face_attempt(matched)
+    if not matched:
+        raise HTTPException(401, "Admin face did not match. App remains locked.")
+    _start_session(request, response)
+    return {"enabled": True, "unlocked": True, "face_enabled": True}
+
+
+@router.delete("/api/lock/face")
+def remove_face(body: LockPasswordBody, request: Request, response: Response):
+    _require_csrf(request)
+    _check(body.password)
+    with services().db.connect() as conn:
+        conn.execute("DELETE FROM settings WHERE key='admin_face_lock'")
+    services().lock.invalidate_sessions()
+    _start_session(request, response)
+    return {"enabled": True, "unlocked": True, "face_enabled": False}

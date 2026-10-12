@@ -8,6 +8,7 @@ new rows (the common case) or rebuild when earlier rows changed.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -42,7 +43,9 @@ class AnnIndex:
                 return False
             try:
                 meta = json.loads(self.meta_path.read_text())
-                if meta.get("dim") != self.dim or meta.get("dtype") != self.dtype:
+                if (meta.get("dim") != self.dim or meta.get("dtype") != self.dtype
+                        or meta.get("format") != 2 or meta.get("metric") != "cos"
+                        or meta.get("sha256") != self._digest(self.path)):
                     return False
                 index = self._Index.restore(str(self.path))
                 if index is None or index.ndim != self.dim or len(index) != meta.get("count"):
@@ -52,15 +55,26 @@ class AnnIndex:
             self.index, self.meta, self.dirty = index, meta, 0
             return True
 
+    @staticmethod
+    def _digest(path: Path) -> str:
+        with path.open("rb") as source:
+            return hashlib.file_digest(source, "sha256").hexdigest()
+
     def save(self, **meta) -> None:
         with self.lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".usearch.tmp")
             self.index.save(str(tmp))
+            with tmp.open("rb") as saved:
+                os.fsync(saved.fileno())
+            digest = self._digest(tmp)
             os.replace(tmp, self.path)
-            self.meta = {**self.meta, **meta, "dim": self.dim, "dtype": self.dtype, "count": len(self.index)}
+            self.meta = {**self.meta, **meta, "dim": self.dim, "dtype": self.dtype, "count": len(self.index),
+                         "format": 2, "metric": "cos", "sha256": digest}
             tmp_meta = self.meta_path.with_suffix(".tmp")
             tmp_meta.write_text(json.dumps(self.meta))
+            with tmp_meta.open("rb") as saved:
+                os.fsync(saved.fileno())
             os.replace(tmp_meta, self.meta_path)
             self.dirty = 0
 
@@ -73,12 +87,19 @@ class AnnIndex:
         keys = np.asarray(list(keys), dtype=np.uint64)
         if not len(keys):
             return
-        vectors = np.asarray(vectors, dtype=np.float32).reshape(len(keys), self.dim)
+        vectors = np.asarray(vectors, dtype=np.float32)
+        if (vectors.shape != (len(keys), self.dim) or not np.isfinite(vectors).all()
+                or len(np.unique(keys)) != len(keys) or np.any(keys == 0)):
+            raise ValueError("Expected unique positive IDs and a finite vector matrix of the configured dimension")
+        norms = np.linalg.norm(vectors.astype(np.float64), axis=1)
+        if np.any(norms < 1e-12):
+            raise ValueError("Cannot index zero vectors")
+        vectors = np.ascontiguousarray(vectors / norms[:, None], dtype=np.float32)
         with self.lock:
             present = keys[self.index.contains(keys)] if len(self.index) else keys[:0]
             if len(present):
                 self.index.remove(present)
-            self.index.add(keys, vectors, threads=0)
+            self.index.add(keys, vectors, threads=2)
             self.dirty += len(keys)
 
     def remove(self, keys: Iterable[int]) -> int:
@@ -95,6 +116,11 @@ class AnnIndex:
     # -- queries ---------------------------------------------------------
     def __len__(self) -> int:
         return len(self.index)
+
+    def contains(self, keys: Iterable[int]) -> np.ndarray:
+        keys = np.asarray(list(keys), dtype=np.uint64)
+        with self.lock:
+            return self.index.contains(keys) if len(self.index) else np.zeros(len(keys), dtype=bool)
 
     def keys(self) -> np.ndarray:
         with self.lock:

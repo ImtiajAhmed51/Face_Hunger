@@ -47,6 +47,7 @@ class Space:
         self.ann = AnnIndex(Path(data_dir) / "vectors" / f"{spec.slug}.usearch", spec.dim, dtype)
         self._ready = False
         self._sync_lock = threading.Lock()
+        self._closing = threading.Event()
         self._last_save = time.monotonic()
         self._coverage: Optional[tuple[float, dict]] = None
 
@@ -95,7 +96,7 @@ class Space:
         return {"filled": filled, "total": total, "ratio": (filled / total) if total else 0.0}
 
     # -- index lifecycle ---------------------------------------------------
-    def _fold(self, rows: list[dict]) -> None:
+    def _fold(self, rows: list[dict]) -> int:
         keys, vecs = [], []
         for row in rows:
             try:
@@ -105,40 +106,97 @@ class Space:
                 logger.warning("%s: skipping unreadable vector for %s: %s", self.key, row["key"], exc)
         if keys:
             self.ann.upsert(keys, np.stack(vecs))
+        return len(keys)
+
+    def _change_sequence(self) -> int:
+        return int(self.db.one("SELECT COALESCE(MAX(seq),0) s FROM vector_changes WHERE model_key=?", (self.key,))["s"])
+
+    def _apply_changes(self, after: int, through: int) -> dict:
+        updated = added = removed = 0
+        while after < through:
+            changes = self.db.all("SELECT seq,vector_key FROM vector_changes WHERE model_key=? AND seq>? AND seq<=? "
+                                  "ORDER BY seq LIMIT 4096", (self.key, after, through))
+            if not changes:
+                break
+            keys = sorted({r["vector_key"] for r in changes})
+            ph = ",".join("?" for _ in keys)
+            if self.spec.subject == "face":
+                rows = self.db.all(f"SELECT id AS rid,id AS key,embedding_offset AS offset,embedding_sha AS sha FROM faces WHERE id IN ({ph})", keys)
+            else:
+                rows = self.db.all(f"SELECT id AS rid,media_id AS key,offset,sha FROM media_vectors WHERE model_key=? AND media_id IN ({ph})",
+                                   (self.key, *keys))
+            # Remove stale vectors even when replacement bytes are unreadable.
+            present = self.ann.contains(keys)
+            self.ann.remove(keys)
+            self._fold(rows)
+            current = self.ann.contains(keys)
+            added += int(np.count_nonzero(~present & current))
+            removed += int(np.count_nonzero(present & ~current))
+            if rows:
+                self.ann.meta["watermark"] = max(int(self.ann.meta.get("watermark", 0)), max(r["rid"] for r in rows))
+            updated += len(keys)
+            after = changes[-1]["seq"]
+        return {"updated": updated, "added": added, "removed": removed}
 
     def sync(self, *, force_rebuild: bool = False) -> dict:
         """Bring the ANN index up to date with the rows. Returns what happened."""
         with self._sync_lock:
+            if self._closing.is_set():
+                return {"action": "cancelled", "added": 0, "removed": 0, "updated": 0, "size": len(self.ann)}
+            sequence = self._change_sequence()
             action = "catch_up"
             loaded = False if force_rebuild else (self._ready or self.ann.load())
             watermark = int(self.ann.meta.get("watermark", 0)) if loaded else 0
+            if loaded and (self.ann.meta.get("key") != self.key or "change_sequence" not in self.ann.meta):
+                loaded, watermark = False, 0
             if loaded and self.spec.subject == "face" and not self._ready:
-                if self.ann.meta.get("signature") != self._face_signature(watermark):
+                if (self.ann.meta.get("change_sequence") == sequence
+                        and self.ann.meta.get("signature") != self._face_signature(watermark)):
                     loaded, watermark = False, 0
             if not loaded:
                 action = "rebuild"
                 self.ann.reset()
-            added = 0
-            while True:
-                rows = self._rows_after(watermark, 4096)
-                if not rows:
-                    break
-                self._fold(rows)
-                added += len(rows)
-                watermark = rows[-1]["rid"]
-            removed = 0
-            if len(self.ann) != self.count():
-                extra = np.setdiff1d(self.ann.keys(), self._db_keys(), assume_unique=True)
-                removed = self.ann.remove(extra)
+            added = updated = removed = 0
+            if loaded:
+                # The durable journal covers new rows as well as replacements:
+                # do not also fold the same insert through the old row watermark.
+                changes = self._apply_changes(int(self.ann.meta.get("change_sequence", 0)), sequence)
+                added, updated, removed = changes["added"], changes["updated"], changes["removed"]
+                watermark = int(self.ann.meta.get("watermark", watermark))
+            else:
+                while True:
+                    rows = self._rows_after(watermark, 4096)
+                    if not rows:
+                        break
+                    count = self._fold(rows)
+                    if self._closing.is_set():
+                        self.ann.reset()  # Leave the last durable cache intact; source vectors are unchanged.
+                        return {"action": "cancelled", "added": 0, "removed": 0, "updated": 0, "size": 0}
+                    added += count
+                    watermark = rows[-1]["rid"]
+            if not self._ready or len(self.ann) != self.count():
+                actual, expected = self.ann.keys(), self._db_keys()
+                extra = np.setdiff1d(actual, expected, assume_unique=True)
+                removed += self.ann.remove(extra)
+                missing = np.setdiff1d(expected, actual, assume_unique=True)
+                for start in range(0, len(missing), 4096):
+                    keys = missing[start:start + 4096].tolist()
+                    ph = ",".join("?" for _ in keys)
+                    if self.spec.subject == "face":
+                        rows = self.db.all(f"SELECT id AS key,embedding_offset AS offset,embedding_sha AS sha FROM faces WHERE id IN ({ph})", keys)
+                    else:
+                        rows = self.db.all(f"SELECT media_id AS key,offset,sha FROM media_vectors WHERE model_key=? AND media_id IN ({ph})",
+                                           (self.key, *keys))
+                    self._fold(rows)
             self.ann.meta["watermark"] = watermark
-            if self.ann.dirty:
+            if self.ann.dirty or self.ann.meta.get("change_sequence") != sequence:
                 sig = self._face_signature(watermark) if self.spec.subject == "face" else ""
-                self.ann.save(watermark=watermark, signature=sig, key=self.key)
+                self.ann.save(watermark=watermark, signature=sig, key=self.key, change_sequence=sequence)
             self._ready = True
-            return {"action": action, "added": added, "removed": removed, "size": len(self.ann)}
+            return {"action": action, "added": added, "removed": removed, "updated": updated, "size": len(self.ann)}
 
     def ensure_ready(self) -> None:
-        if not self._ready:
+        if not self._ready or self.ann.meta.get("change_sequence") != self._change_sequence():
             self.sync()
 
     def maybe_save(self, *, force: bool = False) -> None:
@@ -150,41 +208,57 @@ class Space:
 
     # -- writes (media spaces) ---------------------------------------------
     def add(self, items: Sequence[tuple[int, np.ndarray]]) -> int:
-        """Persist vectors for media ids (replacing older ones) and index them."""
+        """Persist and index a batch, consuming its journal entries exactly once."""
         if self.spec.subject != "media" or not self.owned:
             raise ValueError(f"{self.key} is read-only")
         if not items:
             return 0
+        ids = [int(mid) for mid, _ in items]
+        if len(set(ids)) != len(ids) or any(mid <= 0 for mid in ids):
+            raise ValueError("Expected unique positive media IDs")
         vectors = [unit(v, self.spec.dim) for _, v in items]
         records = self.file.append_many(vectors)
-        ids = [int(mid) for mid, _ in items]
-        with self.db.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            rids = []
-            for mid, (offset, sha) in zip(ids, records):
-                # Replace (never update) so the new row gets a fresh id above the index watermark.
-                conn.execute("DELETE FROM media_vectors WHERE model_key=? AND media_id=?", (self.key, mid))
-                rids.append(conn.execute(
-                    "INSERT INTO media_vectors(model_key, media_id, offset, sha) VALUES (?,?,?,?)",
-                    (self.key, mid, offset, sha)).lastrowid)
-            conn.execute(
-                f"DELETE FROM embedding_queue WHERE model_key=? AND media_id IN ({','.join('?' * len(ids))})",
-                (self.key, *ids))
-        self._coverage = None
-        if self._ready:
-            with self._sync_lock:
+        with self._sync_lock:
+            with self.db.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                before = int(conn.execute("SELECT COALESCE(MAX(seq),0) FROM vector_changes WHERE model_key=?", (self.key,)).fetchone()[0])
+                rids = []
+                for mid, (offset, sha) in zip(ids, records):
+                    # SQLite may reuse the highest row ID; the journal tracks replacement independently.
+                    conn.execute("DELETE FROM media_vectors WHERE model_key=? AND media_id=?", (self.key, mid))
+                    rids.append(conn.execute(
+                        "INSERT INTO media_vectors(model_key, media_id, offset, sha) VALUES (?,?,?,?)",
+                        (self.key, mid, offset, sha)).lastrowid)
+                conn.execute(
+                    f"DELETE FROM embedding_queue WHERE model_key=? AND media_id IN ({','.join('?' * len(ids))})",
+                    (self.key, *ids))
+                through = int(conn.execute("SELECT COALESCE(MAX(seq),0) FROM vector_changes WHERE model_key=?", (self.key,)).fetchone()[0])
+            self._coverage = None
+            if self._ready:
+                self._apply_changes(int(self.ann.meta.get("change_sequence", 0)), before)
                 self.ann.upsert(ids, np.stack(vectors))
                 self.ann.meta["watermark"] = max(int(self.ann.meta.get("watermark", 0)), max(rids))
+                self.ann.meta["change_sequence"] = through
         return len(ids)
 
     def remove(self, media_ids: Iterable[int]) -> int:
-        ids = [int(i) for i in media_ids]
+        ids = list(dict.fromkeys(int(i) for i in media_ids))
         if not ids or self.spec.subject != "media":
             return 0
-        with self.db.connect() as conn:
-            conn.execute(f"DELETE FROM media_vectors WHERE model_key=? AND media_id IN ({','.join('?' * len(ids))})",
-                         (self.key, *ids))
-        return self.ann.remove(ids) if self._ready else 0
+        with self._sync_lock:
+            with self.db.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                before = int(conn.execute("SELECT COALESCE(MAX(seq),0) FROM vector_changes WHERE model_key=?", (self.key,)).fetchone()[0])
+                conn.execute(f"DELETE FROM media_vectors WHERE model_key=? AND media_id IN ({','.join('?' * len(ids))})",
+                             (self.key, *ids))
+                through = int(conn.execute("SELECT COALESCE(MAX(seq),0) FROM vector_changes WHERE model_key=?", (self.key,)).fetchone()[0])
+            self._coverage = None
+            if not self._ready:
+                return 0
+            self._apply_changes(int(self.ann.meta.get("change_sequence", 0)), before)
+            removed = self.ann.remove(ids)
+            self.ann.meta["change_sequence"] = through
+            return removed
 
     def vector(self, key: int) -> Optional[np.ndarray]:
         if self.spec.subject == "face":
@@ -225,11 +299,15 @@ class Space:
                 [(self.key, mid, err[:500]) for mid, err in failures])
 
     def close(self) -> None:
-        try:
-            self.maybe_save(force=True)
-        except Exception:
-            logger.exception("%s: could not save index", self.key)
-        self.file.close()
+        self._closing.set()
+        # Face search may have started background synchronization. Keep its
+        # descriptor open until the reader releases the synchronization lock.
+        with self._sync_lock:
+            try:
+                self.maybe_save(force=True)
+            except Exception:
+                logger.exception("%s: could not save index", self.key)
+            self.file.close()
 
 
 def run_backfill(space: Space, embedder: Embedder, *, checkpoint: Callable[[], None] = lambda: None,

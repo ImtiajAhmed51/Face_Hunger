@@ -26,6 +26,11 @@ class Config(BaseSettings):
     # Optional ONNX models (scripts/fetch_models.py): unload after this many idle seconds.
     model_idle_seconds: float = Field(300.0, ge=5, le=86400)
     dino_variant: Literal["small", "base"] = "small"
+    # Local ONNX inference and conservative crop validation; environment configurable.
+    face_detection_threshold: float = Field(0.6, ge=0.1, le=0.99)
+    face_min_size: int = Field(24, ge=4, le=128)
+    face_provider: Literal["auto", "cpu", "coreml"] = "auto"
+    face_inference_threads: int = Field(2, ge=1, le=8)
     # Watch library folders and index new files within seconds.
     watch: bool = True
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -75,4 +80,13 @@ class Config(BaseSettings):
     @property
     def roots(self) -> list[Path]:
         # A local-only server may explicitly register folders under the user's home.
-        return [Path(p).expanduser().resolve() for p in self.allowed_roots.split(";") if p] or [Path.home().resolve()]
+        base = [Path(p).expanduser().resolve() for p in self.allowed_roots.split(";") if p] or [Path.home().resolve()]
+        # Folders the user confirmed in the folder chooser (persisted in the database, loaded at startup).
+        return base + [p for p in getattr(self, "_chosen_roots", []) if p not in base]
+
+    def allow_root(self, path) -> None:
+        chosen = list(getattr(self, "_chosen_roots", []))
+        path = Path(path)
+        if path not in chosen:
+            chosen.append(path)
+        object.__setattr__(self, "_chosen_roots", chosen)

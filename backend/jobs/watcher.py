@@ -78,7 +78,10 @@ class LibraryWatcher:
                         watcher.notice(path)
 
         wanted = {}
-        for lib in self.s.db.all("SELECT path FROM libraries"):
+        for lib in self.s.db.all("SELECT path, root_kind, status FROM libraries"):
+            # File events do not travel over SMB/NFS: network libraries are polled instead (LibraryManager).
+            if lib.get("root_kind") == "network" or lib.get("status") == "offline":
+                continue
             root = Path(lib["path"])
             if root.is_dir():
                 wanted[str(root.resolve())] = root

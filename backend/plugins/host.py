@@ -162,7 +162,12 @@ class PluginProcess:
             except queue.Empty:
                 raise self._fail(f"The plugin did not answer '{method}' within {timeout:g}s and was stopped") from None
             if line is None:
-                code = self._proc.poll() if self._proc else None
+                code = None
+                if self._proc is not None:
+                    try:
+                        code = self._proc.wait(timeout=2)  # the pipe closes a moment before the exit status is ready
+                    except Exception:
+                        code = self._proc.poll()
                 raise self._fail(f"The plugin process ended unexpectedly during '{method}' (exit code {code})")
             try:
                 reply = json.loads(line)

@@ -21,6 +21,8 @@ from typing import Optional
 
 import numpy as np
 
+from ..netlib import is_protected
+
 BURST_SECONDS = 2.0
 BURST_SIMILARITY = 0.80   # visual cosine (DINOv2) within a burst
 BURST_PHASH = 18          # fallback when no visual vectors: perceptual-hash Hamming distance
@@ -144,8 +146,8 @@ class DedupeService:
                     target_dir.mkdir(parents=True, exist_ok=True)
                     for r in rows:
                         src = Path(r["path"])
-                        if not src.is_file():
-                            continue
+                        if is_protected(src) or not src.is_file():
+                            continue  # network libraries are read-only: the item is only hidden in the app
                         dest = target_dir / f"{r['id']}{src.suffix}"
                         digest = _sha256(src)
                         shutil.move(str(src), str(dest))  # rename on the same volume; copy+remove otherwise

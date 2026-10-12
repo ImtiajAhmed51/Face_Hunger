@@ -25,6 +25,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional
 
+from ..netlib import is_protected
+
 SCREENSHOT_NAME = re.compile(r"(screen[ _-]?shot|screenshot|screen[ _-]?capture|screen recording|^capture[ _-]?\d|^snip)", re.I)
 SCREEN_SHAPES = {(1170, 2532), (1179, 2556), (1284, 2778), (1290, 2796), (1125, 2436), (1080, 1920), (1080, 2340), (1080, 2400),
                  (1440, 2560), (1440, 3200), (1920, 1080), (2560, 1440), (2880, 1800), (3024, 1964), (3456, 2234), (1366, 768),
@@ -43,6 +45,8 @@ class StorageService:
     # ------------------------------------------------------------------ dashboard
     @staticmethod
     def _disk_size(row: dict) -> int:
+        if is_protected(row["path"]):
+            return int(row["size"] or 0)  # network library: use the size from the last scan, not a round trip per file
         try:
             return os.stat(row["path"]).st_size
         except OSError:

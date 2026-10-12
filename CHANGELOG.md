@@ -2,6 +2,21 @@
 
 All notable changes. Dates are when the work landed on `main`.
 
+## Unreleased
+
+### Added
+- **Network libraries**: add a folder on a Windows PC or NAS share with a visual folder chooser (no
+  typed paths), connect to SMB/NFS/AFP/WebDAV shares from the app (macOS), offline/online handling
+  with auto-recovery, relink without re-indexing, polling scans, per-library settings, a Libraries
+  screen with health and connection test. Migration 17.
+- Interpreter-level read-only guard for network libraries.
+
+### Changed
+- Scans compare the folder listing with the index in bulk: an unchanged library is checked without
+  opening any file.
+- `PATCH /api/libraries/{id}` accepts name, pause and scan settings besides `ignored`.
+- `GET /api/libraries` items carry kind, share, status, counts and scan times.
+
 ## 1.0.0 - 2026-10-08
 
 ### Added

@@ -32,8 +32,14 @@ class EmbeddingStore:
         self._fd = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_APPEND, 0o600)
 
     def append(self, vector):
-        data = normalize(vector).astype("<f4", copy=False).tobytes()
-        digest = hashlib.sha256(data).hexdigest()
+        return self.append_many([vector])[0]
+
+    def append_many(self, vectors):
+        """Durably append one frame's embeddings with a single fsync."""
+        payloads = [normalize(vector).astype("<f4", copy=False).tobytes() for vector in vectors]
+        if not payloads:
+            return []
+        data = b"".join(payloads)
         with self._lock:
             offset = os.lseek(self._fd, 0, os.SEEK_END)
             if offset % VECTOR_BYTES:
@@ -50,7 +56,7 @@ class EmbeddingStore:
                 os.ftruncate(self._fd, offset)
                 os.fsync(self._fd)
                 raise
-        return offset, digest
+        return [(offset + i * VECTOR_BYTES, hashlib.sha256(payload).hexdigest()) for i, payload in enumerate(payloads)]
 
     def read(self, offset, sha):
         if isinstance(offset, bool) or not isinstance(offset, (int, np.integer)):

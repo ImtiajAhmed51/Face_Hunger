@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 
 from fastapi import HTTPException
 
-from ..deps import db
+from ..deps import config, db
+from ..netlib import is_protected
 
 
 def _resolve_soft_original(media_id: int, original_path: str | None = None) -> tuple[dict, Path]:
@@ -64,7 +67,7 @@ def _list_soft_originals() -> list[dict]:
     )
     for row in rows:
         op = Path(row["original_path"]) if row.get("original_path") else None
-        if op is None or not op.is_file():
+        if op is None or is_protected(op) or not op.is_file():
             continue
         key = str(op.resolve())
         if key in seen:
@@ -86,13 +89,21 @@ def _list_soft_originals() -> list[dict]:
         })
 
     # Also discover disk orphans not linked in DB (heuristic from converted paths)
+    checked: dict[str, bool] = {}
     for row in db.all(
         "SELECT id, name, path, kind FROM media WHERE kind='video' AND deleted_at IS NULL AND path IS NOT NULL"
     ):
         try:
             cur = Path(row["path"])
-            if not cur.parent.is_dir():
-                continue
+            if is_protected(cur):
+                continue  # read-only network library: nothing is ever converted there
+            if str(cur.parent) in checked:
+                if not checked[str(cur.parent)]:
+                    continue
+            else:
+                checked[str(cur.parent)] = cur.parent.is_dir()
+                if not checked[str(cur.parent)]:
+                    continue
             stem = cur.stem
             for cand in cur.parent.iterdir():
                 if not cand.name.endswith(".lfs_original"):
@@ -131,13 +142,20 @@ def _list_converted_backups() -> list[dict]:
     seen: set[str] = set()
     # Walk parents of known media paths (videos + any path that might have backups)
     parents: set[str] = set()
+    looked: set[str] = set()
     for row in db.all(
         "SELECT id, name, path, kind FROM media WHERE deleted_at IS NULL AND path IS NOT NULL"
     ):
+        # One check per folder, not per file; folders on read-only network libraries are skipped.
+        folder = os.path.dirname(row["path"])
+        if folder in looked:
+            continue
+        looked.add(folder)
+        if is_protected(folder):
+            continue
         try:
-            p = Path(row["path"])
-            if p.parent.is_dir():
-                parents.add(str(p.parent.resolve()))
+            if os.path.isdir(folder):
+                parents.add(os.path.realpath(folder))
         except OSError:
             continue
     for parent_s in parents:
@@ -182,6 +200,25 @@ def _list_converted_backups() -> list[dict]:
                 })
         except OSError:
             continue
+    cache_root = Path(config.data_dir) / "video_cache"
+    media = {int(row["id"]): row for row in db.all("SELECT id,name,path FROM media")}
+    # Normalize lexically: resolving every source would touch remote libraries.
+    indexed = {os.path.abspath(row["path"]) for row in media.values() if row.get("path")}
+    if cache_root.is_dir():
+        for cached in cache_root.glob("*.mp4"):
+            match = re.fullmatch(r"(\d+)-[0-9a-f]{24}\.mp4", cached.name)
+            if not match or cached.is_symlink() or not cached.is_file():
+                continue
+            if os.path.abspath(cached) in indexed:
+                continue
+            row = media.get(int(match[1]))
+            try:
+                size = cached.stat().st_size
+            except OSError:
+                continue
+            items.append({"path": str(cached), "name": cached.name,
+                "size": size, "media_id": int(match[1]) if row else None,
+                "media_name": row.get("name") if row else None, "kind": "playback_cache"})
     items.sort(key=lambda x: -int(x.get("size") or 0))
     return items
 

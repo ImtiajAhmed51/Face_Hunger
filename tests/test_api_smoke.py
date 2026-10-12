@@ -82,3 +82,14 @@ def test_review_decisions_can_be_undone(client, app_services):
     assert app_services.db.one("SELECT COUNT(*) c FROM rejections")["c"] == 0
     assert app_services.db.one("SELECT COUNT(*) c FROM hard_negatives")["c"] == 0
     assert client.post("/api/faces/1/review", json={"decision": "maybe"}).status_code == 400
+
+
+def test_saving_preferences_with_a_new_detection_size(client, app_services):
+    """Regression: the Settings form sends detection_size on every save; this used to answer 500."""
+    body = {"matching_threshold": 0.5, "review_threshold": 0.62, "detection_size": 320, "video_interval": 3, "theme": "system"}
+    r = client.patch("/api/settings", json=body)
+    assert r.status_code == 200, r.text
+    assert r.json()["detection_size"] == 320 and r.json()["matching_threshold"] == 0.5
+    assert app_services.db.settings()["detection_size"] == 320
+    assert client.patch("/api/settings", json={"multi_scale": True}).status_code == 200
+    assert client.patch("/api/settings", json={"detection_size": 500}).status_code == 400

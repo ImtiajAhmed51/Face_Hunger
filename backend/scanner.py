@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from .imaging import RAW_SUFFIXES
+from .netlib import is_junk_dir, is_junk_file
 
 IMAGE = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".avif"}) | RAW_SUFFIXES
 VIDEO = frozenset({
@@ -59,8 +60,10 @@ def scan(library, ignored=None):
     seen = set()
     for directory, dirs, files in os.walk(root, followlinks=False, onerror=fail):
         base = Path(directory)
-        dirs[:] = sorted(d for d in dirs if not (base / d).is_symlink() and not excluded(base / d))
+        dirs[:] = sorted(d for d in dirs if not is_junk_dir(d) and not (base / d).is_symlink() and not excluded(base / d))
         for name in sorted(files):
+            if is_junk_file(name):
+                continue
             path = base / name
             if excluded(path):
                 continue

@@ -6,10 +6,10 @@ The application itself is assembled in :mod:`backend.app`.
 
 from __future__ import annotations
 
-# OpenMP / conda + pip torch conflict (must be set before numpy/torch load)
+# Bound native worker pools before numpy/torch load. Conflicting optional
+# FAISS runtimes are handled by faiss_runtime, without bypassing OpenMP checks.
 import os
 
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("KMP_INIT_AT_FORK", "FALSE")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
@@ -40,10 +40,11 @@ def main():
     for warning in app.state.services.config_warnings:
         print(f"  warning: {warning}")
     uvicorn.run(
-        "backend.__main__:app",
+        app,  # pass the existing instance: python -m must not import a second service container
         host=config.host,
         port=config.port,
         reload=False,
+        timeout_graceful_shutdown=5,  # open progress streams must not block restart forever
         log_level=config.log_level.lower(),
         access_log=False,  # replaced by the request-id access log
         log_config=None,  # keep our structured handlers

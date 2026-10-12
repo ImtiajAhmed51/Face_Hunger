@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 from collections import OrderedDict
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi.responses import FileResponse
@@ -65,3 +66,20 @@ def lqip_data_url(media_id: int, thumbnail: Path) -> str | None:
     while len(_LQIP_CACHE) > _LQIP_LIMIT:
         _LQIP_CACHE.popitem(last=False)
     return url
+
+
+@lru_cache(maxsize=64)
+def _grid_preview(path: str, modified_ns: int, size: int) -> bytes:
+    """Bounded RAM cache keyed by source revision; never opens original media."""
+    from PIL import Image
+
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+        image.thumbnail((size, size), Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        image.save(output, format="WEBP", quality=86)
+    return output.getvalue()
+
+
+def grid_preview(path: Path, size: int) -> bytes:
+    return _grid_preview(str(path), path.stat().st_mtime_ns, size)

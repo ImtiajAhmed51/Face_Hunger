@@ -4,13 +4,30 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
 class NameBody(BaseModel):
     name: str
 class BackfillBody(BaseModel):
     limit: int = 150
+
+
+class NonFaceBody(BaseModel):
+    apply: bool = False
+    min_detection: float = Field(0.60, ge=0.1, le=0.99)
+    min_size: int = Field(24, ge=4, le=256)
+    min_quality: float = Field(0.30, ge=0.0, le=1.0)
+
+
+class AutoIdentityBody(BaseModel):
+    apply: bool = False
+    level: Literal["conservative", "balanced", "aggressive"] = "balanced"
+
+
+class MergeConfidentBody(BaseModel):
+    apply: bool = False
+    limit: int = Field(25, ge=1, le=200)
 
 class MergeBody(BaseModel):
     target_id: int
@@ -24,6 +41,10 @@ class MoveFacesBody(BaseModel):
 
 class ReviewBody(BaseModel):
     decision: str  # yes | no
+
+
+class BulkReviewBody(ReviewBody):
+    face_ids: list[int] = Field(min_length=1, max_length=500)
 
 
 class ConfirmBody(BaseModel):
@@ -47,11 +68,18 @@ class SeparateBody(BaseModel):
 
 class LibraryBody(BaseModel):
     path: str
+    name: Optional[str] = None
     ignored: Optional[list[str]] = None
 
 
 class LibraryPatchBody(BaseModel):
-    ignored: list[str]
+    ignored: Optional[list[str]] = None
+    name: Optional[str] = Field(default=None, max_length=120)
+    paused: Optional[bool] = None
+    scan_videos: Optional[bool] = None
+    poll_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
+    concurrency: Optional[int] = Field(default=None, ge=1, le=16)
+    pause_on_battery: Optional[bool] = None
 
 
 class IndexBody(BaseModel):
@@ -70,6 +98,8 @@ class SettingsPatch(BaseModel):
     adaptive_video: Optional[bool] = None
     min_face_quality: Optional[float] = None
     auto_confirm: Optional[bool] = None
+    auto_identity: Optional[bool] = None
+    auto_identity_level: Optional[Literal["conservative", "balanced", "aggressive"]] = None
     auto_confirm_threshold: Optional[float] = None
     dino_similarity_threshold: Optional[float] = None
     vlm_enabled: Optional[bool] = None
@@ -371,3 +401,32 @@ class LockPasswordBody(BaseModel):
 class LockSetBody(BaseModel):
     password: str = Field(max_length=500)
     current: Optional[str] = Field(default=None, max_length=500)
+
+
+class FsAllowBody(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=50)
+
+
+class ShareConnectBody(BaseModel):
+    protocol: Literal["smb", "nfs", "afp", "webdav"] = "smb"
+    server: str = Field(min_length=1, max_length=253)
+    share: str = Field(min_length=1, max_length=200)
+    username: Optional[str] = Field(default=None, max_length=200)
+    password: Optional[SecretStr] = None  # never logged, never stored by the app
+    guest: bool = False
+    remember: bool = False
+
+
+class ShareDisconnectBody(BaseModel):
+    mount_point: str = Field(min_length=1, max_length=1000)
+    force: bool = False
+
+
+class LibraryRelinkBody(BaseModel):
+    path: str = Field(min_length=1, max_length=2000)
+    apply: bool = False
+
+
+class LibraryScanBody(BaseModel):
+    force: bool = False
+    quick: bool = False

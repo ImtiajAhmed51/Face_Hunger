@@ -204,3 +204,10 @@ Real library (15,119 photos) in the in-app Chromium, 1280x860, production build:
 - **Indexing memory**: `scripts/bench_indexing.py` at 20,000 items (384 dimensions): 93 -> 117 MB
   resident, about 1.2 kB per item (the in-memory ANN index). **Not yet measured at 500,000**, and
   grid scrolling at 500,000 items has not been measured either (last measured at 100,000).
+
+## Network libraries
+- **Unchanged 100,000-file library** (`scripts/bench_share_scan.py`, 1,000 folders, local SSD standing
+  in for the share): full re-scan **2.9 s**, quick scan (folder times only) **0.9 s**, 0 files
+  opened, 0 marked missing; resident memory 121 MB before, **163 MB peak** (+42 MB).
+- These numbers are for a local disk. A real SMB share adds one network round trip per folder
+  listing; it was not measured here (no SMB server or Docker in the test environment).

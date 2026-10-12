@@ -31,11 +31,13 @@ from .assistant import Assistant
 from .dedupe import DedupeService
 from .edits import EditService
 from .events import EventService
+from .libraries import LibraryManager
 from .library import LibraryService
 from .packages import PackageService
 from .plugins import PluginService
 from .quality import QualityService
 from .search import HybridSearch
+from .shares import ShareService
 from .sharing import SharingService
 from .storage import StorageService
 
@@ -74,6 +76,10 @@ class Services:
         self.storage = StorageService(self)
         self.plugins = PluginService(self)
         self.lock = AppLock(self.db, config.app_password)
+        from ..admin_face_lock import AdminFaceLock
+        self.face_lock = AdminFaceLock(self.db, self.engine, self.lock)
+        self.shares = ShareService(self)
+        self.libraries = LibraryManager(self)
         # Off unless the user turned it on; when off nothing is recorded and no file is created.
         self.diagnostics = Diagnostics(config.data_dir)
         if self.db.settings().get("diagnostics_enabled") is True:
@@ -135,6 +141,7 @@ class Services:
             self.watcher.start()
         self.schedule_embedding_backfill()
         self.plugins.activate()
+        self.libraries.start()
         self.storage.resume_upgrade()
         self.schedule_metadata_backfill()
         self.schedule_quality()
@@ -142,10 +149,15 @@ class Services:
         self.schedule_video()
 
     def after_indexing(self) -> None:
+        self.schedule_auto_identity()
         self.schedule_embedding_backfill()
         self.schedule_quality()
         self.schedule_events()
         self.schedule_video()
+
+    def schedule_auto_identity(self) -> None:
+        if self.db.settings().get("auto_identity", True):
+            self.jobs.enqueue("auto_identity", {}, priority=PRIORITY["normal"] + 10, dedupe_key="auto_identity")
 
     def schedule_video(self) -> None:
         if self.video.pending(1):
@@ -228,6 +240,7 @@ class Services:
         self.jobs.stop()
         self.video.close()
         self.assistant.close()
+        self.libraries.stop()
         self.diagnostics.close()
         self.plugins.close()
         self.worker.shutdown(timeout=5)

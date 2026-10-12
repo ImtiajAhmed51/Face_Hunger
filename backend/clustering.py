@@ -22,15 +22,17 @@ class Clustering:
         self._loaded_generation = -1
         self._refreshed_generation = -1
         self._cache = {}
+        self._references = {}
+        self._reference_ids = np.empty(0, dtype=np.int64)
+        self._reference_matrix = np.empty((0, DIMENSION), dtype=np.float32)
+        self._reference_index = None
+        self._match_model = None
         self._dirty = set()
         self._index = None
         self._ids = np.empty(0, dtype=np.int64)
         self._matrix = np.empty((0, DIMENSION), dtype=np.float32)
-        try:
-            import faiss
-            self._faiss = faiss
-        except ImportError:
-            self._faiss = None
+        from .faiss_runtime import load_faiss
+        self._faiss = load_faiss()
 
     def invalidate(self):
         """Call after committing ANY API correction affecting faces/media/people."""
@@ -64,7 +66,8 @@ class Clustering:
                 if not chunk:
                     break
                 placeholders = ",".join("?" for _ in chunk)
-                sums, weight_sums, counts, representatives, vectors = {}, {}, {}, {}, {}
+                sums, weight_sums, counts, representatives, unweighted_sums = {}, {}, {}, {}, {}
+                references = {}
                 cursor = conn.execute(
                     "SELECT f.*, m.kind AS media_kind FROM faces f JOIN media m ON m.id=f.media_id "
                     f"WHERE f.person_id IN ({placeholders}) AND {ACTIVE} ORDER BY f.id", chunk)
@@ -73,6 +76,8 @@ class Clustering:
                         pid = face["person_id"]
                         vector = self.store.read(face["embedding_offset"], face["embedding_sha"])
                         q = float(face["quality"] if face["quality"] is not None else 0.5)
+                        if q >= .55 and float(face['detection'] or 0) >= .85:
+                            self._remember_reference(references, pid, vector, q)
                         # Confirmed / manual faces get a modest quality boost so user
                         # corrections anchor the centroid more strongly.
                         if face["review_state"] == "confirmed" or face["manual"]:
@@ -82,11 +87,11 @@ class Clustering:
                             sums[pid] = np.zeros(DIMENSION, dtype=np.float64)
                             weight_sums[pid] = 0.0
                             counts[pid] = 0
-                            vectors[pid] = []
+                            unweighted_sums[pid] = np.zeros(DIMENSION, dtype=np.float64)
                         sums[pid] += vector * weight
                         weight_sums[pid] += weight
                         counts[pid] += 1
-                        vectors[pid].append(vector)
+                        unweighted_sums[pid] += vector
                         # Prefer still photos over video frames for the person tile.
                         is_photo = 1 if face["media_kind"] == "photo" else 0
                         score = (
@@ -99,13 +104,13 @@ class Clustering:
                         if pid not in representatives or score > representatives[pid][0]:
                             representatives[pid] = (score, face["id"])
                 for pid in chunk:
+                    self._references[pid] = references.get(pid, [])
                     count = counts.get(pid, 0)
                     wsum = weight_sums.get(pid, 0.0)
                     if count and wsum > 1e-12 and np.linalg.norm(sums[pid]) > 1e-12:
                         centroid = normalize(sums[pid] / wsum)
                         # Mean cosine distance to centroid ≈ intra-person variance proxy
-                        sims = [float(centroid @ v) for v in vectors[pid]]
-                        variance = float(np.mean([max(0.0, 1.0 - s) for s in sims])) if sims else 0.0
+                        variance = max(0.0, 1.0 - float(centroid @ unweighted_sums[pid]) / count)
                     else:
                         centroid, variance = None, 0.0
                     conn.execute(
@@ -129,6 +134,8 @@ class Clustering:
             return
         if self._refreshed_generation != generation:
             self.refresh(conn)
+        from .match_learning import load
+        self._match_model = load(conn, self.db.path)
         self._cache = {}
         for row in conn.execute(
             "SELECT id,centroid,face_count,variance FROM people WHERE face_count>0 AND centroid IS NOT NULL"
@@ -139,6 +146,41 @@ class Clustering:
         self._rebuild()
         self._loaded_generation = generation
 
+    @staticmethod
+    def _remember_reference(references, pid, vector, quality):
+        """Keep six diverse, good-quality views; repeated frames add no votes."""
+        views = references.setdefault(pid, [])
+        duplicate = next((i for i, (old, _) in enumerate(views) if float(old @ vector) >= .98), None)
+        if duplicate is not None:
+            if quality > views[duplicate][1]:
+                views[duplicate] = (vector.copy(), quality)
+            return
+        views.append((vector.copy(), quality))
+        views.sort(key=lambda item: -item[1])
+        del views[6:]
+
+    def _pose_candidates(self, vector, threshold):
+        # Two distinct supporting views and a stricter provisional floor prevent
+        # a single contaminated reference from creating an automatic match.
+        floor = max(.60, threshold + .12)
+        scores = {}
+        if len(self._reference_ids):
+            if self._reference_index is not None:
+                _, values, positions = self._reference_index.range_search(vector[None, :], floor - 1e-7)
+            else:
+                all_scores = self._reference_matrix @ vector
+                positions = np.flatnonzero(all_scores >= floor)
+                values = all_scores[positions]
+            for position, value in zip(positions, values):
+                pid = int(self._reference_ids[position])
+                if pid not in self._dirty:
+                    scores.setdefault(pid, []).append(float(value))
+        for pid in self._dirty:
+            scores[pid] = [float(old @ vector) for old, _ in self._references.get(pid, []) if float(old @ vector) >= floor]
+        return {pid: sorted(values, reverse=True)[1] for pid, values in scores.items()
+                if len(values) >= 2 and pid in self._cache
+                and float(self._cache[pid][0] @ vector) >= max(.30, threshold - .10)}
+
     def _rebuild(self):
         self._ids = np.asarray(list(self._cache), dtype=np.int64)
         self._matrix = (np.stack([self._cache[int(p)][0] for p in self._ids]).astype(np.float32)
@@ -148,6 +190,14 @@ class Clustering:
             self._index = self._faiss.IndexFlatIP(DIMENSION)
             if len(self._matrix):
                 self._index.add(self._matrix)
+        entries = [(pid, vector) for pid, views in self._references.items() if pid in self._cache for vector, _ in views]
+        self._reference_ids = np.asarray([pid for pid, _ in entries], dtype=np.int64)
+        self._reference_matrix = np.stack([vector for _, vector in entries]).astype(np.float32) if entries else np.empty((0, DIMENSION), dtype=np.float32)
+        self._reference_index = None
+        if self._faiss is not None:
+            self._reference_index = self._faiss.IndexFlatIP(DIMENSION)
+            if entries:
+                self._reference_index.add(self._reference_matrix)
         self._dirty.clear()
 
     def _candidates(self, vector, threshold):
@@ -168,7 +218,24 @@ class Clustering:
                       if pid in self._cache and float(self._cache[pid][0] @ vector) >= threshold)
         return sorted(result, key=lambda item: (-item[1], item[0]))
 
-    def assign(self, conn, embedding, media_id=None, timestamp=None, face_id=None, threshold=None):
+    def observe_track_member(self, person_id, vector, quality, detection):
+        """Make an accepted new member available to later tracks immediately.
+
+        The leader is already observed by assign(). The publication caller invokes
+        this once for each additional, independently checked member. Final refresh
+        still derives authoritative centroids from the committed face records.
+        """
+        with self._lock:
+            if person_id not in self._cache:
+                return
+            vector = normalize(vector)
+            centroid, count, variance = self._cache[person_id]
+            self._cache[person_id] = (normalize(centroid * count + vector), count + 1, variance)
+            self._dirty.add(person_id)
+            if quality >= .55 and detection >= .85:
+                self._remember_reference(self._references, person_id, vector, quality)
+
+    def assign(self, conn, embedding, media_id=None, timestamp=None, face_id=None, threshold=None, video_identities=None):
         """Return (person_id, cosine_similarity); caller assigns the face in this transaction.
 
         Pass media_id and timestamp (None for a photo) to enforce co-occurrence.
@@ -224,23 +291,43 @@ class Clustering:
                     "SELECT person_id, similarity FROM hard_negatives WHERE face_id=?", (face_id,)
                 ):
                     hard[int(r["person_id"])] = float(r["similarity"] or 0)
-            for pid, similarity in self._candidates(vector, threshold - 0.05):
-                if pid in blocked:
-                    continue
-                entry = self._cache[pid]
-                centroid, count = entry[0], entry[1]
-                variance = entry[2] if len(entry) > 2 else 0.0
-                # Adaptive threshold: tight clusters (low variance) need higher similarity;
-                # sparse person clusters allow a slightly looser match.
-                adaptive = threshold + max(-0.04, min(0.04, 0.06 - variance * 0.5))
-                if hard.get(pid) is not None:
-                    # Previously rejected against this person → require stronger evidence
-                    adaptive = min(0.8, adaptive + 0.06)
-                if similarity < adaptive:
-                    continue
-                # Running approximation replaced by exact refresh per media.
+            # One cosine convention for sparse and broad identities: variance must
+            # never lower the configured precision floor or raise singleton matches.
+            scores = dict(self._candidates(vector, threshold - 0.04))
+            if self._match_model is None and face is not None and float(face['quality'] or 0) >= .5 and float(face['detection'] or 0) >= .85:
+                for pid, score in self._pose_candidates(vector, threshold).items():
+                    scores[pid] = max(scores.get(pid, -1), score)
+            # Re-entry evidence is local to this video; it cannot bypass corrections
+            # or co-occurrence. Distinct segment IDs remain intact for moment ranges.
+            if video_identities and media_id is not None and media['kind'] == 'video':
+                for pid, references in video_identities.items():
+                    if pid in blocked or pid not in self._cache:
+                        continue
+                    score = max(float(vector @ reference) for reference, _ in references)
+                    if score >= max(.75, threshold) and face is not None and float(face['quality'] or 0) >= .5:
+                        scores[pid] = max(scores.get(pid, -1), score)
+            candidates = sorted(((pid, score) for pid, score in scores.items() if pid not in blocked),
+                                key=lambda item: (-item[1], item[0]))
+            eligible = [(pid, score) for pid, score in candidates
+                        if score >= threshold + (0.06 if pid in hard else 0.0)]
+            if eligible:
+                pid, similarity = eligible[0]
+                # Near ties are evidence for review, not a confident assignment.
+                # This conservative margin is provisional, not a calibrated score.
+                competitors = [score for other, score in candidates if other != pid]
+                if competitors and similarity - max(competitors) < 0.04:
+                    return None, min(1.0, similarity)
+                if self._match_model is not None:
+                    from .match_learning import probability, PROBABILITY_FLOOR
+                    # Missing query quality is outside the trained feature contract.
+                    if face is not None and probability(self._match_model, similarity,
+                                                         face['quality'], face['detection']) < PROBABILITY_FLOOR:
+                        return None, min(1.0, similarity)
+                centroid, count, variance = self._cache[pid]
                 self._cache[pid] = (normalize(centroid * count + vector), count + 1, variance)
                 self._dirty.add(pid)
+                if face is not None and float(face['quality'] or 0) >= .55 and float(face['detection'] or 0) >= .85:
+                    self._remember_reference(self._references, pid, vector, float(face['quality']))
                 return pid, min(1.0, similarity)
             pid = conn.execute(
                 "INSERT INTO people(centroid,face_count,variance) VALUES (?,0,0)",
@@ -248,6 +335,8 @@ class Clustering:
             ).lastrowid
             self._cache[pid] = (vector, 1, 0.0)
             self._dirty.add(pid)
+            if face is not None and float(face['quality'] or 0) >= .55 and float(face['detection'] or 0) >= .85:
+                self._remember_reference(self._references, pid, vector, float(face['quality']))
             # A new identity has no independent match score, not "100% certain".
             return pid, None
 
@@ -263,6 +352,39 @@ class Clustering:
           WHERE f.person_id=? AND """ + ACTIVE + """ AND g.review_state!='rejected'
           AND (f.timestamp IS NULL OR g.timestamp IS NULL OR ABS(f.timestamp-g.timestamp)<0.001) LIMIT 1""",
           (b, a)).fetchone() is not None
+
+    def _unassign_singleton_noise(self, person_ids):
+        """Keep isolated automatic singletons in Review, with an audited undo.
+
+        Noise in a graph of *people centroids* is not evidence that an existing
+        multi-face identity is wrong. Only isolated, unconfirmed one-face
+        prototypes can be returned to the unassigned queue.
+        """
+        if not person_ids:
+            return 0, None
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            protected = self._protected(conn)
+            snapshots, touched = [], []
+            for pid in person_ids:
+                if pid in protected:
+                    continue
+                faces = conn.execute("SELECT f.* FROM faces f JOIN media m ON m.id=f.media_id "
+                                     "WHERE f.person_id=? AND " + ACTIVE + " LIMIT 2", (pid,)).fetchall()
+                if len(faces) != 1:
+                    continue
+                face = faces[0]
+                snapshots.append({"id": face["id"], "person_id": pid, "similarity": face["similarity"]})
+                touched.append(pid)
+                conn.execute("UPDATE faces SET person_id=NULL,similarity=NULL WHERE id=?", (face["id"],))
+            if not snapshots:
+                return 0, None
+            self.refresh(conn, touched)
+            audit_id = conn.execute("INSERT INTO audit_log(action,summary,undo,item_count) VALUES (?,?,?,?)",
+                ("cluster.noise", f"Returned {len(snapshots)} isolated face(s) to Review",
+                 json.dumps({"faces": snapshots}), len(snapshots))).lastrowid
+        self.invalidate()
+        return len(snapshots), audit_id
 
     def reconcile(self, callback=None, checkpoint=None, max_neighbors=64, max_centroids=20000):
         """DBSCAN(min_samples=2) on a bounded cosine-neighbor centroid graph.
@@ -302,7 +424,8 @@ class Clustering:
             raise ValueError(f"Reconciliation exceeds the safety limit of {max_centroids} eligible centroids")
         report(total=len(rows))
         if len(rows) < 2:
-            report(processed=len(rows))
+            count, audit_id = self._unassign_singleton_noise([r["id"] for r in rows])
+            report(processed=len(rows), noise_unassigned=count, noise_audit_id=audit_id)
             return progress
         ids = [row["id"] for row in rows]
         matrix = np.stack([normalize(np.frombuffer(row["centroid"], dtype="<f4")) for row in rows])
@@ -337,6 +460,8 @@ class Clustering:
         graph.setdiag(1e-7)
         check()
         labels = DBSCAN(eps=1.0 - threshold + 1e-6, min_samples=2, metric="precomputed", n_jobs=1).fit_predict(graph)
+        count, audit_id = self._unassign_singleton_noise([pid for pid, label in zip(ids, labels) if label == -1])
+        report(noise_unassigned=count, noise_audit_id=audit_id)
         groups = {}
         for pid, label in zip(ids, labels):
             if label >= 0:

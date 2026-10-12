@@ -33,7 +33,7 @@ def list_review(
     page = max(1, page)
     limit = max(1, min(limit, 100))
     offset = (page - 1) * limit
-    where = ["f.review_state = 'unreviewed'", "m.missing = 0"]
+    where = [] if deleted else ["f.review_state = 'unreviewed'", "m.missing = 0"]
     params: list[Any] = []
     if deleted:
         where.append("f.deleted_at IS NOT NULL")
@@ -44,6 +44,11 @@ def list_review(
         where.append("f.person_id = ?")
         params.append(person_id)
     where_sql = " AND ".join(where)
+    if deleted:
+        total = db.one(f"SELECT COUNT(*) c FROM faces f JOIN media m ON m.id=f.media_id WHERE {where_sql}", tuple(params))["c"]
+        rows = db.all(f"SELECT f.* FROM faces f JOIN media m ON m.id=f.media_id WHERE {where_sql} "
+                      "ORDER BY f.deleted_at DESC, f.id LIMIT ? OFFSET ?", (*params, limit, offset))
+        return _page([_face_row(r, _review_threshold()) for r in rows], total, page, limit)
     # Deduplicate: one representative face per (media, person) or (media, track)
     # or the face itself when neither is set.
     # Partition key is precomputed as an expression that indexes can help filter.
@@ -220,3 +225,27 @@ def auto_confirm_high_confidence(
         "remaining_low_confidence": int(breakdown.get("low_confidence") or 0),
         "remaining_low_quality": int(breakdown.get("low_quality") or 0),
     }
+
+
+@router.get("/api/review/training")
+def matching_training_status():
+    from ..match_learning import status
+    return status(db)
+
+
+@router.post("/api/review/training")
+def train_local_matching(request: Request):
+    _require_csrf(request)
+    from ..match_learning import train
+    report = train(db)
+    cluster.invalidate()
+    return report
+
+
+@router.delete("/api/review/training")
+def disable_local_matching(request: Request):
+    _require_csrf(request)
+    with db.connect() as conn:
+        conn.execute("DELETE FROM settings WHERE key IN ('local_match_model','local_match_training')")
+    cluster.invalidate()
+    return {"ok": True}

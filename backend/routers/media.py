@@ -16,6 +16,7 @@ from .. import imaging, scoring
 from ..deps import cluster, config, db, services, video_compat
 from ..media_http import hover_clip, media_response
 from ..media_processing import _ffmpeg_bin, load_image
+from ..netlib import ReadOnlyLibrary, allow_delete
 from ..ops import diagnostics
 from ..scanner import authorized_root
 from ..schemas import ConfirmBody, MoveMediaBody, PurgeMediaBody
@@ -26,6 +27,7 @@ from ..services.presenters import (
     _page,
     _require_csrf,
     _review_threshold,
+    offline_guard,
 )
 from ..services.soft_originals import (
     _list_converted_backups,
@@ -33,7 +35,10 @@ from ..services.soft_originals import (
     _resolve_soft_original,
     _restored_path_from_soft,
 )
-from ..services.thumbnails import lqip_data_url
+from ..services.thumbnails import grid_preview, lqip_data_url
+
+READ_ONLY_REASON = ("This file is on a network library and could not be removed there. "
+                    "Check that the share account is allowed to delete files.")
 
 router = APIRouter()
 
@@ -90,8 +95,8 @@ def list_media(
         params.append(date_to + "T23:59:59" if len(date_to) == 10 else date_to)
 
     if q.strip():
-        where.append("m.name LIKE ?")
-        params.append(f"%{q.strip()}%")
+        where.append("(m.name LIKE ? OR m.path LIKE ?)")
+        params.extend([f"%{q.strip()}%", f"%{q.strip()}%"] )
 
     if event is not None:
         where.append("EXISTS (SELECT 1 FROM event_media em WHERE em.media_id = m.id AND em.event_id = ?)")
@@ -202,7 +207,9 @@ def list_media(
     sort_key = (sort or "date").strip().lower()
     if album is not None and sort_key == "date":  # albums keep the order items were added in
         sort_key = "album"
-    if sort_key == "size_desc":
+    if sort_key == "indexed":
+        order_sql = "m.indexed_at DESC, m.id DESC"
+    elif sort_key == "size_desc":
         order_sql = "m.size DESC, m.id DESC"
     elif sort_key == "size_asc":
         order_sql = "m.size ASC, m.id ASC"
@@ -250,18 +257,20 @@ def media_conversion_statuses(ids: str = Query("", description="Comma-separated 
         active_ids = set()
         known_ids = set()
 
-    watch = set(id_list) | active_ids
-    for mid in watch:
-        if mid not in known_ids and mid not in active_ids:
+    for mid in set(id_list) | active_ids:
+        row = db.one("SELECT kind,path,missing FROM media WHERE id=?", (mid,))
+        if not row or row["kind"] != "video" or row.get("missing"):
             continue
+        source = Path(row["path"])
         st = video_compat.status_response(mid)
         status = st.get("status") or ""
-        # Only surface meaningful states to the grid
-        if status in (
-            "analyzing", "converting", "verifying", "replacing",
-            "pending", "failed", "completed",
-        ) or mid in active_ids:
+        if mid in active_ids or status in ("analyzing", "converting", "verifying", "replacing", "failed"):
             out[str(mid)] = st
+        elif video_compat.playback_path(mid, source).is_file():
+            out[str(mid)] = {"status": "completed", "progress": 100, "stage": "Converted playback copy"}
+        elif (st.get("stage") == "Conversion available" or source.suffix.lower() not in (".mp4", ".mov", ".m4v", ".webm")) and source.is_file():
+            out[str(mid)] = {"status": "needs_conversion", "progress": 0, "stage": "Convert for browser playback"}
+        # A completed native playback check is not a conversion status.
     return {"items": out}
 
 @router.get("/api/media/lqip")
@@ -412,7 +421,7 @@ async def delete_converted_backup(request: Request):
     if not raw or not isinstance(raw, str):
         raise HTTPException(400, "path required")
     path = Path(raw)
-    if not path.is_file() or ".lfs_converted" not in path.name:
+    if not path.is_file() or str(path.resolve()) not in {str(Path(item["path"]).resolve()) for item in _list_converted_backups()}:
         raise HTTPException(404, "Converted backup not found")
     # Stay inside configured library roots
     try:
@@ -471,7 +480,7 @@ def get_media(media_id: int):
 
 
 @router.get("/api/media/{media_id}/thumbnail")
-def media_thumbnail(media_id: int):
+def media_thumbnail(media_id: int, size: int | None = Query(None, ge=192, le=480)):
     row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
     if not row:
         raise HTTPException(404, "Media not found")
@@ -490,16 +499,23 @@ def media_thumbnail(media_id: int):
                 diagnostics.count("thumbnail", True)
                 edit = services().edits.get(media_id)
                 if edit_model.is_identity_geometry(edit):
+                    if size is not None:
+                        return Response(grid_preview(path, size), media_type="image/webp",
+                                        headers={"Cache-Control": "private, no-cache"})
                     return FileResponse(path, media_type="image/jpeg")
                 # Geometric edits are applied to the cached thumbnail on the fly (a few ms).
                 from PIL import Image
                 with Image.open(path) as thumb_image:
                     out = io.BytesIO()
-                    edit_model.apply(thumb_image.convert("RGB"), edit).save(out, format="JPEG", quality=86)
-                return Response(out.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "private, no-cache"})
+                    image = edit_model.apply(thumb_image.convert("RGB"), edit)
+                    if size is not None:
+                        image.thumbnail((size, size), Image.Resampling.LANCZOS)
+                    image.save(out, format="WEBP" if size else "JPEG", quality=86)
+                return Response(out.getvalue(), media_type="image/webp" if size else "image/jpeg", headers={"Cache-Control": "private, no-cache"})
         except OSError:
             continue
 
+    offline_guard(row)
     src = Path(row["path"])
     if not src.is_file():
         raise HTTPException(404, "Original file missing; thumbnail unavailable")
@@ -522,7 +538,7 @@ def media_thumbnail(media_id: int):
                 (media_id,),
             )
             seconds = float(stamp_row["timestamp"]) if stamp_row and stamp_row["timestamp"] is not None else 1.0
-            from .media_processing import frame_at
+            from ..media_processing import frame_at
             bgr = frame_at(str(src), max(0.0, seconds), prefer_ffmpeg=True)
 
         if bgr is None or getattr(bgr, "size", 0) == 0:
@@ -544,6 +560,11 @@ def media_thumbnail(media_id: int):
         except Exception:
             pass
 
+        if size is not None:
+            img.thumbnail((size, size), Image.Resampling.LANCZOS)
+            preview = io.BytesIO()
+            img.save(preview, format="WEBP", quality=86)
+            return Response(preview.getvalue(), media_type="image/webp", headers={"Cache-Control": "private, no-cache"})
         return Response(content=data, media_type="image/jpeg")
     except Exception as exc:
         raise HTTPException(404, f"Thumbnail not available: {exc}") from exc
@@ -557,6 +578,7 @@ def media_preview(media_id: int, full: bool = Query(False, description="RAW: ful
         raise HTTPException(404, "Media not found")
     if row["kind"] != "photo":
         raise HTTPException(400, "Preview only available for photos")
+    offline_guard(row)
     path = Path(row["path"])
     if not path.is_file():
         raise HTTPException(404, "File missing")
@@ -572,6 +594,7 @@ def media_hover_preview(media_id: int):
     row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
     if not row or row["kind"] != "video":
         raise HTTPException(404, "Video not found")
+    offline_guard(row)
     source = Path(row["path"])
     if not source.is_file():
         raise HTTPException(404, "Original file missing")
@@ -588,6 +611,7 @@ def media_file(media_id: int, request: Request):
     row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
     if not row:
         raise HTTPException(404, "Media not found")
+    offline_guard(row)
     path = Path(row["path"])
     if not path.is_file():
         # After conversion the path may still be stale for one request — try .mp4 sibling
@@ -605,17 +629,9 @@ def media_file(media_id: int, request: Request):
 
     ready, state = video_compat.ensure_playable(media_id, path, start_if_needed=False)
 
-    # Re-read path in case conversion replaced the file and updated DB
-    if state.ready or state.status in ("completed", "ready"):
-        row2 = db.one("SELECT * FROM media WHERE id=?", (media_id,))
-        if row2 and row2.get("path"):
-            path = Path(row2["path"])
-        if not path.is_file():
-            alt = Path(row["path"]).with_suffix(".mp4")
-            if alt.is_file():
-                path = alt
-        if path.is_file():
-            return media_response(path)
+    if ready:
+        cached = video_compat.playback_path(media_id, path)
+        return media_response(cached if cached.is_file() else path)
 
     # A failed conversion must not prevent downloading the preserved source.
 
@@ -679,11 +695,35 @@ def media_conversion_status(media_id: int):
     if ready or resp.get("status") in ("completed", "ready"):
         needs = False
     resp["needs_conversion"] = bool(needs) and not ready
+    resp["has_playback_copy"] = video_compat.playback_path(media_id, path).is_file()
     return resp
 
 
+@router.delete("/api/media/{media_id}/playback-copy")
+def delete_playback_copy(media_id: int, request: Request):
+    """Remove generated playback copies only; never mutate the source or its DB path."""
+    _require_csrf(request)
+    row = db.one("SELECT id,kind FROM media WHERE id=?", (media_id,))
+    if not row or row["kind"] != "video":
+        raise HTTPException(404, "Video not found")
+    if video_compat.get_state(media_id).status in ("analyzing", "converting", "verifying", "replacing"):
+        raise HTTPException(409, "Wait for conversion to finish")
+    copies = [item for item in _list_converted_backups()
+              if item.get("kind") == "playback_cache" and item.get("media_id") == media_id]
+    freed = 0
+    for item in copies:
+        path = Path(item["path"])
+        try:
+            size = path.stat().st_size
+            path.unlink()
+            freed += size
+        except FileNotFoundError:
+            continue
+    return {"deleted": len(copies), "freed_bytes": freed}
+
+
 @router.post("/api/media/{media_id}/convert")
-def media_start_convert(media_id: int, request: Request):
+def media_start_convert(media_id: int, request: Request, force: bool = False):
     """Explicitly start browser conversion for a video (no auto-start elsewhere)."""
     _require_csrf(request)
     row = db.one("SELECT * FROM media WHERE id=?", (media_id,))
@@ -705,7 +745,7 @@ def media_start_convert(media_id: int, request: Request):
             path = alt
         else:
             raise HTTPException(404, "Original file is missing on disk")
-    ready, state = video_compat.ensure_playable(media_id, path, start_if_needed=True)
+    ready, state = video_compat.ensure_playable(media_id, path, start_if_needed=True, force=force)
     resp = video_compat.status_response(media_id)
     resp["file_url"] = f"/api/media/{media_id}/file"
     resp["needs_conversion"] = not ready and state.status not in ("completed", "ready")
@@ -929,11 +969,13 @@ def purge_media(body: PurgeMediaBody, request: Request):
                 if not allowed:
                     failed.append({"id": mid, "path": row["path"], "error": "Path outside allowed roots"})
                     continue
-                path.unlink()
+                # Typed-DELETE confirmation covers network libraries too: this one file may be removed on the share.
+                with allow_delete(path):
+                    path.unlink()
                 deleted_files += 1
             # else: already missing on disk — still purge from DB
         except OSError as exc:
-            failed.append({"id": mid, "path": row["path"], "error": str(exc)})
+            failed.append({"id": mid, "path": row["path"], "error": READ_ONLY_REASON if isinstance(exc, ReadOnlyLibrary) else str(exc)})
             continue
 
         with db.connect() as conn:
@@ -988,10 +1030,11 @@ def empty_deleted(body: ConfirmBody, request: Request):
                 if not allowed:
                     failed.append({"id": mid, "path": row["path"], "error": "Path outside allowed roots"})
                     continue
-                path.unlink()
+                with allow_delete(path):
+                    path.unlink()
                 deleted_files += 1
         except OSError as exc:
-            failed.append({"id": mid, "path": row["path"], "error": str(exc)})
+            failed.append({"id": mid, "path": row["path"], "error": READ_ONLY_REASON if isinstance(exc, ReadOnlyLibrary) else str(exc)})
             continue
 
         with db.connect() as conn:

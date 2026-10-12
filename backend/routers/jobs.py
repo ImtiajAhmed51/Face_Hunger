@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from ..deps import services, worker
 from ..jobs.manager import job_row
+from ..netlib import LibraryOffline
 from ..schemas import IndexBody, JobBody
 from ..services.presenters import _job_row, _require_csrf
 
@@ -23,6 +24,8 @@ def start_index(body: IndexBody, request: Request):
     try:
         job = worker.start(body.library_id, force=body.force, retry_failed=body.retry_failed)
         return _job_row(job)
+    except LibraryOffline as exc:
+        raise HTTPException(409, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
 

@@ -264,7 +264,7 @@ def _read_mjpeg_frames(stream):
                 yield np.ascontiguousarray(image)
 
 
-def _ffmpeg_frames(path, interval, checkpoint=None):
+def _ffmpeg_frames(path, interval, checkpoint=None, resume_state=None):
     """Sample frames via ffmpeg MJPEG pipe. Works when OpenCV cannot open the file."""
     import subprocess
 
@@ -288,6 +288,10 @@ def _ffmpeg_frames(path, interval, checkpoint=None):
         "-q:v", "3",
         "pipe:1",
     ]
+    start = float((resume_state or {}).get('next_sample', 0))
+    if start:
+        position = cmd.index('-i')
+        cmd[position:position] = ['-ss', str(start)]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     index = 0
     try:
@@ -295,10 +299,12 @@ def _ffmpeg_frames(path, interval, checkpoint=None):
         for frame in _read_mjpeg_frames(proc.stdout):
             if checkpoint:
                 checkpoint()
-            stamp = float(index) * float(interval)
+            stamp = start + float(index) * float(interval)
+            if resume_state is not None:
+                resume_state.update(next_sample=stamp+interval, backend='ffmpeg')
             yield stamp, frame
             index += 1
-        if index == 0:
+        if index == 0 and start == 0:
             err = (proc.stderr.read() if proc.stderr else b"")[:500]
             detail = err.decode("utf-8", errors="replace").strip()
             raise ValueError(
@@ -316,7 +322,7 @@ def _ffmpeg_frames(path, interval, checkpoint=None):
             pass
 
 
-def video_frames(path, interval=3.0, checkpoint=None, adaptive=True):
+def video_frames(path, interval=3.0, checkpoint=None, adaptive=True, resume_state=None):
     """Decode sequentially to EOF, yielding (seconds, BGR) at interval spacing.
 
     Tries OpenCV first (multiple backends). Falls back to ffmpeg for codecs
@@ -330,15 +336,25 @@ def video_frames(path, interval=3.0, checkpoint=None, adaptive=True):
     try:
         capture = _capture(path)
     except ValueError:
-        yield from _ffmpeg_frames(path, interval, checkpoint)
+        yield from _ffmpeg_frames(path, interval, checkpoint, resume_state)
         return
 
     try:
         fps = float(capture.get(cv2.CAP_PROP_FPS))
         if not math.isfinite(fps) or fps <= 0:
             fps = 25.0
-        index, next_sample, previous = 0, 0.0, -1.0
+        next_sample = float((resume_state or {}).get('next_sample', 0))
+        index, previous = 0, -1.0
+        if next_sample and capture.set(cv2.CAP_PROP_POS_MSEC, next_sample * 1000):
+            position = float(capture.get(cv2.CAP_PROP_POS_MSEC)) / 1000
+            if math.isfinite(position) and abs(position-next_sample) <= 1/fps:
+                index, previous = int(round(next_sample*fps)), next_sample-1/fps
+            else:
+                capture.set(cv2.CAP_PROP_POS_MSEC,0)
         prev_gray = None
+        if (resume_state or {}).get('gray'):
+            import base64
+            prev_gray=np.frombuffer(base64.b64decode(resume_state['gray']),dtype=np.uint8).reshape(90,160)
         min_iv = max(0.33, interval / 3.0)
         max_iv = interval * 2.0
         current_iv = float(interval)
@@ -376,8 +392,12 @@ def video_frames(path, interval=3.0, checkpoint=None, adaptive=True):
                     prev_gray = gray
                 except Exception:
                     current_iv = float(interval)
-            yield float(stamp), frame
             next_sample = stamp + current_iv
+            if resume_state is not None:
+                import base64
+                resume_state.update(next_sample=next_sample, backend='opencv',
+                                    gray=base64.b64encode(prev_gray.tobytes()).decode() if prev_gray is not None else None)
+            yield float(stamp), frame
         if not index:
             raise ValueError("Video contains no decodable frames")
     finally:
@@ -451,6 +471,46 @@ def frame_at(path, seconds, *, prefer_ffmpeg: bool = False):
         return np.ascontiguousarray(image)
     finally:
         capture.release()
+
+
+def frames_at(path, timestamps, checkpoint=None):
+    """Read several probe frames with one decoder; preserve full source coordinates.
+
+    Same OpenCV seek semantics as frame_at, with its codec fallback retained.
+    Failed probes yield None so one bad seek does not cancel video indexing.
+    """
+    import cv2
+    capture = None
+    try:
+        try:
+            capture = _capture(path)
+        except ValueError:
+            pass
+        for seconds in timestamps:
+            if checkpoint:
+                checkpoint()
+            seconds = float(seconds)
+            if not math.isfinite(seconds) or seconds < 0:
+                raise ValueError("Frame timestamp must be nonnegative and finite")
+            image = None
+            if capture is not None:
+                try:
+                    if capture.set(cv2.CAP_PROP_POS_MSEC, seconds * 1000):
+                        ok, candidate = capture.read()
+                        if ok and candidate is not None and candidate.size:
+                            image = np.ascontiguousarray(candidate)
+                except cv2.error:
+                    pass
+            if image is None:
+                try:
+                    image = frame_at(path, seconds, prefer_ffmpeg=True)
+                except Exception:
+                    # A failed optional boundary probe must not fail the scan.
+                    pass
+            yield seconds, image
+    finally:
+        if capture is not None:
+            capture.release()
 
 
 def thumbnail_bytes(bgr, bbox=None, max_size=640):

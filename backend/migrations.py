@@ -264,6 +264,75 @@ def _m16_plugins(conn: sqlite3.Connection) -> None:
         )""")
 
 
+def _m17_network_libraries(conn: sqlite3.Connection) -> None:
+    """Libraries on network shares: where a library lives, whether it is reachable, and a
+    root-relative identity for every file so a library can be relinked without re-indexing."""
+    from .netlib import relative_identity
+
+    def add(table: str, column: str, ddl: str) -> None:
+        if column not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+    add("libraries", "root_kind", "TEXT NOT NULL DEFAULT 'local'")
+    add("libraries", "share_protocol", "TEXT")
+    add("libraries", "share_server", "TEXT")
+    add("libraries", "share_name", "TEXT")
+    add("libraries", "share_subpath", "TEXT")
+    add("libraries", "status", "TEXT NOT NULL DEFAULT 'online'")
+    add("libraries", "status_reason", "TEXT")
+    add("libraries", "status_changed_at", "TEXT")
+    add("libraries", "settings", "TEXT NOT NULL DEFAULT '{}'")
+    add("libraries", "last_scan_at", "TEXT")
+    add("libraries", "last_scan_stats", "TEXT")
+    add("libraries", "paused", "INTEGER NOT NULL DEFAULT 0")
+    add("jobs", "extra", "TEXT")
+    add("media", "rel_path", "TEXT")
+    add("media", "rel_key", "TEXT")
+    add("media", "missing_checks", "INTEGER NOT NULL DEFAULT 0")
+    conn.execute("CREATE INDEX IF NOT EXISTS media_library_relkey ON media(library_id, rel_key)")
+    conn.execute("CREATE TABLE IF NOT EXISTS allowed_roots (path TEXT PRIMARY KEY, added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS library_dirs (
+        library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE, rel_dir TEXT NOT NULL,
+        mtime_ns INTEGER NOT NULL, files INTEGER NOT NULL DEFAULT 0, seconds REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (library_id, rel_dir))""")
+    roots = {r[0]: r[1] for r in conn.execute("SELECT id, path FROM libraries")}
+    last = 0
+    while True:
+        rows = conn.execute("SELECT id, library_id, path FROM media WHERE rel_path IS NULL AND id > ? ORDER BY id LIMIT 5000", (last,)).fetchall()
+        if not rows:
+            break
+        updates = []
+        for media_id, library_id, path in rows:
+            try:
+                updates.append((*relative_identity(roots[library_id], path), media_id))
+            except (KeyError, ValueError):
+                pass
+        conn.executemany("UPDATE media SET rel_path=?, rel_key=? WHERE id=?", updates)
+        last = rows[-1][0]
+
+
+def _m18_vector_changes(conn: sqlite3.Connection) -> None:
+    """Durable cache invalidation for inserts, replacements and hard deletions."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS vector_changes (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, model_key TEXT NOT NULL, vector_key INTEGER NOT NULL)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS face_match_feedback (
+        face_id INTEGER PRIMARY KEY REFERENCES faces(id) ON DELETE CASCADE,
+        person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+        similarity REAL NOT NULL, correct INTEGER NOT NULL CHECK(correct IN (0,1)),
+        reviewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS vector_changes_model ON vector_changes(model_key, seq)")
+    from .vectors.specs import FACE_ARCFACE
+    for table, key, model, columns in (
+        ("faces", "id", f"'{FACE_ARCFACE.key}'", "embedding_offset,embedding_sha"),
+        ("media_vectors", "media_id", "NEW.model_key", "offset,sha"),
+    ):
+        for action, reference, event in (("insert", "NEW", "INSERT"), ("update", "NEW", f"UPDATE OF {columns}"),
+                                         ("delete", "OLD", "DELETE")):
+            model_expr = model.replace("NEW.", f"{reference}.")
+            conn.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_vector_{action} AFTER {event} ON {table}
+                BEGIN INSERT INTO vector_changes(model_key,vector_key) VALUES ({model_expr},{reference}.{key}); END""")
+
+
 MIGRATIONS = [
     (6, "embedding_stores", _m6_embedding_stores),
     (7, "saved_searches", _m7_saved_searches),
@@ -276,6 +345,8 @@ MIGRATIONS = [
     (14, "edits", _m14_edits),
     (15, "captions", _m15_captions),
     (16, "plugins", _m16_plugins),
+    (17, "network_libraries", _m17_network_libraries),
+    (18, "vector_changes", _m18_vector_changes),
 ]
 LATEST = MIGRATIONS[-1][0]
 
