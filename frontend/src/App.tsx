@@ -76,6 +76,8 @@ const primaryNav = navigation.slice(0, 4);
 
 function isPrimaryPath(pathname: string, to: string) {
   if (to === "/") return pathname === "/";
+  // "/" opens the photo timeline, so the Photos tab is the current one there.
+  if (to === "/photos" && pathname === "/") return true;
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
@@ -121,7 +123,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           title={item.label}
           aria-label={item.label}
           className={({ isActive }) =>
-            `nav-link ${isActive ? "active" : ""} ${item.group ? "nav-group" : ""}`
+            `nav-link ${isActive || isPrimaryPath(location.pathname, item.to) && item.to === "/photos" ? "active" : ""} ${item.group ? "nav-group" : ""}`
           }
           onClick={onNavigate}
         >

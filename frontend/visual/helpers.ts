@@ -15,7 +15,8 @@ export const SCREENS: Record<string, string> = {
   'no-faces': '/no-faces', deleted: '/deleted', search: '/search', review: '/review', duplicates: '/duplicates',
   cleanup: '/cleanup', settings: '/settings', health: '/health', storage: '/storage', plugins: '/plugins',
   diagnostics: '/diagnostics', timeline: '/timeline', events: '/events', event: '/events/1', albums: '/albums',
-  album: '/albums/2', favorites: '/favorites', map: '/map',
+  album: '/albums/2', favorites: '/favorites', map: '/map', libraries: '/libraries', overview: '/overview',
+  browse: '/browse', 'recently-added': '/recently-added',
 };
 
 /** Theme, language and motion are set before the app boots, the way a returning user would have them. */
